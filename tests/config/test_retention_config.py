@@ -39,7 +39,9 @@ def test_retention_config_accepts_privacy_controls() -> None:
 
 
 def test_reader_source_content_is_retained_by_default() -> None:
-    assert RetentionConfig().reader_source_content_days == 0
+    cfg = RetentionConfig()
+    assert cfg.reader_source_content_days == 0
+    assert cfg.source_content_reconcile_cron == "20 * * * *"
 
 
 def test_retention_config_rejects_unknown_llm_policy() -> None:

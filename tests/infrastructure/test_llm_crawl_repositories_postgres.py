@@ -234,10 +234,7 @@ async def test_reader_source_retention_uses_artifact_freshness(database: Databas
             .values(created_at=now - timedelta(days=365))
         )
 
-    assert (
-        await _purge_reader_source_content(database, now, days=30, batch=100)
-        == 0
-    )
+    assert await _purge_reader_source_content(database, now, days=30, batch=100) == 0
     fresh = await repo.async_get_crawl_result_by_id(artifact_id)
     assert fresh is not None
     assert fresh["content_text"] == "Freshly restored legacy article."
@@ -249,10 +246,7 @@ async def test_reader_source_retention_uses_artifact_freshness(database: Databas
             .values(updated_at=now - timedelta(days=31))
         )
 
-    assert (
-        await _purge_reader_source_content(database, now, days=30, batch=100)
-        == 1
-    )
+    assert await _purge_reader_source_content(database, now, days=30, batch=100) == 1
     expired = await repo.async_get_crawl_result_by_id(artifact_id)
     assert expired is not None
     assert expired["content_text"] is None
@@ -296,7 +290,10 @@ async def test_materialize_source_content_preserves_raw_provider_fields(
 async def test_source_reconcile_scan_finds_only_missing_normalized_content(
     database: Database,
 ) -> None:
-    from app.tasks.reconcile_source_content import _fetch_missing_source_rows
+    from app.tasks.reconcile_source_content import (
+        _fetch_missing_source_rows,
+        _get_missing_source_stats,
+    )
 
     local_request = await _request(database, user_id=1101)
     network_request = await _request(database, user_id=1102)
@@ -339,4 +336,13 @@ async def test_source_reconcile_scan_finds_only_missing_normalized_content(
     by_request = {row["request_id"]: row for row in rows}
     assert by_request[local_request.id]["has_local_source"] is True
     assert by_request[network_request.id]["has_local_source"] is False
-    assert {row["missing_total"] for row in rows} == {2}
+    missing_total, oldest_missing_age_seconds = await _get_missing_source_stats(database)
+    assert missing_total == 2
+    assert oldest_missing_age_seconds >= 0
+
+    rows_after_cursor = await _fetch_missing_source_rows(
+        database,
+        limit=10,
+        after_summary_id=int(rows[0]["summary_id"]),
+    )
+    assert [row["summary_id"] for row in rows_after_cursor] == [rows[1]["summary_id"]]

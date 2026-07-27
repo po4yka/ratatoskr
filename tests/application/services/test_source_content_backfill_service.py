@@ -115,7 +115,15 @@ async def test_backfill_does_not_treat_legacy_url_as_source_content() -> None:
 @pytest.mark.asyncio
 async def test_backfill_materializes_local_raw_content_before_network() -> None:
     context = _context()
-    context["crawl_result"] = {"content_markdown": "# Locally preserved article"}
+    context["crawl_result"] = {
+        "content_markdown": (
+            "```python\nprint('noise')\n```\n"
+            "# Locally preserved [article](https://example.com)\n"
+            "![tracking](pixel.png)\n"
+            "Share this article\n"
+            "Useful paragraph."
+        )
+    }
     service, extract, update = _service(context=context)
 
     result = await service.backfill(user_id=7, summary_id=1402)
@@ -125,7 +133,7 @@ async def test_backfill_materializes_local_raw_content_before_network() -> None:
     extract.assert_not_awaited()
     update.assert_awaited_once_with(
         42,
-        "# Locally preserved article",
+        "# Locally preserved article\n\nUseful paragraph.",
         source_url="https://example.com/article",
         correlation_id="source-cid",
         content_source="local:markdown",

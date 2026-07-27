@@ -6,7 +6,7 @@ import json
 import re
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import and_, func, or_, select, text, update
+from sqlalchemy import and_, exists, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 
 from app.application.ports.summaries import BulkSummaryDeleteResult, SummaryFinalizeResult
@@ -25,8 +25,11 @@ from app.db.models import (
     model_to_dict,
 )
 from app.db.types import _next_server_version, _utcnow
-from app.domain.models.request import RequestStatus
+from app.domain.models.request import RequestStatus, RequestType
 from app.domain.models.summary import Summary as DomainSummary
+from app.observability.metrics_source_content import (
+    record_source_artifact_invariant_violation,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -83,11 +86,33 @@ class SummaryRepositoryAdapter:
                 is_read=is_read,
                 session=session,
             )
-            await session.execute(
-                update(Request)
-                .where(Request.id == request_id)
-                .values(status=_status_value(request_status), updated_at=_utcnow())
+            status_value = _status_value(request_status)
+            request_update = update(Request).where(Request.id == request_id)
+            if status_value == RequestStatus.COMPLETED.value:
+                source_exists = exists(
+                    select(CrawlResult.id).where(
+                        CrawlResult.request_id == request_id,
+                        CrawlResult.is_deleted.is_(False),
+                        func.length(func.btrim(func.coalesce(CrawlResult.content_text, "")))
+                        > 0,
+                    )
+                )
+                request_update = request_update.where(
+                    or_(Request.type != RequestType.URL.value, source_exists)
+                )
+            update_result = await session.execute(
+                request_update.values(status=status_value, updated_at=_utcnow())
             )
+            if not getattr(update_result, "rowcount", 0):
+                if status_value == RequestStatus.COMPLETED.value:
+                    record_source_artifact_invariant_violation(
+                        stage="legacy_summary_finalize"
+                    )
+                msg = (
+                    "Refusing summary finalization without an eligible request "
+                    f"for request_id={request_id}"
+                )
+                raise RuntimeError(msg)
             return result
 
     async def async_persist_summary_with_llm_calls(

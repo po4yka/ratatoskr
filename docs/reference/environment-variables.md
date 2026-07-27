@@ -98,6 +98,25 @@ Compose role overrides, `.env.example` if it is first-run critical, and the
 relevant subsystem guide. Do not maintain a second handwritten list of every
 alias here.
 
+## Reader source-content recovery
+
+Normalized Reader text is retained independently from raw scraper payloads and
+reconciled hourly by default:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `RETENTION_READER_SOURCE_CONTENT_DAYS` | `0` | Retain normalized Reader text for this many days; `0` means indefinitely. |
+| `SOURCE_CONTENT_RECONCILE_ENABLED` | `true` | Enable scheduled repair of completed summaries missing normalized source text. |
+| `SOURCE_CONTENT_RECONCILE_CRON` | `20 * * * *` | Five-field UTC schedule for reconciliation. |
+| `SOURCE_CONTENT_RECONCILE_BATCH_SIZE` | `25` | Maximum rows visited per scheduled run. |
+| `SOURCE_CONTENT_RECONCILE_NETWORK_LIMIT` | `5` | Maximum network re-extractions per scheduled run after local artifacts are exhausted. |
+
+Operators can inspect the exact backlog without writes with
+`python -m app.cli.reconcile_source_content`. To repair one bounded batch from
+local artifacts only, run
+`python -m app.cli.reconcile_source_content --apply --limit 100`; explicitly
+raise `--network-limit` when network re-extraction is intended.
+
 ## Common environment overrides
 
 These are the most frequently changed application inputs. The owning model is

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from app.core.html_utils import html_to_text
+from app.core.html_utils import clean_markdown_article_text, html_to_text
 from app.core.logging_utils import get_logger, redact_url_for_logging
 
 logger = get_logger(__name__)
@@ -223,7 +223,12 @@ def _recoverable_content(context: dict[str, Any]) -> tuple[str, str] | None:
             and value.strip()
             and not (content_source == "text" and value.strip() in request_urls)
         ):
-            content_value = html_to_text(value) if content_source == "html" else value.strip()
+            if content_source == "markdown":
+                content_value = clean_markdown_article_text(value)
+            elif content_source == "html":
+                content_value = html_to_text(value)
+            else:
+                content_value = value.strip()
             if content_value:
                 return content_source, content_value
     return None

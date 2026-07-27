@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -22,6 +23,7 @@ from app.observability.metrics_source_content import (
     record_source_content_reconcile_rows,
     record_source_content_reconcile_run,
     set_source_content_missing,
+    set_source_content_oldest_missing_age_seconds,
 )
 from app.tasks.broker import broker
 from app.tasks.deps import (
@@ -33,6 +35,7 @@ from app.tasks.deps import (
 logger = get_logger(__name__)
 
 _LOCK_KEY = "task_lock:source_content_reconcile"
+_CURSOR_KEY = "task_cursor:source_content_reconcile"
 _LOCK_TTL_SECONDS = 900
 _COMPLETED_STATUSES = ("ok", "complete", "completed", "success", "succeeded")
 
@@ -45,6 +48,7 @@ class SourceContentReconcileSummary:
     skipped: int = 0
     failed: int = 0
     missing_remaining: int = 0
+    next_cursor: int = 0
 
 
 @broker.task(
@@ -67,7 +71,10 @@ async def reconcile_source_content(
             record_source_content_reconcile_run(status="lock_held")
             return SourceContentReconcileSummary()
         try:
-            return await _reconcile_body(cfg, db)
+            cursor = await _read_cursor(redis_client)
+            summary = await _reconcile_body(cfg, db, after_summary_id=cursor)
+            await _write_cursor(redis_client, summary.next_cursor)
+            return summary
         except Exception:
             record_source_content_reconcile_run(status="error")
             raise
@@ -79,20 +86,31 @@ async def _reconcile_body(
     *,
     service: Any | None = None,
     correlation_id: str | None = None,
+    batch_size: int | None = None,
+    network_limit: int | None = None,
+    after_summary_id: int = 0,
 ) -> SourceContentReconcileSummary:
     retention = cfg.retention
     if not retention.source_content_reconcile_enabled or retention.privacy_no_retention_mode:
         set_source_content_missing(0)
+        set_source_content_oldest_missing_age_seconds(0)
         record_source_content_reconcile_run(status="disabled")
         return SourceContentReconcileSummary()
 
     rows = await _fetch_missing_source_rows(
         db,
-        limit=retention.source_content_reconcile_batch_size,
+        limit=batch_size or retention.source_content_reconcile_batch_size,
+        after_summary_id=after_summary_id,
     )
-    missing_total = int(rows[0]["missing_total"]) if rows else 0
-    set_source_content_missing(missing_total)
+    if not rows and after_summary_id > 0:
+        rows = await _fetch_missing_source_rows(
+            db,
+            limit=batch_size or retention.source_content_reconcile_batch_size,
+        )
     if not rows:
+        missing_total, oldest_missing_age_seconds = await _get_missing_source_stats(db)
+        set_source_content_missing(missing_total)
+        set_source_content_oldest_missing_age_seconds(oldest_missing_age_seconds)
         summary = SourceContentReconcileSummary()
         _record_summary(summary, status="success")
         return summary
@@ -104,12 +122,15 @@ async def _reconcile_body(
     local_repaired = 0
     reextracted = 0
     network_attempts = 0
+    network_budget = (
+        retention.source_content_reconcile_network_limit if network_limit is None else network_limit
+    )
     skipped = 0
     failed = 0
     for row in rows:
         allow_reextract = False
         if not row["has_local_source"]:
-            allow_reextract = network_attempts < retention.source_content_reconcile_network_limit
+            allow_reextract = network_attempts < network_budget
             if allow_reextract:
                 network_attempts += 1
         try:
@@ -138,16 +159,18 @@ async def _reconcile_body(
             else:
                 local_repaired += 1
 
-    repaired = local_repaired + reextracted
+    missing_remaining, oldest_missing_age_seconds = await _get_missing_source_stats(db)
     summary = SourceContentReconcileSummary(
         scanned=len(rows),
         local_repaired=local_repaired,
         reextracted=reextracted,
         skipped=skipped,
         failed=failed,
-        missing_remaining=max(0, missing_total - repaired),
+        missing_remaining=missing_remaining,
+        next_cursor=int(rows[-1]["summary_id"]),
     )
     set_source_content_missing(summary.missing_remaining)
+    set_source_content_oldest_missing_age_seconds(oldest_missing_age_seconds)
     _record_summary(summary, status="success" if failed == 0 else "error")
     logger.info(
         "source_content_reconcile_complete",
@@ -160,13 +183,64 @@ async def _fetch_missing_source_rows(
     db: Database,
     *,
     limit: int,
+    after_summary_id: int = 0,
 ) -> list[dict[str, Any]]:
+    stmt = (
+        select(
+            Summary.id.label("summary_id"),
+            Request.id.label("request_id"),
+            Request.user_id,
+            _has_local_source_predicate().label("has_local_source"),
+        )
+        .join(Request, Request.id == Summary.request_id)
+        .outerjoin(CrawlResult, CrawlResult.request_id == Request.id)
+        .where(
+            *_missing_source_filters(),
+            Summary.id > max(0, after_summary_id),
+        )
+        .order_by(Summary.id)
+        .limit(limit)
+    )
+    async with db.session() as session:
+        return [dict(row) for row in (await session.execute(stmt)).mappings()]
+
+
+async def _get_missing_source_stats(db: Database) -> tuple[int, float]:
+    stmt = (
+        select(func.count(), func.min(Request.created_at))
+        .select_from(Summary)
+        .join(Request, Request.id == Summary.request_id)
+        .outerjoin(CrawlResult, CrawlResult.request_id == Request.id)
+        .where(*_missing_source_filters())
+    )
+    async with db.session() as session:
+        missing_total, oldest_created_at = (await session.execute(stmt)).one()
+    if not oldest_created_at:
+        return int(missing_total), 0
+    if oldest_created_at.tzinfo is None:
+        oldest_created_at = oldest_created_at.replace(tzinfo=UTC)
+    age_seconds = (datetime.now(UTC) - oldest_created_at).total_seconds()
+    return int(missing_total), max(0, age_seconds)
+
+
+def _missing_source_filters() -> tuple[Any, ...]:
     missing_content = or_(
         CrawlResult.id.is_(None),
         func.length(func.btrim(func.coalesce(CrawlResult.content_text, ""))) == 0,
     )
+    return (
+        Request.type == "url",
+        Request.status.in_(_COMPLETED_STATUSES),
+        Request.is_deleted.is_(False),
+        Summary.is_deleted.is_(False),
+        Request.user_id.is_not(None),
+        missing_content,
+    )
+
+
+def _has_local_source_predicate() -> Any:
     request_content = func.btrim(func.coalesce(Request.content_text, ""))
-    has_local_source = or_(
+    return or_(
         func.length(func.btrim(func.coalesce(CrawlResult.content_markdown, ""))) > 0,
         func.length(func.btrim(func.coalesce(CrawlResult.content_html, ""))) > 0,
         (
@@ -175,29 +249,33 @@ async def _fetch_missing_source_rows(
             & (request_content != func.coalesce(Request.normalized_url, ""))
         ),
     )
-    stmt = (
-        select(
-            Summary.id.label("summary_id"),
-            Request.id.label("request_id"),
-            Request.user_id,
-            has_local_source.label("has_local_source"),
-            func.count().over().label("missing_total"),
+
+
+async def _read_cursor(redis_client: Any) -> int:
+    try:
+        raw_cursor = await redis_client.get(_CURSOR_KEY)
+        if raw_cursor is None:
+            return 0
+        return max(0, int(raw_cursor))
+    except (TypeError, ValueError):
+        logger.warning("source_content_reconcile_cursor_invalid")
+        return 0
+    except Exception as exc:
+        logger.warning(
+            "source_content_reconcile_cursor_read_failed",
+            extra={"error_type": type(exc).__name__},
         )
-        .join(Request, Request.id == Summary.request_id)
-        .outerjoin(CrawlResult, CrawlResult.request_id == Request.id)
-        .where(
-            Request.type == "url",
-            Request.status.in_(_COMPLETED_STATUSES),
-            Request.is_deleted.is_(False),
-            Summary.is_deleted.is_(False),
-            Request.user_id.is_not(None),
-            missing_content,
+        return 0
+
+
+async def _write_cursor(redis_client: Any, cursor: int) -> None:
+    try:
+        await redis_client.set(_CURSOR_KEY, str(max(0, cursor)))
+    except Exception as exc:
+        logger.warning(
+            "source_content_reconcile_cursor_write_failed",
+            extra={"error_type": type(exc).__name__},
         )
-        .order_by(Request.created_at, Request.id)
-        .limit(limit)
-    )
-    async with db.session() as session:
-        return [dict(row) for row in (await session.execute(stmt)).mappings()]
 
 
 def _record_summary(

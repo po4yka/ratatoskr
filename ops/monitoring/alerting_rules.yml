@@ -136,6 +136,15 @@ groups:
           summary: "Completed summaries still lack Reader source content"
           description: "{{ $value }} missing source rows remained after scheduled reconciliation. Inspect ratatoskr.source_content.reconcile task logs."
 
+      - alert: RatatoskrSourceContentReconcilerStopped
+        expr: absent(ratatoskr_source_content_reconcile_runs_total) or sum(increase(ratatoskr_source_content_reconcile_runs_total[2h])) == 0
+        for: 75m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Reader source-content reconciliation stopped"
+          description: "No ratatoskr.source_content.reconcile completion has been observed for over two hours. Inspect scheduler and worker health."
+
   - name: ratatoskr_circuit_breakers
     rules:
       # Circuit breaker open

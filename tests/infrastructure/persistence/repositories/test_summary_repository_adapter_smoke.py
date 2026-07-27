@@ -19,6 +19,7 @@ from app.infrastructure.persistence.repositories.summary_repository import (
 class _Result:
     def __init__(self, rows: list[Any] | None = None) -> None:
         self._rows = rows or []
+        self.rowcount = 1
 
     def __iter__(self) -> Any:
         return iter(self._rows)
@@ -91,6 +92,9 @@ async def test_summary_repository_empty_database_paths() -> None:
         request_status=RequestStatus.COMPLETED,
     )
     assert finalize_result.version == 1
+    finalize_sql = str(database.session_obj.executed[-1].compile())
+    assert "EXISTS" in finalize_sql
+    assert "content_text" in finalize_sql
     await repo.async_update_summary_insights(1, {"facts": []})
     assert await repo.async_get_user_summaries(1, search="example") == ([], 0, 0)
     assert await repo.async_get_summary_by_request(1) is None

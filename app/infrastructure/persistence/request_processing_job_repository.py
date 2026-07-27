@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import Select, and_, exists, func, or_, select, update
+from sqlalchemy import Select, and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from app.core.logging_utils import get_logger, log_exception
@@ -249,17 +249,17 @@ class RequestProcessingJobRepository:
         now = _utcnow()
         async with self._database.transaction() as session:
             if request_id is not None:
-                durable_source_exists = await session.scalar(
-                    select(
-                        exists().where(
-                            CrawlResult.request_id == request_id,
-                            CrawlResult.is_deleted.is_(False),
-                            func.length(func.btrim(func.coalesce(CrawlResult.content_text, "")))
-                            > 0,
-                        )
+                source_artifact_id = await session.scalar(
+                    select(CrawlResult.id)
+                    .where(
+                        CrawlResult.request_id == request_id,
+                        CrawlResult.is_deleted.is_(False),
+                        func.length(func.btrim(func.coalesce(CrawlResult.content_text, ""))) > 0,
                     )
+                    .limit(1)
+                    .with_for_update()
                 )
-                if not durable_source_exists:
+                if source_artifact_id is None:
                     record_source_artifact_invariant_violation(stage="job_completion")
                     return False
             result = await session.execute(
@@ -283,7 +283,7 @@ class RequestProcessingJobRepository:
             if not result.rowcount:
                 return False
             if request_id is not None:
-                await session.execute(
+                request_result = await session.execute(
                     update(Request)
                     .where(Request.id == request_id)
                     .values(
@@ -294,6 +294,9 @@ class RequestProcessingJobRepository:
                         updated_at=now,
                     )
                 )
+                if not request_result.rowcount:
+                    msg = f"request {request_id} disappeared during job completion"
+                    raise RuntimeError(msg)
         return True
 
     async def mark_failed(
@@ -502,17 +505,17 @@ class RequestProcessingJobRepository:
         }
         async with self._database.transaction() as session:
             if status == "succeeded":
-                durable_source_exists = await session.scalar(
-                    select(
-                        exists().where(
-                            CrawlResult.request_id == request_id,
-                            CrawlResult.is_deleted.is_(False),
-                            func.length(func.btrim(func.coalesce(CrawlResult.content_text, "")))
-                            > 0,
-                        )
+                source_artifact_id = await session.scalar(
+                    select(CrawlResult.id)
+                    .where(
+                        CrawlResult.request_id == request_id,
+                        CrawlResult.is_deleted.is_(False),
+                        func.length(func.btrim(func.coalesce(CrawlResult.content_text, ""))) > 0,
                     )
+                    .limit(1)
+                    .with_for_update()
                 )
-                if not durable_source_exists:
+                if source_artifact_id is None:
                     record_source_artifact_invariant_violation(stage="synchronous_completion")
                     msg = (
                         "Refusing synchronous success without durable source "

@@ -14,6 +14,7 @@ _TASKS = frozenset(
         "ratatoskr.import.process_bookmarks",
         "ratatoskr.langgraph.prune",
         "ratatoskr.rss.poll",
+        "ratatoskr.source_content.reconcile",
         "ratatoskr.topic_change_watch.run",
         "ratatoskr.url.process",
         "ratatoskr.vector.reconcile",

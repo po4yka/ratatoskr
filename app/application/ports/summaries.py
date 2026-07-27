@@ -208,7 +208,7 @@ class SummaryRepositoryPort(Protocol):
         is_read: bool = False,
         request_status: RequestStatus = RequestStatus.COMPLETED,
     ) -> SummaryFinalizeResult:
-        """Persist summary and update request status; return its id and version."""
+        """Persist summary and atomically guard terminal URL success on durable source."""
 
     async def async_persist_summary_with_llm_calls(
         self,

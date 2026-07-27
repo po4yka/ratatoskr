@@ -121,6 +121,15 @@ async def _create_summary_for_user(
 async def test_summary_repository_upserts_reads_and_finalizes(database: Database) -> None:
     repo = SummaryRepositoryAdapter(database)
     request_id = await _create_request(database)
+    async with database.transaction() as session:
+        session.add(
+            CrawlResult(
+                request_id=request_id,
+                success=True,
+                content_text="normalized durable source",
+                status="ok",
+            )
+        )
 
     v1 = await repo.async_upsert_summary(
         request_id,
@@ -152,6 +161,29 @@ async def test_summary_repository_upserts_reads_and_finalizes(database: Database
             select(Request.status).where(Request.id == request_id)
         )
     assert request_status == RequestStatus.COMPLETED.value
+
+
+@pytest.mark.asyncio
+async def test_summary_repository_rejects_url_finalization_without_source(
+    database: Database,
+) -> None:
+    repo = SummaryRepositoryAdapter(database)
+    request_id = await _create_request(database)
+
+    with pytest.raises(RuntimeError, match="Refusing summary finalization"):
+        await repo.async_finalize_request_summary(
+            request_id,
+            "en",
+            {"summary_250": "must roll back"},
+            request_status=RequestStatus.COMPLETED,
+        )
+
+    assert await repo.async_get_summary_by_request(request_id) is None
+    async with database.session() as session:
+        request_status = await session.scalar(
+            select(Request.status).where(Request.id == request_id)
+        )
+    assert request_status == RequestStatus.PENDING.value
 
 
 @pytest.mark.asyncio

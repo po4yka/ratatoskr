@@ -491,7 +491,7 @@ async def test_repository_completion_rejects_missing_durable_source(
         "record_source_artifact_invariant_violation",
         violation,
     )
-    session = FakeSession(scalar_results=[False])
+    session = FakeSession(scalar_results=[None])
     repository = RequestProcessingJobRepository(FakeDatabase(session))
 
     completed = await repository.mark_succeeded(
@@ -503,7 +503,49 @@ async def test_repository_completion_rejects_missing_durable_source(
 
     assert completed is False
     assert len(session.executed) == 1
+    sql = str(session.executed[0].compile(compile_kwargs={"literal_binds": True}))
+    assert "FOR UPDATE" in sql
     violation.assert_called_once_with(stage="job_completion")
+
+
+@pytest.mark.asyncio
+async def test_repository_completion_locks_source_until_terminal_updates_finish() -> None:
+    session = FakeSession(
+        scalar_results=[17],
+        execute_results=[
+            SimpleNamespace(rowcount=1),
+            SimpleNamespace(rowcount=1),
+        ],
+    )
+    repository = RequestProcessingJobRepository(FakeDatabase(session))
+
+    completed = await repository.mark_succeeded(
+        7,
+        lease_owner="worker-1",
+        lease_token=3,
+        request_id=42,
+    )
+
+    assert completed is True
+    source_sql = str(session.executed[0].compile(compile_kwargs={"literal_binds": True}))
+    assert "FOR UPDATE" in source_sql
+    assert len(session.executed) == 3
+
+
+@pytest.mark.asyncio
+async def test_synchronous_success_locks_source_until_job_outcome_is_written() -> None:
+    session = FakeSession(scalar_results=[17])
+    repository = RequestProcessingJobRepository(FakeDatabase(session))
+
+    await repository.record_synchronous_outcome(
+        request_id=42,
+        correlation_id="cid-sync",
+        status="succeeded",
+    )
+
+    source_sql = str(session.executed[0].compile(compile_kwargs={"literal_binds": True}))
+    assert "FOR UPDATE" in source_sql
+    assert len(session.executed) == 2
 
 
 @pytest.mark.asyncio

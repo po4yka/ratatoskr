@@ -58,7 +58,7 @@ class RetentionConfig(BaseModel):
         description="Periodically repair completed summaries missing normalized Reader content.",
     )
     source_content_reconcile_cron: str = Field(
-        default="20 4 * * *",
+        default="20 * * * *",
         validation_alias="SOURCE_CONTENT_RECONCILE_CRON",
         description="UTC cron expression for Reader source-content reconciliation.",
     )
@@ -125,7 +125,7 @@ class RetentionConfig(BaseModel):
     @classmethod
     def _validate_source_content_reconcile_cron(cls, value: Any) -> str:
         if value in (None, ""):
-            return "20 4 * * *"
+            return "20 * * * *"
         cron = str(value).strip()
         if len(cron.split()) != 5:
             msg = "Source content reconcile cron must be a valid 5-field expression"

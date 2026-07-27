@@ -40,11 +40,18 @@ if PROMETHEUS_AVAILABLE:
         multiprocess_mode="mostrecent",
         registry=REGISTRY,
     )
+    SOURCE_CONTENT_OLDEST_MISSING_AGE_SECONDS = Gauge(
+        "ratatoskr_source_content_oldest_missing_age_seconds",
+        "Age of the oldest completed summary missing normalized Reader source content",
+        multiprocess_mode="mostrecent",
+        registry=REGISTRY,
+    )
 else:
     SOURCE_ARTIFACT_INVARIANT_VIOLATIONS_TOTAL = None
     SOURCE_CONTENT_RECONCILE_ROWS_TOTAL = None
     SOURCE_CONTENT_RECONCILE_RUNS_TOTAL = None
     SOURCE_CONTENT_MISSING = None
+    SOURCE_CONTENT_OLDEST_MISSING_AGE_SECONDS = None
 
 
 def record_source_artifact_invariant_violation(*, stage: str) -> None:
@@ -76,3 +83,9 @@ def set_source_content_missing(value: int) -> None:
     if not PROMETHEUS_AVAILABLE or SOURCE_CONTENT_MISSING is None:
         return
     SOURCE_CONTENT_MISSING.set(max(0, value))
+
+
+def set_source_content_oldest_missing_age_seconds(value: float) -> None:
+    if not PROMETHEUS_AVAILABLE or SOURCE_CONTENT_OLDEST_MISSING_AGE_SECONDS is None:
+        return
+    SOURCE_CONTENT_OLDEST_MISSING_AGE_SECONDS.set(max(0, value))
