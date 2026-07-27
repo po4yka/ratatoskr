@@ -34,6 +34,8 @@ def test_config_defaults_disabled() -> None:
     assert "chatgpt.com" in cfg.host_allowlist
     assert cfg.max_response_bytes < cfg.max_run_bytes
     assert cfg.min_free_bytes > 0
+    assert cfg.browser_locale == "en-US"
+    assert cfg.browser_timezone == "Asia/Tbilisi"
 
 
 def test_any_service_enabled_toggles() -> None:
@@ -63,6 +65,18 @@ def test_relative_data_path_rejected() -> None:
 
 def test_absolute_data_path_accepted() -> None:
     assert AiBackupConfig(data_path="/srv/ai-backups").data_path == "/srv/ai-backups"
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"browser_locale": "   "},
+        {"browser_timezone": "Not/A_Timezone"},
+    ],
+)
+def test_invalid_browser_profile_rejected(kwargs: dict) -> None:
+    with pytest.raises(ValidationError):
+        AiBackupConfig(**kwargs)
 
 
 @pytest.mark.parametrize(

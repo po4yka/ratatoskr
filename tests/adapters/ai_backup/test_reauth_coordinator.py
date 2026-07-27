@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.adapters.content.scraper.fingerprint import seed_for_url
 from app.db.models.ai_backup import (
     AiBackupAuthorizationStatus,
     AiBackupService,
@@ -53,6 +54,8 @@ def _cfg() -> MagicMock:
     cfg.ai_backup.enabled = True
     cfg.ai_backup.chatgpt_enabled = True
     cfg.ai_backup.claude_enabled = True
+    cfg.ai_backup.browser_locale = "en-US"
+    cfg.ai_backup.browser_timezone = "Asia/Tbilisi"
     return cfg
 
 
@@ -219,6 +222,40 @@ async def test_invalid_saved_session_opens_clean_recovery_browser() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reauth_uses_pinned_operator_browser_profile() -> None:
+    from app.adapters.ai_backup.reauth import AiBackupReauthCoordinator
+
+    page = _Page()
+    received_kwargs: list[dict[str, object]] = []
+
+    @asynccontextmanager
+    async def browser_context(*_args: object, **kwargs: object):
+        received_kwargs.append(kwargs)
+        yield page, _Context({"cookies": []})
+
+    coordinator = AiBackupReauthCoordinator(
+        cfg=_cfg(),
+        db=MagicMock(),
+        session_store=MagicMock(load=AsyncMock(return_value=None)),
+        repository=MagicMock(),
+        browser_context_factory=browser_context,
+        auth_probe=AsyncMock(return_value=False),
+        enqueue_backup=AsyncMock(),
+        poll_interval_seconds=0.01,
+        flow_timeout_seconds=2,
+    )
+
+    started = await coordinator.start(42, AiBackupService.CHATGPT)
+    await _wait_for_state(coordinator, started.id, "waiting_for_user")
+
+    assert received_kwargs[0]["locale"] == "en-US"
+    assert received_kwargs[0]["timezone"] == "Asia/Tbilisi"
+    assert received_kwargs[0]["fingerprint_seed"] == seed_for_url("https://chatgpt.com")
+    await coordinator.cancel(42, started.id)
+    await coordinator.close()
+
+
+@pytest.mark.asyncio
 async def test_chatgpt_probe_rejects_stale_token_when_backup_endpoint_is_unauthorized() -> None:
     from app.adapters.ai_backup.reauth import _probe_authenticated
 
@@ -243,9 +280,7 @@ async def test_chatgpt_probe_rejects_stale_token_when_backup_endpoint_is_unautho
         ]
     )
 
-    assert not await _probe_authenticated(
-        _ProbePage(), context, AiBackupService.CHATGPT
-    )
+    assert not await _probe_authenticated(_ProbePage(), context, AiBackupService.CHATGPT)
 
 
 @pytest.mark.asyncio

@@ -118,9 +118,21 @@ class _FakeFetcher:
 def _patch_browser_layer(monkeypatch, client) -> None:
     @asynccontextmanager
     async def _fake_ctx(
-        domain, storage_state, *, endpoint_url, mobile=False, proxy="", refreshed_out=None
+        domain,
+        storage_state,
+        *,
+        endpoint_url,
+        mobile=False,
+        proxy="",
+        refreshed_out=None,
+        fingerprint_seed=None,
+        timezone=None,
+        locale=None,
     ):
         assert proxy == "http://proxy.example:8080"
+        assert fingerprint_seed
+        assert timezone == "Asia/Tbilisi"
+        assert locale == "en-US"
         if refreshed_out is not None:
             refreshed_out.append({"cookies": [{"name": "refreshed"}]})
         yield ("page", "ctx")

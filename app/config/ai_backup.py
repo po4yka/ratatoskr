@@ -66,6 +66,22 @@ class AiBackupConfig(BaseModel):
         description="Back up the operator's Claude (claude.ai) account when enabled.",
     )
 
+    # Operator browser identity. Keep these aligned with the machine from which
+    # interactive re-authorization is performed so provider login UI and the
+    # subsequent backup run share one coherent fingerprint.
+    browser_locale: str = Field(
+        default="en-US",
+        min_length=1,
+        validation_alias="AI_BACKUP_BROWSER_LOCALE",
+        description="Locale pinned for ChatGPT and Claude login/backup browser contexts.",
+    )
+    browser_timezone: str = Field(
+        default="Asia/Tbilisi",
+        min_length=1,
+        validation_alias="AI_BACKUP_BROWSER_TIMEZONE",
+        description="IANA timezone pinned for ChatGPT and Claude browser contexts.",
+    )
+
     # Cadence / anti-bot shaping.
     request_delay_ms: int = Field(
         default=1500,
@@ -184,6 +200,29 @@ class AiBackupConfig(BaseModel):
             msg = f"AI_BACKUP_DATA_PATH must be an absolute path, got {path!r}"
             raise ValueError(msg)
         return path
+
+    @field_validator("browser_locale", mode="before")
+    @classmethod
+    def _validate_browser_locale(cls, value: Any) -> str:
+        if value is None:
+            raise ValueError("AI_BACKUP_BROWSER_LOCALE must not be blank")
+        locale = str(value).strip()
+        if not locale:
+            raise ValueError("AI_BACKUP_BROWSER_LOCALE must not be blank")
+        return locale
+
+    @field_validator("browser_timezone", mode="before")
+    @classmethod
+    def _validate_browser_timezone(cls, value: Any) -> str:
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        timezone = str(value).strip()
+        try:
+            ZoneInfo(timezone)
+        except (ValueError, ZoneInfoNotFoundError) as exc:
+            msg = f"AI_BACKUP_BROWSER_TIMEZONE must be a valid IANA timezone, got {timezone!r}"
+            raise ValueError(msg) from exc
+        return timezone
 
     @field_validator("sync_cron", mode="before")
     @classmethod

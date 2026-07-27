@@ -249,6 +249,8 @@ class AiBackupReauthCoordinator:
                     extra={"user_id": flow.user_id, "service": flow.service.value},
                 )
             domain = urlparse(_LOGIN_URLS[flow.service]).hostname or ""
+            from app.adapters.ai_backup.browser_profile import browser_profile
+
             refreshed_out: list[dict] = []
             authenticated = False
             async with self._browser_context_factory(
@@ -257,6 +259,7 @@ class AiBackupReauthCoordinator:
                 endpoint_url=self._cfg.scraper.cloakbrowser_url,
                 proxy=self._cfg.scraper.cloakbrowser_proxy,
                 refreshed_out=refreshed_out,
+                **browser_profile(domain, self._cfg.ai_backup),
             ) as (page, context):
                 flow.page = page
                 flow.context = context

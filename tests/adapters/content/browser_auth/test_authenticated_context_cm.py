@@ -165,6 +165,29 @@ async def test_storage_state_dict_forwarded_to_new_context() -> None:
     assert kwargs.get("storage_state") is ss
 
 
+async def test_explicit_profile_pins_cdp_and_context_locale() -> None:
+    """Operator auth uses one explicit profile for login and later backups."""
+    mock_ap, mock_p, mock_browser, _, _ = _make_mocks()
+
+    with patch(f"{_PW_MODULE}.async_playwright", mock_ap):
+        async with authenticated_context(
+            _DOMAIN,
+            None,
+            endpoint_url=_ENDPOINT,
+            fingerprint_seed="0123456789ab",
+            timezone="Asia/Tbilisi",
+            locale="en-US",
+        ):
+            pass
+
+    mock_p.chromium.connect_over_cdp.assert_awaited_once_with(
+        "http://cloakserve:9222?fingerprint=0123456789ab&timezone=Asia%2FTbilisi&locale=en-US"
+    )
+    _, kwargs = mock_browser.new_context.call_args
+    assert kwargs["timezone_id"] == "Asia/Tbilisi"
+    assert kwargs["locale"] == "en-US"
+
+
 async def test_non_pwerror_still_closes_context_and_browser() -> None:
     """If context.storage_state() raises a non-PWError, context.close() and browser.close() still run."""
     mock_ap, _, mock_browser, mock_context, _ = _make_mocks()

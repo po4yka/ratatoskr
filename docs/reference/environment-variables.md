@@ -283,6 +283,11 @@ groups include `DIGEST_*`, `EMAIL_*`/`SMTP_*`/`RESEND_*`, `ELEVENLABS_*`,
 Do not enable a group by copying every variable. Start from its subsystem guide
 and set only the feature gate, required credentials, and intended overrides.
 
+For AI account backup, interactive login and background collection share a
+stable operator browser profile. It defaults to `AI_BACKUP_BROWSER_LOCALE=en-US`
+and `AI_BACKUP_BROWSER_TIMEZONE=Asia/Tbilisi`; set both when moving the deployment
+to an operator with different local browser settings.
+
 ## Compose-only deployment variables
 
 Some values are consumed by Compose or sidecars rather than `Settings`:
