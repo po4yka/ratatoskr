@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
@@ -15,6 +16,7 @@ from app.infrastructure.persistence.repositories.crawl_result_repository import 
 from app.infrastructure.persistence.repositories.llm_repository import (
     LLMRepositoryAdapter,
 )
+from app.tasks.purge_raw_data import _purge_reader_source_content
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -211,6 +213,49 @@ async def test_crawl_result_repository_backfill_replaces_missing_body(database: 
     assert row["metadata_json"] == {"title": "Restored title"}
     assert row["winning_provider"] == "scrapling"
     assert row["attempt_log"] == [{"provider": "scrapling", "status": "success"}]
+
+
+@pytest.mark.asyncio
+async def test_reader_source_retention_uses_artifact_freshness(database: Database) -> None:
+    now = datetime.now(UTC)
+    request = await _request(database, user_id=1004)
+    repo = CrawlResultRepositoryAdapter(database)
+    artifact_id = await repo.async_materialize_source_content(
+        request.id,
+        "Freshly restored legacy article.",
+        source_url=request.normalized_url,
+        content_source="local:markdown",
+    )
+
+    async with database.transaction() as session:
+        await session.execute(
+            update(Request)
+            .where(Request.id == request.id)
+            .values(created_at=now - timedelta(days=365))
+        )
+
+    assert (
+        await _purge_reader_source_content(database, now, days=30, batch=100)
+        == 0
+    )
+    fresh = await repo.async_get_crawl_result_by_id(artifact_id)
+    assert fresh is not None
+    assert fresh["content_text"] == "Freshly restored legacy article."
+
+    async with database.transaction() as session:
+        await session.execute(
+            update(CrawlResult)
+            .where(CrawlResult.id == artifact_id)
+            .values(updated_at=now - timedelta(days=31))
+        )
+
+    assert (
+        await _purge_reader_source_content(database, now, days=30, batch=100)
+        == 1
+    )
+    expired = await repo.async_get_crawl_result_by_id(artifact_id)
+    assert expired is not None
+    assert expired["content_text"] is None
 
 
 @pytest.mark.asyncio

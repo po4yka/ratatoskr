@@ -234,7 +234,13 @@ async def _purge_reader_source_content(
     days: int,
     batch: int,
 ) -> int:
-    """NULL the normalized Reader body on its independent retention schedule."""
+    """NULL normalized Reader bodies based on artifact freshness.
+
+    A legacy request may be years old when reconciliation restores its source
+    body.  ``CrawlResult.updated_at`` is refreshed by that materialization, so
+    using it here gives the restored artifact its full configured lifetime
+    instead of purging it again on the next retention run.
+    """
     if days == 0:
         return 0
     cutoff = _cutoff(now, days)
@@ -243,9 +249,8 @@ async def _purge_reader_source_content(
         .where(
             CrawlResult.id.in_(
                 select(CrawlResult.id)
-                .join(Request, Request.id == CrawlResult.request_id)
                 .where(
-                    Request.created_at < cutoff,
+                    CrawlResult.updated_at < cutoff,
                     CrawlResult.content_text.is_not(None),
                 )
                 .order_by(CrawlResult.id)
