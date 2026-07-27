@@ -21,12 +21,14 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.error_handlers import (
     api_exception_handler,
     database_exception_handler,
     global_exception_handler as global_error_handler,
+    http_exception_handler,
     pydantic_validation_exception_handler,
     validation_exception_handler,
 )
@@ -522,6 +524,7 @@ app.add_exception_handler(
 )
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(SQLAlchemyError, database_exception_handler)
+app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(Exception, global_error_handler)
 
 
