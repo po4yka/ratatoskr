@@ -1,3 +1,30 @@
+x-ai-backup-logging: &ai_backup_logging
+  driver: "json-file"
+  options: {max-size: "10m", max-file: "3"}
+x-ai-backup-security: &ai_backup_security ["no-new-privileges:true"]
+x-ai-backup-display-healthcheck: &ai_backup_display_healthcheck
+  test: ["CMD", "/usr/local/bin/ai-backup-display-healthcheck.sh"]
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 15s
+x-ai-backup-display-resources: &ai_backup_display_resources
+  limits: {memory: 256M, cpus: "0.50"}
+  reservations: {memory: 64M}
+x-ai-backup-browser-healthcheck: &ai_backup_browser_healthcheck
+  test:
+    [
+      "CMD-SHELL",
+      "test -S /tmp/.X11-unix/X99 && python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9222/', timeout=3).status==200 else 1)\"",
+    ]
+  interval: 15s
+  timeout: 5s
+  retries: 5
+  start_period: 30s
+x-ai-backup-browser-resources: &ai_backup_browser_resources
+  limits: {memory: 768M, cpus: "0.75"}
+  reservations: {memory: 256M}
+
 services:
   migrate:
     build:
@@ -998,6 +1025,38 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  ai-backup-webauthn-bridge:
+    profiles: [ai-backup-reauth]
+    build:
+      context: ../..
+      dockerfile: ops/docker/ai-backup-webauthn-bridge/Dockerfile
+    container_name: ratatoskr-ai-backup-webauthn-bridge
+    network_mode: none
+    volumes:
+      - /run/dbus/system_bus_socket:/run/host-dbus/system_bus_socket:ro
+      - ai-backup-webauthn-dbus:/run/ratatoskr-dbus
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt: *ai_backup_security
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/ai-backup-webauthn-healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.10"
+        reservations:
+          memory: 16M
+    logging: *ai_backup_logging
+
   ai-backup-display-chatgpt:
     profiles: [ai-backup-reauth]
     build:
@@ -1008,26 +1067,11 @@ services:
       - ai-backup-display-chatgpt:/tmp/.X11-unix
     networks: [ai_backup_control_chatgpt]
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "/usr/local/bin/ai-backup-display-healthcheck.sh"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
+    healthcheck: *ai_backup_display_healthcheck
     deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: "0.50"
-        reservations:
-          memory: 64M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    security_opt:
-      - no-new-privileges:true
+      resources: *ai_backup_display_resources
+    logging: *ai_backup_logging
+    security_opt: *ai_backup_security
 
   ai-backup-display-claude:
     profiles: [ai-backup-reauth]
@@ -1039,26 +1083,11 @@ services:
       - ai-backup-display-claude:/tmp/.X11-unix
     networks: [ai_backup_control_claude]
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "/usr/local/bin/ai-backup-display-healthcheck.sh"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
+    healthcheck: *ai_backup_display_healthcheck
     deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: "0.50"
-        reservations:
-          memory: 64M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    security_opt:
-      - no-new-privileges:true
+      resources: *ai_backup_display_resources
+    logging: *ai_backup_logging
+    security_opt: *ai_backup_security
 
   cloakbrowser-reauth-chatgpt:
     profiles: [ai-backup-reauth]
@@ -1071,38 +1100,23 @@ services:
     environment:
       - CLOAKBROWSER_AUTO_UPDATE=false
       - DISPLAY=:99
+      - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/ratatoskr-dbus/system_bus_socket
     volumes:
       - ai-backup-display-chatgpt:/tmp/.X11-unix
+      - ai-backup-webauthn-dbus:/run/ratatoskr-dbus:ro
       - ./cloakbrowser-reauth/entrypoint.sh:/usr/local/bin/ratatoskr-cloakserve-headed:ro
     networks: [ai_backup_control_chatgpt, ai_backup_browser_egress_chatgpt]
     depends_on:
       ai-backup-display-chatgpt:
         condition: service_healthy
+      ai-backup-webauthn-bridge:
+        condition: service_healthy
     restart: unless-stopped
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "test -S /tmp/.X11-unix/X99 && python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9222/', timeout=3).status==200 else 1)\"",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+    healthcheck: *ai_backup_browser_healthcheck
     deploy:
-      resources:
-        limits:
-          memory: 768M
-          cpus: "0.75"
-        reservations:
-          memory: 256M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    security_opt:
-      - no-new-privileges:true
+      resources: *ai_backup_browser_resources
+    logging: *ai_backup_logging
+    security_opt: *ai_backup_security
 
   cloakbrowser-reauth-claude:
     profiles: [ai-backup-reauth]
@@ -1115,38 +1129,23 @@ services:
     environment:
       - CLOAKBROWSER_AUTO_UPDATE=false
       - DISPLAY=:99
+      - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/ratatoskr-dbus/system_bus_socket
     volumes:
       - ai-backup-display-claude:/tmp/.X11-unix
+      - ai-backup-webauthn-dbus:/run/ratatoskr-dbus:ro
       - ./cloakbrowser-reauth/entrypoint.sh:/usr/local/bin/ratatoskr-cloakserve-headed:ro
     networks: [ai_backup_control_claude, ai_backup_browser_egress_claude]
     depends_on:
       ai-backup-display-claude:
         condition: service_healthy
+      ai-backup-webauthn-bridge:
+        condition: service_healthy
     restart: unless-stopped
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "test -S /tmp/.X11-unix/X99 && python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9222/', timeout=3).status==200 else 1)\"",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+    healthcheck: *ai_backup_browser_healthcheck
     deploy:
-      resources:
-        limits:
-          memory: 768M
-          cpus: "0.75"
-        reservations:
-          memory: 256M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    security_opt:
-      - no-new-privileges:true
+      resources: *ai_backup_browser_resources
+    logging: *ai_backup_logging
+    security_opt: *ai_backup_security
 
   prometheus:
     profiles:
@@ -1557,6 +1556,7 @@ volumes:
   git_mirrors_data:
   ai-backup-display-chatgpt:
   ai-backup-display-claude:
+  ai-backup-webauthn-dbus:
 networks:
   ai_backup_control_chatgpt:
     internal: true

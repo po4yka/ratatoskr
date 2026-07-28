@@ -75,15 +75,17 @@ SHARED_DOCKERFILE=ops/docker/Dockerfile
 API_DOCKERFILE=ops/docker/Dockerfile.api
 BACKUP_DOCKERFILE=ops/docker/pg-backup/Dockerfile
 DISPLAY_DOCKERFILE=ops/docker/ai-backup-display/Dockerfile
+WEBAUTHN_DOCKERFILE=ops/docker/ai-backup-webauthn-bridge/Dockerfile
 PINNED_CLOAKBROWSER_IMAGE=cloakhq/cloakbrowser@sha256:a333b754fe9da1fd16851f2bb69f258601d4c7fa36e8b26c15f1e031241076c1
 MIGRATE_SERVICE=migrate
 SHARED_SERVICES=(ratatoskr worker scheduler mcp mcp-write mcp-public)
 API_SERVICES=(mobile-api)
 BACKUP_SERVICES=(pg-backup)
 DISPLAY_SERVICES=(ai-backup-display-chatgpt ai-backup-display-claude)
+WEBAUTHN_SERVICES=(ai-backup-webauthn-bridge)
 BROWSER_SERVICES=(cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude)
 MOBILE_API_CONTROL_NETWORKS=(ai_backup_control_chatgpt ai_backup_control_claude)
-ALL_SERVICES=("${DISPLAY_SERVICES[@]}" "${BROWSER_SERVICES[@]}" "${SHARED_SERVICES[@]}" "${API_SERVICES[@]}" "${BACKUP_SERVICES[@]}")
+ALL_SERVICES=("${DISPLAY_SERVICES[@]}" "${WEBAUTHN_SERVICES[@]}" "${BROWSER_SERVICES[@]}" "${SHARED_SERVICES[@]}" "${API_SERVICES[@]}" "${BACKUP_SERVICES[@]}")
 READER_RELEASE_SERVICES=(ratatoskr worker scheduler mobile-api)
 
 SERVICES=()
@@ -168,6 +170,7 @@ SHARED_TO_BUILD=()
 API_TO_BUILD=()
 BACKUP_TO_BUILD=()
 DISPLAY_TO_BUILD=()
+WEBAUTHN_TO_BUILD=()
 BROWSER_TO_START=()
 for svc in "${SERVICES[@]}"; do
   matched=0
@@ -194,6 +197,11 @@ for svc in "${SERVICES[@]}"; do
     done
   fi
   if [[ $matched -eq 0 ]]; then
+    for webauthn in "${WEBAUTHN_SERVICES[@]}"; do
+      [[ "$svc" == "$webauthn" ]] && { WEBAUTHN_TO_BUILD+=("$svc"); matched=1; break; }
+    done
+  fi
+  if [[ $matched -eq 0 ]]; then
     for browser in "${BROWSER_SERVICES[@]}"; do
       [[ "$svc" == "$browser" ]] && { BROWSER_TO_START+=("$svc"); matched=1; break; }
     done
@@ -217,6 +225,7 @@ if [[ $ROLLBACK -eq 1 ]]; then
   API_TO_BUILD=()
   BACKUP_TO_BUILD=()
   DISPLAY_TO_BUILD=()
+  WEBAUTHN_TO_BUILD=()
   BROWSER_TO_START=()
 fi
 
@@ -256,8 +265,8 @@ verify_remote_checkout() {
   remote_checkout=$(ssh -o BatchMode=yes "$RASPI_HOST" \
     "cd ${RASPI_REMOTE_PATH} && \
       SHA=\$(git rev-parse HEAD) && \
-      if git diff --quiet -- ops/docker/cloakbrowser-reauth/entrypoint.sh ops/docker/docker-compose.yml && \
-         git diff --cached --quiet -- ops/docker/cloakbrowser-reauth/entrypoint.sh ops/docker/docker-compose.yml; then \
+      if git diff --quiet -- ops/docker/cloakbrowser-reauth/entrypoint.sh ops/docker/ai-backup-webauthn-bridge ops/docker/docker-compose.yml && \
+         git diff --cached --quiet -- ops/docker/cloakbrowser-reauth/entrypoint.sh ops/docker/ai-backup-webauthn-bridge ops/docker/docker-compose.yml; then \
         printf '%s clean\\n' \"\$SHA\"; \
       else \
         printf '%s dirty\\n' \"\$SHA\"; \
@@ -274,7 +283,11 @@ verify_remote_checkout() {
     exit 1
   fi
   ssh -o BatchMode=yes "$RASPI_HOST" \
-    "cd ${RASPI_REMOTE_PATH} && test -r ops/docker/cloakbrowser-reauth/entrypoint.sh"
+    "cd ${RASPI_REMOTE_PATH} && \
+      test -r ops/docker/cloakbrowser-reauth/entrypoint.sh && \
+      test -r ops/docker/ai-backup-webauthn-bridge/Dockerfile && \
+      test -r ops/docker/ai-backup-webauthn-bridge/entrypoint.sh && \
+      test -r ops/docker/ai-backup-webauthn-bridge/healthcheck.sh"
   echo "    remote checkout: ${remote_sha}"
 }
 
@@ -369,6 +382,9 @@ fi
 if [[ ${#DISPLAY_TO_BUILD[@]} -gt 0 ]]; then
   build_and_ship "$DISPLAY_DOCKERFILE" -- "${DISPLAY_TO_BUILD[@]}"
 fi
+if [[ ${#WEBAUTHN_TO_BUILD[@]} -gt 0 ]]; then
+  build_and_ship "$WEBAUTHN_DOCKERFILE" -- "${WEBAUTHN_TO_BUILD[@]}"
+fi
 
 COMPOSE_RUN=(
   docker compose
@@ -382,7 +398,7 @@ COMPOSE_RUN=(
 is_isolated_reauth_service() {
   local svc=$1
   case "$svc" in
-    ai-backup-display-chatgpt|ai-backup-display-claude|cloakbrowser-reauth-chatgpt|cloakbrowser-reauth-claude)
+    ai-backup-display-chatgpt|ai-backup-display-claude|ai-backup-webauthn-bridge|cloakbrowser-reauth-chatgpt|cloakbrowser-reauth-claude)
       return 0 ;;
     *)
       return 1 ;;
@@ -430,6 +446,45 @@ verify_pinned_cloakbrowser_image() {
   echo "    ${PINNED_CLOAKBROWSER_IMAGE}"
 }
 
+verify_webauthn_host() {
+  local requested=0 svc
+  for svc in "${SERVICES[@]}"; do
+    case "$svc" in
+      ai-backup-webauthn-bridge|cloakbrowser-reauth-chatgpt|cloakbrowser-reauth-claude)
+        requested=1
+        break
+        ;;
+    esac
+  done
+  [[ $requested -eq 1 ]] || return 0
+
+  echo "==> Verifying Bluetooth/WebAuthn host prerequisites on ${RASPI_HOST}"
+  ssh "$RASPI_HOST" "set -eu; \
+    test -S /run/dbus/system_bus_socket; \
+    systemctl is-active --quiet bluetooth.service; \
+    timeout 5 bluetoothctl show | grep -Fq 'Powered: yes'"
+  echo "    BlueZ is active and the Bluetooth controller is powered"
+}
+
+verify_webauthn_bridge_runtime() {
+  local svc=$1
+  [[ "$svc" == "ai-backup-webauthn-bridge" ]] || return 0
+
+  echo "==> Verifying filtered BlueZ D-Bus bridge"
+  ssh "$RASPI_HOST" "set -eu; \
+    CID=\$(docker inspect --format '{{.Id}}' ratatoskr-ai-backup-webauthn-bridge); \
+    [ \"\$(docker inspect --format '{{.HostConfig.NetworkMode}}' \"\$CID\")\" = none ]; \
+    docker exec \"\$CID\" /usr/local/bin/ai-backup-webauthn-healthcheck.sh; \
+    if docker exec \"\$CID\" dbus-send \
+      --address=unix:path=/run/ratatoskr-dbus/system_bus_socket \
+      --type=method_call --print-reply --reply-timeout=3000 \
+      --dest=org.freedesktop.hostname1 /org/freedesktop/hostname1 \
+      org.freedesktop.DBus.Peer.Ping >/dev/null 2>&1; then \
+      echo 'ERROR: filtered D-Bus bridge allowed a non-BlueZ service' >&2; exit 1; \
+    fi"
+  echo "    org.bluez is reachable; unrelated system-bus services are denied"
+}
+
 verify_headed_browser_runtime() {
   local svc=$1
   local smoke_seed
@@ -448,6 +503,7 @@ verify_headed_browser_runtime() {
     printf '%s\\n' \"\$ARGS\" | grep '[c]hrome' >/dev/null || STATUS=1; \
     if printf '%s\\n' \"\$ARGS\" | grep '[c]hrome' | grep -F -- '--headless' >/dev/null; then STATUS=1; fi; \
     printf '%s\\n' \"\$ARGS\" | grep '[c]hrome' | grep -F -- '--ozone-platform=x11' >/dev/null || STATUS=1; \
+    docker exec \"\$CID\" python -c \"import os; assert os.environ.get('DBUS_SYSTEM_BUS_ADDRESS') == 'unix:path=/run/ratatoskr-dbus/system_bus_socket'; assert os.path.exists('/run/ratatoskr-dbus/system_bus_socket')\" || STATUS=1; \
     docker exec \"\$CID\" sh -c \"pkill -TERM -f '[/]chrome' || true; i=0; while pgrep -f '[/]chrome' >/dev/null && [ \\\$i -lt 50 ]; do i=\\\$((i + 1)); sleep 0.1; done; if pgrep -f '[/]chrome' >/dev/null; then pkill -KILL -f '[/]chrome' || true; fi; ! pgrep -f '[/]chrome' >/dev/null\" || STATUS=1; \
     [ \"\$STATUS\" -eq 0 ]"; then
     diagnose_service_health "$svc"
@@ -730,6 +786,7 @@ if [[ $MIGRATE_ONLY -eq 1 ]]; then
   run_remote_migrations
 elif [[ $RESTART -eq 1 ]]; then
   retire_legacy_qdrant_container
+  verify_webauthn_host
   verify_pinned_cloakbrowser_image
   for svc in "${SERVICES[@]}"; do
     if [[ $ROLLBACK -eq 1 ]]; then
@@ -764,6 +821,7 @@ elif [[ $RESTART -eq 1 ]]; then
     fi
     ensure_mobile_api_control_networks "$svc"
     wait_for_service_health "$svc"
+    verify_webauthn_bridge_runtime "$svc"
     if is_pinned_browser_service "$svc"; then
       verify_headed_browser_runtime "$svc"
     fi

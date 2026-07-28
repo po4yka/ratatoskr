@@ -28,7 +28,11 @@ def test_provider_browsers_have_separate_internal_displays_and_no_published_cont
             "@sha256:a333b754fe9da1fd16851f2bb69f258601d4c7fa36e8b26c15f1e031241076c1"
             in browser["image"]
         )
-        assert browser["environment"] == ["CLOAKBROWSER_AUTO_UPDATE=false", "DISPLAY=:99"]
+        assert browser["environment"] == [
+            "CLOAKBROWSER_AUTO_UPDATE=false",
+            "DISPLAY=:99",
+            "DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/ratatoskr-dbus/system_bus_socket",
+        ]
         assert set(browser["networks"]) == {control_network, egress_network}
         assert browser["command"] == ["--port=9222", "--headless=false"]
         assert browser["entrypoint"] == [
@@ -40,6 +44,12 @@ def test_provider_browsers_have_separate_internal_displays_and_no_published_cont
             and volume.endswith(":ro")
             for volume in browser["volumes"]
         )
+        assert (
+            "ai-backup-webauthn-dbus:/run/ratatoskr-dbus:ro" in browser["volumes"]
+        )
+        assert browser["depends_on"]["ai-backup-webauthn-bridge"] == {
+            "condition": "service_healthy"
+        }
         assert "ports" not in browser
         assert "/json/version" not in " ".join(browser["healthcheck"]["test"])
         assert "http://localhost:9222/" in " ".join(browser["healthcheck"]["test"])
@@ -57,6 +67,46 @@ def test_provider_browsers_have_separate_internal_displays_and_no_published_cont
     )
     assert "ai-backup-display-chatgpt" in compose["volumes"]
     assert "ai-backup-display-claude" in compose["volumes"]
+    assert "ai-backup-webauthn-dbus" in compose["volumes"]
+
+
+def test_webauthn_bridge_exposes_only_filtered_bluez_dbus_without_network() -> None:
+    compose = _compose()
+    bridge = compose["services"]["ai-backup-webauthn-bridge"]
+
+    assert bridge["build"]["dockerfile"] == (
+        "ops/docker/ai-backup-webauthn-bridge/Dockerfile"
+    )
+    assert bridge["network_mode"] == "none"
+    assert "ports" not in bridge
+    assert bridge["read_only"] is True
+    assert bridge["cap_drop"] == ["ALL"]
+    assert bridge["security_opt"] == ["no-new-privileges:true"]
+    assert (
+        "/run/dbus/system_bus_socket:/run/host-dbus/system_bus_socket:ro"
+        in bridge["volumes"]
+    )
+    assert "ai-backup-webauthn-dbus:/run/ratatoskr-dbus" in bridge["volumes"]
+    assert bridge["healthcheck"]["test"][-1].endswith("healthcheck.sh")
+
+    dockerfile = (
+        ROOT / "ops/docker/ai-backup-webauthn-bridge/Dockerfile"
+    ).read_text(encoding="utf-8")
+    entrypoint = (
+        ROOT / "ops/docker/ai-backup-webauthn-bridge/entrypoint.sh"
+    ).read_text(encoding="utf-8")
+    healthcheck = (
+        ROOT / "ops/docker/ai-backup-webauthn-bridge/healthcheck.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "debian:trixie-slim@sha256:" in dockerfile
+    assert "xdg-dbus-proxy" in dockerfile
+    assert "dbus-bin" in dockerfile
+    assert "--filter" in entrypoint
+    assert "--talk=org.bluez" in entrypoint
+    assert "/run/host-dbus/system_bus_socket" in entrypoint
+    assert "--address=unix:path=/run/ratatoskr-dbus/system_bus_socket" in healthcheck
+    assert "--dest=org.bluez" in healthcheck
 
 
 def test_display_image_is_digest_pinned_and_starts_xvnc_with_openbox() -> None:
@@ -93,11 +143,16 @@ def test_pi_deploy_orders_display_then_browser_then_mobile_api_and_keeps_them_is
 
     assert "DISPLAY_DOCKERFILE=ops/docker/ai-backup-display/Dockerfile" in script
     assert "DISPLAY_SERVICES=(ai-backup-display-chatgpt ai-backup-display-claude)" in script
+    assert "WEBAUTHN_DOCKERFILE=ops/docker/ai-backup-webauthn-bridge/Dockerfile" in script
+    assert "WEBAUTHN_SERVICES=(ai-backup-webauthn-bridge)" in script
     assert "BROWSER_SERVICES=(cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude)" in script
     assert 'build_and_ship "$DISPLAY_DOCKERFILE" -- "${DISPLAY_TO_BUILD[@]}"' in script
+    assert 'build_and_ship "$WEBAUTHN_DOCKERFILE" -- "${WEBAUTHN_TO_BUILD[@]}"' in script
     assert "verify_pinned_cloakbrowser_image" in script
     assert "verify_remote_checkout" in script
     assert "verify_headed_browser_runtime" in script
+    assert "verify_webauthn_host" in script
+    assert "verify_webauthn_bridge_runtime" in script
     assert (
         "MOBILE_API_CONTROL_NETWORKS=(ai_backup_control_chatgpt "
         "ai_backup_control_claude)" in script
@@ -117,10 +172,10 @@ def test_pi_deploy_orders_display_then_browser_then_mobile_api_and_keeps_them_is
     assert "4476d4318027" not in script
     assert "pkill -TERM -f '[/]chrome'" in script
     assert "--ozone-platform=x11" in script
-    assert "git diff --quiet -- ops/docker/cloakbrowser-reauth/entrypoint.sh ops/docker/docker-compose.yml" in script
+    assert "ops/docker/ai-backup-webauthn-bridge/Dockerfile" in script
     assert "is_isolated_reauth_service" in script
     assert (
-        '--services "ai-backup-display-chatgpt ai-backup-display-claude cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude ratatoskr worker scheduler mobile-api pg-backup"'
+        '--services "ai-backup-display-chatgpt ai-backup-display-claude ai-backup-webauthn-bridge cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude ratatoskr worker scheduler mobile-api pg-backup"'
         in makefile
     )
 

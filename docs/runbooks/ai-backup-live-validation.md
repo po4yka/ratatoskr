@@ -10,11 +10,12 @@ This subsystem mirrors the **operator's own** ChatGPT and Claude web accounts to
 
 ### Infrastructure
 
-- **Provider-isolated re-auth pairs** must be running under the `ai-backup-reauth` profile. Confirm all four health gates:
+- **Provider-isolated re-auth stack** must be running under the `ai-backup-reauth` profile. Confirm all five health gates:
 
 ```bash
 docker compose -f ops/docker/docker-compose.yml --profile ai-backup-reauth ps \
   ai-backup-display-chatgpt ai-backup-display-claude \
+  ai-backup-webauthn-bridge \
   cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude
 ```
 
@@ -101,8 +102,11 @@ clipboard work directly in the Chrome window. **Paste clipboard** sends the
 local clipboard once; **Copy remote clipboard** writes the most recent remote
 clipboard value and immediately clears component memory. Ratatoskr exposes only
 the owner-ticketed WSS relay; CDP and VNC remain inside Docker and RFB payloads
-are neither interpreted nor logged. Local Touch ID/WebAuthn passkeys are not
-bridged, so use password/email/OAuth/OTP fallback.
+are neither interpreted nor logged. For passkey-only accounts, choose Chrome's
+phone/tablet option, scan the QR code visible in noVNC, and approve with Face ID
+or Touch ID. The phone must be close to the Raspberry Pi: cross-device WebAuthn
+uses BLE to verify proximity. A passkey bound only to the workstation still
+cannot cross VNC directly.
 
 After the provider accepts the login, the page advances automatically:
 
@@ -120,22 +124,29 @@ docker inspect ratatoskr-ai-backup-display-chatgpt ratatoskr-ai-backup-display-c
   --format '{{json .NetworkSettings.Ports}}'
 docker inspect ratatoskr-cloakbrowser-reauth-chatgpt ratatoskr-cloakbrowser-reauth-claude \
   --format '{{json .NetworkSettings.Ports}}'
+docker inspect ratatoskr-ai-backup-webauthn-bridge \
+  --format '{{.HostConfig.NetworkMode}} {{json .HostConfig.CapDrop}}'
+docker exec ratatoskr-ai-backup-webauthn-bridge \
+  /usr/local/bin/ai-backup-webauthn-healthcheck.sh
 docker exec ratatoskr-cloakbrowser-reauth-chatgpt python -c \
   "import urllib.request; print(urllib.request.urlopen('http://localhost:9222/').status)"
 docker exec ratatoskr-cloakbrowser-reauth-chatgpt python -c \
   "import json,urllib.request; u='http://localhost:9222/json/version?fingerprint=deadbeef0001&timezone=UTC&locale=en-US'; assert json.load(urllib.request.urlopen(u, timeout=20))['webSocketDebuggerUrl']"
 docker exec ratatoskr-cloakbrowser-reauth-chatgpt sh -c \
-  "A=\$(ps -eo args); ! printf '%s\n' \"\$A\" | grep '[c]hrome' | grep -F -- '--headless'; printf '%s\n' \"\$A\" | grep '[c]hrome' | grep -F -- '--ozone-platform=x11'"
+  "test -S /run/ratatoskr-dbus/system_bus_socket; A=\$(ps -eo args); ! printf '%s\n' \"\$A\" | grep '[c]hrome' | grep -F -- '--headless'; printf '%s\n' \"\$A\" | grep '[c]hrome' | grep -F -- '--ozone-platform=x11'"
 ```
 
 The deploy command runs the same one-time `/json/version` and headed-process
 assertion with disposable, non-production seeds for both provider containers
 after their lightweight healthchecks, then terminates each smoke Chrome.
-All four port maps must be empty (`5900`/`9222` are not published). In each
+All browser/display port maps must be empty (`5900`/`9222` are not published),
+and the WebAuthn bridge network mode must be `none`. In each
 viewer, confirm that only its provider Chrome is visible, UI language is
 English, timezone-sensitive output uses `Asia/Tbilisi`, and disconnect/reconnect
-preserves the current page. Complete login and observe the normal terminal flow
-and a successful targeted backup for both services.
+preserves the current page. For hybrid WebAuthn, choose **Use a different phone
+or tablet** (provider/Chrome wording may differ), scan the QR code, keep the
+phone near the Pi, and approve the passkey. Complete login and observe the
+normal terminal flow and a successful targeted backup for both services.
 
 ## 4. Manual session blob fallback
 

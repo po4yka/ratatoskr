@@ -38,10 +38,14 @@ flowchart TB
         CDP["headed cloakserve CDP\n(stable per-domain fingerprint)"]
         VNC["TigerVNC Xvnc + Openbox\n1920x1080"]
     end
+    Bridge["filtered D-Bus proxy\norg.bluez only"]
+    Phone["Nearby phone passkey\nQR + BLE proximity"]
     Disk[(AI_BACKUP_DATA_PATH\n/service/date/...)]
 
     Login -- "owner-ticketed WSS / opaque RFB" --> VNC
     VNC --- CDP
+    CDP -- "WebAuthn hybrid transport" --> Bridge
+    Bridge <-. "BLE" .-> Phone
     Prov -- "verified storage_state, encrypted" --> Store
     Task --> Svc
     Svc -- decrypt storage_state --> Store
@@ -58,6 +62,7 @@ flowchart TB
 The hard problem is not reading the APIs — it is establishing and keeping a session past 2FA and Cloudflare. The primary path is now an interactive browser owned by the API process; manual ingest remains a recovery path.
 
 - **Interactive re-auth (primary).** `POST /v1/ai-backups/{service}/reauth` creates a 15-minute owner-scoped flow in a dedicated headed CloakBrowser for that provider. Frost requests a 60-second, one-use `Secure`/`HttpOnly` viewer cookie and connects noVNC to an owner-scoped WebSocket. Mobile API relays opaque binary RFB bytes to the matching internal TigerVNC display; it does not parse or log keyboard, clipboard, or framebuffer payloads. CDP and VNC remain un-published on an internal Docker network. The coordinator detects a real provider session (`/api/auth/session` for ChatGPT, `/api/organizations` for Claude), encrypts the resulting `storage_state`, and enqueues `ratatoskr.ai_backup.sync_one`. The UI advances through `waiting_for_user → verifying → resuming_backup → completed`.
+- **Passkey on a nearby phone.** The headed Chrome can use WebAuthn hybrid transport: choose the phone/tablet option in the provider login, scan Chrome's QR code, then approve with Face ID/Touch ID on the phone. Chrome talks to the Pi's BlueZ daemon through a networkless `xdg-dbus-proxy` that permits only `org.bluez`; the browser never receives the host's full system bus. The phone must be physically near the Raspberry Pi because the QR handshake also checks BLE proximity. A workstation-local platform passkey still cannot cross VNC directly.
 - **Manual session ingest (fallback).** The owner may still export Playwright `storage_state` and submit it to `POST /v1/ai-backups/{service}/session` over HTTPS. The JSON form is intentionally secondary and never transits Telegram.
 - **Mode C — automated credential login (explicit non-goal).** Storing email/password + a TOTP secret and logging in headlessly. Highest detection surface, most brittle, and the worst ban signal. Documented as out of scope.
 
@@ -161,6 +166,7 @@ changes; it does not modify the image or relax its digest pin.
 - Correlation IDs thread through the run for log and DB traceability.
 - Viewer tickets are 256-bit one-use values; only SHA-256 digests live in the active flow. One viewer is allowed at a time, and cancel, expiry, successful login, or terminal failure closes the tunnel.
 - ChatGPT and Claude have different X11 volumes, displays, CDP endpoints, and VNC targets. Their windows cannot share a desktop. The browser alone also joins an egress bridge; displays have no internet route.
+- Hybrid WebAuthn receives only the shared proxy socket for `org.bluez`. The proxy has no network, drops all Linux capabilities, and rejects unrelated system-bus services; the host D-Bus socket is never mounted into either browser.
 - noVNC is pinned to `1.7.0`. The old JPEG `/frame` and REST `/input` routes remain deprecated for one release but Frost no longer calls them.
 
 ## Known gaps and escape hatches
@@ -169,7 +175,7 @@ changes; it does not modify the image or relax its digest pin.
 - **ChatGPT Custom GPT system prompts** are not confirmed retrievable via any internal endpoint.
 - **Claude project knowledge** is not downloaded. The client currently stores Project metadata only; project-doc and project-file endpoints require live contract validation before implementation.
 - **Claude Enterprise** Compliance API support is not implemented. Setting `AI_BACKUP_CLAUDE_COMPLIANCE_KEY` makes the client factory fail closed; it never falls back to the consumer browser-scrape path. Keep Claude backup disabled until a dedicated sanctioned client is implemented.
-- Local Touch ID/WebAuthn passkeys do not cross VNC. Use provider password/email/OAuth/OTP fallback. File-transfer and download export are intentionally not exposed through the viewer.
+- Workstation-local Touch ID/WebAuthn credentials do not cross VNC. A nearby phone passkey is supported through Chrome's QR/BLE hybrid flow; a hardware key must be attached to the Pi. File-transfer and download export are intentionally not exposed through the viewer.
 
 ## Phased delivery
 
