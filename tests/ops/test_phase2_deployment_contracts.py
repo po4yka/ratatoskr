@@ -501,6 +501,18 @@ def test_pi_deploy_registers_dbus_clients_before_testing_bridge_policy() -> None
     assert "--address=unix:path=/run/ratatoskr-dbus/system_bus_socket" not in script
 
 
+def test_pi_deploy_restores_each_reauth_browser_control_and_egress_network() -> None:
+    script = _pi_deploy_script()
+
+    assert "ensure_reauth_browser_networks" in script
+    assert '${COMPOSE_PROJECT}_ai_backup_control_${provider}' in script
+    assert '${COMPOSE_PROJECT}_ai_backup_browser_egress_${provider}' in script
+    assert "docker network connect --alias '${svc}' '${network}'" in script
+    assert script.index('ensure_reauth_browser_networks "$svc"') < script.index(
+        'wait_for_service_health "$svc"'
+    )
+
+
 def test_pi_deploy_ships_and_starts_postgres_backup_without_remote_build() -> None:
     script = _pi_deploy_script()
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")

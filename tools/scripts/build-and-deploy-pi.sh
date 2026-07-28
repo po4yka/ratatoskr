@@ -484,6 +484,33 @@ ensure_mobile_api_control_networks() {
   done
 }
 
+ensure_reauth_browser_networks() {
+  local svc=$1
+  local provider
+  case "$svc" in
+    cloakbrowser-reauth-chatgpt) provider=chatgpt ;;
+    cloakbrowser-reauth-claude) provider=claude ;;
+    *) return 0 ;;
+  esac
+
+  local network
+  for network in \
+    "${COMPOSE_PROJECT}_ai_backup_control_${provider}" \
+    "${COMPOSE_PROJECT}_ai_backup_browser_egress_${provider}"; do
+    echo "==> Ensuring ${svc} is attached to ${network}"
+    ssh "$RASPI_HOST" "set -eu; \
+      CID=\$(docker inspect --format '{{.Id}}' 'ratatoskr-${svc}'); \
+      docker network inspect '${network}' >/dev/null; \
+      if docker inspect --format '{{json .NetworkSettings.Networks}}' \"\$CID\" | grep -Fq '\"${network}\"'; then \
+        echo '    already attached'; \
+      else \
+        docker network connect --alias '${svc}' '${network}' \"\$CID\"; \
+        echo '    attached'; \
+      fi; \
+      docker inspect --format '{{json .NetworkSettings.Networks}}' \"\$CID\" | grep -Fq '\"${network}\"'"
+  done
+}
+
 verify_pinned_cloakbrowser_image() {
   [[ ${#BROWSER_TO_START[@]} -gt 0 ]] || return 0
   echo "==> Verifying exact pinned CloakBrowser image on ${RASPI_HOST}"
@@ -876,6 +903,7 @@ elif [[ $RESTART -eq 1 ]]; then
         || echo '    docker_default already attached or not declared'"
     fi
     ensure_mobile_api_control_networks "$svc"
+    ensure_reauth_browser_networks "$svc"
     wait_for_service_health "$svc"
     verify_webauthn_bridge_runtime "$svc"
     if is_pinned_browser_service "$svc"; then
