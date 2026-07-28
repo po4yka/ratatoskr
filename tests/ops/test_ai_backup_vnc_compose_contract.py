@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -196,3 +197,22 @@ def test_pi_deploy_rejects_pinned_browser_rollback_before_remote_mutation() -> N
     guard = "rollback is not supported for digest-pinned CloakBrowser services"
 
     assert script.index(guard) < script.index('echo "==> Verifying SSH')
+
+
+def test_pi_deploy_resolves_each_browser_after_its_provider_prerequisites() -> None:
+    deploy = ROOT / "tools/scripts/build-and-deploy-pi.sh"
+
+    for provider in ("chatgpt", "claude"):
+        display = f"ai-backup-display-{provider}"
+        bridge = f"ai-backup-webauthn-bridge-{provider}"
+        browser = f"cloakbrowser-reauth-{provider}"
+        for requested in (browser, f"{browser} {bridge} {display}"):
+            completed = subprocess.run(
+                [str(deploy), "--services", requested, "--resolve-services"],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            assert completed.stdout.splitlines() == [display, bridge, browser]

@@ -9,6 +9,7 @@
 #   tools/scripts/build-and-deploy-pi.sh --all                          # all supported services
 #   tools/scripts/build-and-deploy-pi.sh --no-restart                   # just ship the image(s)
 #   tools/scripts/build-and-deploy-pi.sh --no-cache                     # full rebuild
+#   tools/scripts/build-and-deploy-pi.sh --services "..." --resolve-services # print dependency order
 #   tools/scripts/build-and-deploy-pi.sh --migrate-only                 # render Alembic SQL dry-run on the Pi
 #   tools/scripts/build-and-deploy-pi.sh --migrate-only --apply         # apply Alembic migrations on the Pi
 #   tools/scripts/build-and-deploy-pi.sh --rollback                      # roll back the compatible reader stack
@@ -94,6 +95,7 @@ NO_CACHE=0
 ROLLBACK=0
 MIGRATE_ONLY=0
 APPLY_MIGRATIONS=0
+RESOLVE_SERVICES=0
 GIT_SHA=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
 FRONTEND_SHA=$(tr -d '[:space:]' < ops/docker/ratatoskr-web.commit)
 DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -132,6 +134,8 @@ while [[ $# -gt 0 ]]; do
       ROLLBACK=1; shift ;;
     --no-cache)
       NO_CACHE=1; shift ;;
+    --resolve-services)
+      RESOLVE_SERVICES=1; shift ;;
     -h|--help)
       usage; exit 0 ;;
     *)
@@ -151,7 +155,7 @@ if [[ $APPLY_MIGRATIONS -eq 1 && $MIGRATE_ONLY -eq 0 ]]; then
   exit 2
 fi
 
-if [[ $ROLLBACK -eq 0 ]] && [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
+if [[ $ROLLBACK -eq 0 && $RESOLVE_SERVICES -eq 0 ]] && [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
   echo "ERROR: refusing to build from a dirty worktree because APP_BUILD would not identify its contents" >&2
   echo "       commit or remove all staged, unstaged, and untracked changes first" >&2
   exit 2
@@ -187,7 +191,30 @@ add_reauth_prerequisites() {
   SERVICES=("${prerequisites[@]}" "${SERVICES[@]}")
 }
 
-[[ $MIGRATE_ONLY -eq 1 ]] || add_reauth_prerequisites
+order_reauth_services() {
+  local candidate svc
+  local -a ordered=()
+  for candidate in "${DISPLAY_SERVICES[@]}" "${WEBAUTHN_SERVICES[@]}" "${BROWSER_SERVICES[@]}"; do
+    service_requested "$candidate" && ordered+=("$candidate")
+  done
+  for svc in "${SERVICES[@]}"; do
+    case "$svc" in
+      ai-backup-display-chatgpt|ai-backup-display-claude|ai-backup-webauthn-bridge-chatgpt|ai-backup-webauthn-bridge-claude|cloakbrowser-reauth-chatgpt|cloakbrowser-reauth-claude) ;;
+      *) ordered+=("$svc") ;;
+    esac
+  done
+  SERVICES=("${ordered[@]}")
+}
+
+if [[ $MIGRATE_ONLY -eq 0 ]]; then
+  add_reauth_prerequisites
+  order_reauth_services
+fi
+
+if [[ $RESOLVE_SERVICES -eq 1 ]]; then
+  printf '%s\n' "${SERVICES[@]}"
+  exit 0
+fi
 
 # Validate and bucket each requested service by its Dockerfile.
 SHARED_TO_BUILD=()
