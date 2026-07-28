@@ -216,3 +216,18 @@ def test_pi_deploy_resolves_each_browser_after_its_provider_prerequisites() -> N
             )
 
             assert completed.stdout.splitlines() == [display, bridge, browser]
+
+
+def test_pi_deploy_rejects_unknown_service_while_resolving_order() -> None:
+    deploy = ROOT / "tools/scripts/build-and-deploy-pi.sh"
+
+    completed = subprocess.run(
+        [str(deploy), "--service", "definitely-not-a-service", "--resolve-services"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "unsupported service: definitely-not-a-service" in completed.stderr

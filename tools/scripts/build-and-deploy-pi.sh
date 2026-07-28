@@ -211,11 +211,6 @@ if [[ $MIGRATE_ONLY -eq 0 ]]; then
   order_reauth_services
 fi
 
-if [[ $RESOLVE_SERVICES -eq 1 ]]; then
-  printf '%s\n' "${SERVICES[@]}"
-  exit 0
-fi
-
 # Validate and bucket each requested service by its Dockerfile.
 SHARED_TO_BUILD=()
 API_TO_BUILD=()
@@ -299,6 +294,11 @@ if [[ $MIGRATE_ONLY -eq 0 ]]; then
     echo "       use --services \"${READER_RELEASE_SERVICES[*]}\"" >&2
     exit 2
   fi
+fi
+
+if [[ $RESOLVE_SERVICES -eq 1 ]]; then
+  printf '%s\n' "${SERVICES[@]}"
+  exit 0
 fi
 
 command -v docker >/dev/null || { echo "docker is not on PATH" >&2; exit 1; }
