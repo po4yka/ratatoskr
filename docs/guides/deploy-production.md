@@ -156,7 +156,7 @@ make pi-migrate APPLY=1
 make pi-deploy-all
 ```
 
-`make pi-deploy-all` ships the AI re-auth display and filtered WebAuthn bridge,
+`make pi-deploy-all` ships the AI re-auth displays and filtered WebAuthn bridges,
 the bot, worker, scheduler, API, and `pg-backup` images, then recreates the
 corresponding services in dependency order. The backup sidecar runs one dump on
 startup so the backup directory and node-exporter textfile metric exist before

@@ -82,7 +82,7 @@ SHARED_SERVICES=(ratatoskr worker scheduler mcp mcp-write mcp-public)
 API_SERVICES=(mobile-api)
 BACKUP_SERVICES=(pg-backup)
 DISPLAY_SERVICES=(ai-backup-display-chatgpt ai-backup-display-claude)
-WEBAUTHN_SERVICES=(ai-backup-webauthn-bridge)
+WEBAUTHN_SERVICES=(ai-backup-webauthn-bridge-chatgpt ai-backup-webauthn-bridge-claude)
 BROWSER_SERVICES=(cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude)
 MOBILE_API_CONTROL_NETWORKS=(ai_backup_control_chatgpt ai_backup_control_claude)
 ALL_SERVICES=("${DISPLAY_SERVICES[@]}" "${WEBAUTHN_SERVICES[@]}" "${BROWSER_SERVICES[@]}" "${SHARED_SERVICES[@]}" "${API_SERVICES[@]}" "${BACKUP_SERVICES[@]}")
@@ -164,6 +164,30 @@ fi
 if [[ $MIGRATE_ONLY -eq 1 ]]; then
   SERVICES=("$MIGRATE_SERVICE")
 fi
+
+service_requested() {
+  local expected=$1 svc
+  for svc in "${SERVICES[@]}"; do
+    [[ "$svc" == "$expected" ]] && return 0
+  done
+  return 1
+}
+
+add_reauth_prerequisites() {
+  local provider browser display bridge
+  local -a prerequisites=()
+  for provider in chatgpt claude; do
+    browser="cloakbrowser-reauth-${provider}"
+    display="ai-backup-display-${provider}"
+    bridge="ai-backup-webauthn-bridge-${provider}"
+    service_requested "$browser" || continue
+    service_requested "$display" || prerequisites+=("$display")
+    service_requested "$bridge" || prerequisites+=("$bridge")
+  done
+  SERVICES=("${prerequisites[@]}" "${SERVICES[@]}")
+}
+
+[[ $MIGRATE_ONLY -eq 1 ]] || add_reauth_prerequisites
 
 # Validate and bucket each requested service by its Dockerfile.
 SHARED_TO_BUILD=()
@@ -398,7 +422,7 @@ COMPOSE_RUN=(
 is_isolated_reauth_service() {
   local svc=$1
   case "$svc" in
-    ai-backup-display-chatgpt|ai-backup-display-claude|ai-backup-webauthn-bridge|cloakbrowser-reauth-chatgpt|cloakbrowser-reauth-claude)
+    ai-backup-display-chatgpt|ai-backup-display-claude|ai-backup-webauthn-bridge-chatgpt|ai-backup-webauthn-bridge-claude|cloakbrowser-reauth-chatgpt|cloakbrowser-reauth-claude)
       return 0 ;;
     *)
       return 1 ;;
@@ -450,7 +474,7 @@ verify_webauthn_host() {
   local requested=0 svc
   for svc in "${SERVICES[@]}"; do
     case "$svc" in
-      ai-backup-webauthn-bridge|cloakbrowser-reauth-chatgpt|cloakbrowser-reauth-claude)
+      ai-backup-webauthn-bridge-chatgpt|ai-backup-webauthn-bridge-claude|cloakbrowser-reauth-chatgpt|cloakbrowser-reauth-claude)
         requested=1
         break
         ;;
@@ -468,11 +492,16 @@ verify_webauthn_host() {
 
 verify_webauthn_bridge_runtime() {
   local svc=$1
-  [[ "$svc" == "ai-backup-webauthn-bridge" ]] || return 0
+  local container
+  case "$svc" in
+    ai-backup-webauthn-bridge-chatgpt) container=ratatoskr-ai-backup-webauthn-bridge-chatgpt ;;
+    ai-backup-webauthn-bridge-claude) container=ratatoskr-ai-backup-webauthn-bridge-claude ;;
+    *) return 0 ;;
+  esac
 
-  echo "==> Verifying filtered BlueZ D-Bus bridge"
+  echo "==> Verifying filtered BlueZ D-Bus bridge for ${svc##*-}"
   ssh "$RASPI_HOST" "set -eu; \
-    CID=\$(docker inspect --format '{{.Id}}' ratatoskr-ai-backup-webauthn-bridge); \
+    CID=\$(docker inspect --format '{{.Id}}' '${container}'); \
     [ \"\$(docker inspect --format '{{.HostConfig.NetworkMode}}' \"\$CID\")\" = none ]; \
     docker exec \"\$CID\" /usr/local/bin/ai-backup-webauthn-healthcheck.sh; \
     if docker exec \"\$CID\" dbus-send \

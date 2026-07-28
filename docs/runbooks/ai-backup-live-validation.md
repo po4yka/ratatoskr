@@ -10,12 +10,12 @@ This subsystem mirrors the **operator's own** ChatGPT and Claude web accounts to
 
 ### Infrastructure
 
-- **Provider-isolated re-auth stack** must be running under the `ai-backup-reauth` profile. Confirm all five health gates:
+- **Provider-isolated re-auth stack** must be running under the `ai-backup-reauth` profile. Confirm all six health gates:
 
 ```bash
 docker compose -f ops/docker/docker-compose.yml --profile ai-backup-reauth ps \
   ai-backup-display-chatgpt ai-backup-display-claude \
-  ai-backup-webauthn-bridge \
+  ai-backup-webauthn-bridge-chatgpt ai-backup-webauthn-bridge-claude \
   cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude
 ```
 
@@ -124,9 +124,12 @@ docker inspect ratatoskr-ai-backup-display-chatgpt ratatoskr-ai-backup-display-c
   --format '{{json .NetworkSettings.Ports}}'
 docker inspect ratatoskr-cloakbrowser-reauth-chatgpt ratatoskr-cloakbrowser-reauth-claude \
   --format '{{json .NetworkSettings.Ports}}'
-docker inspect ratatoskr-ai-backup-webauthn-bridge \
+docker inspect ratatoskr-ai-backup-webauthn-bridge-chatgpt \
+  ratatoskr-ai-backup-webauthn-bridge-claude \
   --format '{{.HostConfig.NetworkMode}} {{json .HostConfig.CapDrop}}'
-docker exec ratatoskr-ai-backup-webauthn-bridge \
+docker exec ratatoskr-ai-backup-webauthn-bridge-chatgpt \
+  /usr/local/bin/ai-backup-webauthn-healthcheck.sh
+docker exec ratatoskr-ai-backup-webauthn-bridge-claude \
   /usr/local/bin/ai-backup-webauthn-healthcheck.sh
 docker exec ratatoskr-cloakbrowser-reauth-chatgpt python -c \
   "import urllib.request; print(urllib.request.urlopen('http://localhost:9222/').status)"

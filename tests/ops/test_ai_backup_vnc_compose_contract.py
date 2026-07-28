@@ -45,9 +45,10 @@ def test_provider_browsers_have_separate_internal_displays_and_no_published_cont
             for volume in browser["volumes"]
         )
         assert (
-            "ai-backup-webauthn-dbus:/run/ratatoskr-dbus:ro" in browser["volumes"]
+            f"ai-backup-webauthn-dbus-{provider}:/run/ratatoskr-dbus:ro"
+            in browser["volumes"]
         )
-        assert browser["depends_on"]["ai-backup-webauthn-bridge"] == {
+        assert browser["depends_on"][f"ai-backup-webauthn-bridge-{provider}"] == {
             "condition": "service_healthy"
         }
         assert "ports" not in browser
@@ -67,27 +68,31 @@ def test_provider_browsers_have_separate_internal_displays_and_no_published_cont
     )
     assert "ai-backup-display-chatgpt" in compose["volumes"]
     assert "ai-backup-display-claude" in compose["volumes"]
-    assert "ai-backup-webauthn-dbus" in compose["volumes"]
+    assert "ai-backup-webauthn-dbus-chatgpt" in compose["volumes"]
+    assert "ai-backup-webauthn-dbus-claude" in compose["volumes"]
 
 
-def test_webauthn_bridge_exposes_only_filtered_bluez_dbus_without_network() -> None:
+def test_provider_webauthn_bridges_expose_only_filtered_bluez_without_network() -> None:
     compose = _compose()
-    bridge = compose["services"]["ai-backup-webauthn-bridge"]
-
-    assert bridge["build"]["dockerfile"] == (
-        "ops/docker/ai-backup-webauthn-bridge/Dockerfile"
-    )
-    assert bridge["network_mode"] == "none"
-    assert "ports" not in bridge
-    assert bridge["read_only"] is True
-    assert bridge["cap_drop"] == ["ALL"]
-    assert bridge["security_opt"] == ["no-new-privileges:true"]
-    assert (
-        "/run/dbus/system_bus_socket:/run/host-dbus/system_bus_socket:ro"
-        in bridge["volumes"]
-    )
-    assert "ai-backup-webauthn-dbus:/run/ratatoskr-dbus" in bridge["volumes"]
-    assert bridge["healthcheck"]["test"][-1].endswith("healthcheck.sh")
+    for provider in ("chatgpt", "claude"):
+        bridge = compose["services"][f"ai-backup-webauthn-bridge-{provider}"]
+        assert bridge["build"]["dockerfile"] == (
+            "ops/docker/ai-backup-webauthn-bridge/Dockerfile"
+        )
+        assert bridge["network_mode"] == "none"
+        assert "ports" not in bridge
+        assert bridge["read_only"] is True
+        assert bridge["cap_drop"] == ["ALL"]
+        assert bridge["security_opt"] == ["no-new-privileges:true"]
+        assert (
+            "/run/dbus/system_bus_socket:/run/host-dbus/system_bus_socket:ro"
+            in bridge["volumes"]
+        )
+        assert (
+            f"ai-backup-webauthn-dbus-{provider}:/run/ratatoskr-dbus"
+            in bridge["volumes"]
+        )
+        assert bridge["healthcheck"]["test"][-1].endswith("healthcheck.sh")
 
     dockerfile = (
         ROOT / "ops/docker/ai-backup-webauthn-bridge/Dockerfile"
@@ -144,7 +149,10 @@ def test_pi_deploy_orders_display_then_browser_then_mobile_api_and_keeps_them_is
     assert "DISPLAY_DOCKERFILE=ops/docker/ai-backup-display/Dockerfile" in script
     assert "DISPLAY_SERVICES=(ai-backup-display-chatgpt ai-backup-display-claude)" in script
     assert "WEBAUTHN_DOCKERFILE=ops/docker/ai-backup-webauthn-bridge/Dockerfile" in script
-    assert "WEBAUTHN_SERVICES=(ai-backup-webauthn-bridge)" in script
+    assert (
+        "WEBAUTHN_SERVICES=(ai-backup-webauthn-bridge-chatgpt "
+        "ai-backup-webauthn-bridge-claude)" in script
+    )
     assert "BROWSER_SERVICES=(cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude)" in script
     assert 'build_and_ship "$DISPLAY_DOCKERFILE" -- "${DISPLAY_TO_BUILD[@]}"' in script
     assert 'build_and_ship "$WEBAUTHN_DOCKERFILE" -- "${WEBAUTHN_TO_BUILD[@]}"' in script
@@ -153,6 +161,9 @@ def test_pi_deploy_orders_display_then_browser_then_mobile_api_and_keeps_them_is
     assert "verify_headed_browser_runtime" in script
     assert "verify_webauthn_host" in script
     assert "verify_webauthn_bridge_runtime" in script
+    assert "add_reauth_prerequisites" in script
+    assert 'service_requested "$display" || prerequisites+=("$display")' in script
+    assert 'service_requested "$bridge" || prerequisites+=("$bridge")' in script
     assert (
         "MOBILE_API_CONTROL_NETWORKS=(ai_backup_control_chatgpt "
         "ai_backup_control_claude)" in script
@@ -175,7 +186,7 @@ def test_pi_deploy_orders_display_then_browser_then_mobile_api_and_keeps_them_is
     assert "ops/docker/ai-backup-webauthn-bridge/Dockerfile" in script
     assert "is_isolated_reauth_service" in script
     assert (
-        '--services "ai-backup-display-chatgpt ai-backup-display-claude ai-backup-webauthn-bridge cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude ratatoskr worker scheduler mobile-api pg-backup"'
+        '--services "ai-backup-display-chatgpt ai-backup-display-claude ai-backup-webauthn-bridge-chatgpt ai-backup-webauthn-bridge-claude cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude ratatoskr worker scheduler mobile-api pg-backup"'
         in makefile
     )
 
