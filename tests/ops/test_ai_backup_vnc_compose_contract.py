@@ -111,7 +111,8 @@ def test_provider_webauthn_bridges_expose_only_filtered_bluez_without_network() 
     assert "--filter" in entrypoint
     assert "--talk=org.bluez" in entrypoint
     assert "/run/host-dbus/system_bus_socket" in entrypoint
-    assert "--address=unix:path=/run/ratatoskr-dbus/system_bus_socket" in healthcheck
+    assert "--bus=unix:path=/run/ratatoskr-dbus/system_bus_socket" in healthcheck
+    assert "--address=" not in healthcheck
     assert "--dest=org.bluez" in healthcheck
 
 

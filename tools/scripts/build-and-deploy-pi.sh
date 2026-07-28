@@ -532,7 +532,7 @@ verify_webauthn_bridge_runtime() {
     [ \"\$(docker inspect --format '{{.HostConfig.NetworkMode}}' \"\$CID\")\" = none ]; \
     docker exec \"\$CID\" /usr/local/bin/ai-backup-webauthn-healthcheck.sh; \
     if docker exec \"\$CID\" dbus-send \
-      --address=unix:path=/run/ratatoskr-dbus/system_bus_socket \
+      --bus=unix:path=/run/ratatoskr-dbus/system_bus_socket \
       --type=method_call --print-reply --reply-timeout=3000 \
       --dest=org.freedesktop.hostname1 /org/freedesktop/hostname1 \
       org.freedesktop.DBus.Peer.Ping >/dev/null 2>&1; then \

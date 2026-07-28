@@ -494,6 +494,13 @@ def test_pi_deploy_keeps_previous_image_and_does_not_apply_migrations_on_restart
     assert "run_remote_migrations" not in restart_branch
 
 
+def test_pi_deploy_registers_dbus_clients_before_testing_bridge_policy() -> None:
+    script = _pi_deploy_script()
+
+    assert "--bus=unix:path=/run/ratatoskr-dbus/system_bus_socket" in script
+    assert "--address=unix:path=/run/ratatoskr-dbus/system_bus_socket" not in script
+
+
 def test_pi_deploy_ships_and_starts_postgres_backup_without_remote_build() -> None:
     script = _pi_deploy_script()
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
