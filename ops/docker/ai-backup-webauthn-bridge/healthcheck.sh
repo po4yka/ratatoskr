@@ -13,27 +13,32 @@ managed_objects=$(dbus-send \
     / \
     org.freedesktop.DBus.ObjectManager.GetManagedObjects)
 
-adapter_path=$(printf '%s\n' "$managed_objects" | awk '
+adapter_paths=$(printf '%s\n' "$managed_objects" | awk '
     /object path "/ {
         path = $3
         gsub(/"/, "", path)
     }
     /string "org[.]bluez[.]Adapter1"/ {
         print path
-        exit
     }
 ')
-test -n "$adapter_path"
+test -n "$adapter_paths"
 
-adapter_powered=$(dbus-send \
-    --bus="unix:path=${bus_socket}" \
-    --type=method_call \
-    --print-reply \
-    --reply-timeout=3000 \
-    --dest=org.bluez \
-    "$adapter_path" \
-    org.freedesktop.DBus.Properties.Get \
-    string:org.bluez.Adapter1 \
-    string:Powered)
-printf '%s\n' "$adapter_powered" | grep -Eq \
-    'variant[[:space:]]+boolean[[:space:]]+true'
+for adapter_path in $adapter_paths; do
+    if adapter_powered=$(dbus-send \
+        --bus="unix:path=${bus_socket}" \
+        --type=method_call \
+        --print-reply \
+        --reply-timeout=3000 \
+        --dest=org.bluez \
+        "$adapter_path" \
+        org.freedesktop.DBus.Properties.Get \
+        string:org.bluez.Adapter1 \
+        string:Powered) \
+        && printf '%s\n' "$adapter_powered" | grep -Eq \
+            'variant[[:space:]]+boolean[[:space:]]+true'; then
+        exit 0
+    fi
+done
+
+exit 1

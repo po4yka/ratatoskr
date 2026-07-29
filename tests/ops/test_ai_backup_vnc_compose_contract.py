@@ -110,13 +110,20 @@ def test_provider_webauthn_bridges_expose_only_filtered_bluez_without_network() 
     assert "--dest=org.bluez" in healthcheck
 
 
-@pytest.mark.parametrize(("powered", "expected_returncode"), [("true", 0), ("false", 1)])
-def test_webauthn_bridge_health_requires_a_powered_adapter(
+@pytest.mark.parametrize(
+    ("hci0_powered", "hci1_powered", "expected_returncode"),
+    [("true", "false", 0), ("false", "false", 1), ("false", "true", 0)],
+)
+def test_webauthn_bridge_health_accepts_any_powered_adapter(
     tmp_path: Path,
-    powered: str,
+    hci0_powered: str,
+    hci1_powered: str,
     expected_returncode: int,
 ) -> None:
-    bus_socket = Path("/tmp") / f"ratatoskr-webauthn-{os.getpid()}-{powered}.sock"
+    bus_socket = (
+        Path("/tmp")
+        / f"ratatoskr-webauthn-{os.getpid()}-{hci0_powered}-{hci1_powered}.sock"
+    )
     bus_socket.unlink(missing_ok=True)
     listener = socket.socket(socket.AF_UNIX)
     listener.bind(str(bus_socket))
@@ -135,12 +142,22 @@ case "$*" in
       '         object path "/org/bluez/hci0"' \
       '         array [' \
       '            dict entry(' \
+      '               string "org.bluez.Adapter1"' \
+      '      dict entry(' \
+      '         object path "/org/bluez/hci1"' \
+      '         array [' \
+      '            dict entry(' \
       '               string "org.bluez.Adapter1"'
     ;;
   *org.freedesktop.DBus.Properties.Get*)
+    case "$*" in
+      */org/bluez/hci0*) powered=${FAKE_HCI0_POWERED} ;;
+      */org/bluez/hci1*) powered=${FAKE_HCI1_POWERED} ;;
+      *) exit 3 ;;
+    esac
     printf '%s\n' \
       'method return time=0.0 sender=:1.1 -> destination=:1.2 serial=2 reply_serial=2' \
-      "   variant       boolean ${FAKE_ADAPTER_POWERED}"
+      "   variant       boolean ${powered}"
     ;;
   *) exit 2 ;;
 esac
@@ -152,7 +169,8 @@ esac
     env = {
         **os.environ,
         "AI_BACKUP_WEBAUTHN_DBUS_SOCKET": str(bus_socket),
-        "FAKE_ADAPTER_POWERED": powered,
+        "FAKE_HCI0_POWERED": hci0_powered,
+        "FAKE_HCI1_POWERED": hci1_powered,
         "PATH": f"{fake_bin}:{os.environ['PATH']}",
     }
     try:
