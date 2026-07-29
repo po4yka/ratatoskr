@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Literal
 
-from sqlalchemy import asc, delete as sql_delete, desc, func, nulls_last, select
+from sqlalchemy import (
+    asc,
+    delete as sql_delete,
+    desc,
+    func,
+    nulls_last,
+    select,
+    update as sql_update,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import cast
 
@@ -91,6 +99,25 @@ class RepositoryReadRepositoryAdapter:
         if row is None:
             return None
         return self._repo_to_detail(row)
+
+    async def set_repository_list_names(
+        self,
+        *,
+        repository_id: int,
+        user_id: int,
+        list_names: list[str],
+    ) -> None:
+        """Keep the local mirror in step with a membership change made on GitHub.
+
+        Cheaper and far more immediate than waiting for the nightly star sync
+        to notice; the sync remains the authority and will overwrite this.
+        """
+        async with self._db.transaction() as session:
+            await session.execute(
+                sql_update(Repository)
+                .where(Repository.id == repository_id, Repository.user_id == user_id)
+                .values(list_names=sorted(list_names), updated_at=func.now())
+            )
 
     async def delete_owned_repository(
         self,

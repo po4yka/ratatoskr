@@ -142,6 +142,35 @@ Reads:
   which are OR-ed)
 - `list_names` is returned on every repository compact/detail/search payload
 
+Writes (`/v1/star-lists`, `ManageStarListsUseCase`):
+
+- `GET /v1/star-lists` — the lists themselves, metadata only. This is
+  `fetch_star_list_summaries`, one request; `fetch_star_lists` is the expensive
+  one that pages every item of every list and belongs to the sync job.
+- `POST /v1/star-lists` — create. GitHub caps a user at 32 lists and rejects
+  the 33rd itself; that error is passed through rather than duplicated as a
+  local pre-check, so the cap cannot drift out of step with GitHub.
+- `PATCH /v1/star-lists/{slug}` — rename or re-describe; omitted fields are
+  left untouched. The list is addressed by slug, falling back to an exact name.
+- `DELETE /v1/star-lists/{slug}` — delete. The repositories in it stay starred.
+- `PUT /v1/star-lists/repositories/{repository_id}` — replace the lists a
+  repository belongs to.
+
+The membership endpoint is a **full overwrite**, matching the underlying
+`updateUserListsForItem` mutation: the body is the complete desired set, so an
+empty `list_names` removes the repository from every list, and "also add to X"
+means sending the union. Unknown names are rejected before anything is written
+— a typo would otherwise read as "remove from that list". After a successful
+write the local `list_names` mirror is updated for that row, so a filtered read
+straight after the write does not show the pre-change membership; the nightly
+sync stays the authority and will overwrite it.
+
+Every mutation needs the `user` OAuth scope, which a token connected with the
+default Ratatoskr scopes does not carry — reading lists does not imply writing
+them. There is no pre-flight scope probe: GitHub's own error names the missing
+scope and is surfaced verbatim as a 403, which beats anything reconstructed
+locally at the cost of one extra round trip.
+
 ## Schema
 
 Three new tables live in `app/db/models/repository.py`. They have no foreign key to the `summaries` table by design: repos use a repo-shaped LLM analysis schema, not the 35-field `Summary` contract.

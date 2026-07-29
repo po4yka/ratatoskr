@@ -20,6 +20,7 @@ import httpx
 
 from app.adapters.github.exceptions import (
     GitHubAuthError,
+    GitHubNotFoundError,
     GitHubRateLimitError,
     GitHubServerError,
 )
@@ -50,8 +51,10 @@ query($listPageSize: Int!, $itemPageSize: Int!) {
       edges {
         cursor
         node {
+          id
           name
           slug
+          description
           isPrivate
           items(first: $itemPageSize) {
             pageInfo { hasNextPage endCursor }
@@ -77,6 +80,67 @@ query($listCursor: String, $itemCursor: String, $itemPageSize: Int!) {
         }
       }
     }
+  }
+}
+"""
+
+
+# Metadata only — no items. Resolving a list by slug for a mutation must not
+# pay for paging every repository in every list.
+_LIST_SUMMARIES_QUERY = """
+query($listPageSize: Int!) {
+  viewer {
+    lists(first: $listPageSize) {
+      nodes { id name slug description isPrivate }
+    }
+  }
+}
+"""
+
+
+# --- Mutations -------------------------------------------------------------
+# Undocumented but present in the public schema. Every one of them needs the
+# `user` OAuth scope; a token that can *read* lists is not necessarily allowed
+# to write them, which is why the callers validate the scope up front.
+
+_LIST_FIELDS = "id name slug description isPrivate"
+
+_CREATE_LIST_MUTATION = f"""
+mutation($name: String!, $description: String, $isPrivate: Boolean) {{
+  createUserList(input: {{name: $name, description: $description, isPrivate: $isPrivate}}) {{
+    list {{ {_LIST_FIELDS} }}
+  }}
+}}
+"""
+
+_UPDATE_LIST_MUTATION = f"""
+mutation($listId: ID!, $name: String, $description: String, $isPrivate: Boolean) {{
+  updateUserList(
+    input: {{listId: $listId, name: $name, description: $description, isPrivate: $isPrivate}}
+  ) {{
+    list {{ {_LIST_FIELDS} }}
+  }}
+}}
+"""
+
+_DELETE_LIST_MUTATION = """
+mutation($listId: ID!) {
+  deleteUserList(input: {listId: $listId}) { user { login } }
+}
+"""
+
+# Resolves the repository node ID; `repositories.github_id` stores the REST
+# databaseId, which the mutation below does not accept.
+_REPO_NODE_ID_QUERY = """
+query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) { id }
+}
+"""
+
+_SET_ITEM_LISTS_MUTATION = """
+mutation($itemId: ID!, $listIds: [ID!]!) {
+  updateUserListsForItem(input: {itemId: $itemId, listIds: $listIds}) {
+    lists { id name slug }
   }
 }
 """
@@ -251,8 +315,10 @@ class GitHubGraphQLClient:
 
             results.append(
                 StarListDTO(
+                    id=node.get("id") or "",
                     name=node.get("name") or "",
                     slug=node.get("slug") or "",
+                    description=node.get("description") or "",
                     is_private=bool(node.get("isPrivate")),
                     repo_github_ids=ids,
                 )
@@ -286,6 +352,102 @@ class GitHubGraphQLClient:
             page_info = items.get("pageInfo") or {}
             item_cursor = page_info.get("endCursor") if page_info.get("hasNextPage") else None
         return collected
+
+    async def fetch_star_list_summaries(self) -> list[StarListDTO]:
+        """Return the lists without their items — one request, no item paging.
+
+        Use this whenever only list identity matters (resolving a slug to a
+        node ID for a mutation, rendering a picker); :meth:`fetch_star_lists`
+        is the one that costs a page per 100 items per list.
+        """
+        data = await self._execute(_LIST_SUMMARIES_QUERY, {"listPageSize": _LISTS_PAGE_SIZE})
+        nodes = self._dig(data, "viewer", "lists", "nodes") or []
+        return [self._list_dto(node) for node in nodes]
+
+    # ------------------------------------------------------------------
+    # Mutations
+    # ------------------------------------------------------------------
+
+    async def create_star_list(
+        self,
+        name: str,
+        *,
+        description: str = "",
+        is_private: bool = False,
+    ) -> StarListDTO:
+        """Create a star list and return it.
+
+        GitHub caps a user at 32 lists. The 33rd create fails server-side; the
+        error surfaces as :class:`GitHubServerError` with GitHub's own message
+        rather than being pre-empted here, so the cap stays GitHub's to enforce.
+        """
+        data = await self._execute(
+            _CREATE_LIST_MUTATION,
+            {"name": name, "description": description, "isPrivate": is_private},
+        )
+        return self._list_dto(self._dig(data, "createUserList", "list"))
+
+    async def update_star_list(
+        self,
+        list_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        is_private: bool | None = None,
+    ) -> StarListDTO:
+        """Rename or re-describe a list. Omitted fields are left untouched."""
+        data = await self._execute(
+            _UPDATE_LIST_MUTATION,
+            {
+                "listId": list_id,
+                "name": name,
+                "description": description,
+                "isPrivate": is_private,
+            },
+        )
+        return self._list_dto(self._dig(data, "updateUserList", "list"))
+
+    async def delete_star_list(self, list_id: str) -> None:
+        """Delete a list. The repositories in it keep their stars."""
+        await self._execute(_DELETE_LIST_MUTATION, {"listId": list_id})
+
+    async def set_repository_lists(
+        self,
+        *,
+        owner: str,
+        name: str,
+        list_ids: list[str],
+    ) -> list[str]:
+        """Replace the set of lists a repository belongs to; return list names.
+
+        This mirrors the underlying mutation, which is a full overwrite rather
+        than an add/remove: passing an empty ``list_ids`` removes the repo from
+        every list. Callers that mean "also add to X" must read the current
+        membership first.
+        """
+        repo_data = await self._execute(_REPO_NODE_ID_QUERY, {"owner": owner, "name": name})
+        item_id = self._dig(repo_data, "repository", "id")
+        if not item_id:
+            raise GitHubNotFoundError(f"GitHub has no repository {owner}/{name}")
+
+        data = await self._execute(
+            _SET_ITEM_LISTS_MUTATION,
+            {"itemId": item_id, "listIds": list_ids},
+        )
+        lists = self._dig(data, "updateUserListsForItem", "lists") or []
+        return [entry.get("name") or "" for entry in lists if isinstance(entry, dict)]
+
+    @staticmethod
+    def _list_dto(node: Any) -> StarListDTO:
+        if not isinstance(node, dict):
+            raise GitHubServerError("GitHub GraphQL returned no list object")
+        return StarListDTO(
+            id=node.get("id") or "",
+            name=node.get("name") or "",
+            slug=node.get("slug") or "",
+            description=node.get("description") or "",
+            is_private=bool(node.get("isPrivate")),
+        )
 
     @staticmethod
     def _database_ids(nodes: Iterable[dict[str, Any]]) -> list[int]:

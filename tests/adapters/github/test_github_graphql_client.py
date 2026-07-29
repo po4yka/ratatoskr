@@ -207,3 +207,172 @@ async def test_rate_limited_response_carries_reset_epoch():
             await client.fetch_star_lists()
 
     assert exc_info.value.reset_epoch == 1893456000
+
+
+# ---------------------------------------------------------------------------
+# Mutations
+# ---------------------------------------------------------------------------
+
+
+def _captured(handler_body):
+    """Return (client, calls) where calls records each GraphQL variables payload."""
+    calls: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        body = json.loads(request.content)
+        calls.append(body["variables"])
+        return handler_body(body)
+
+    return _client_with(handler), calls
+
+
+@pytest.mark.asyncio
+async def test_create_star_list_returns_the_created_list():
+    client, calls = _captured(
+        lambda body: httpx.Response(
+            200,
+            json={
+                "data": {
+                    "createUserList": {
+                        "list": {
+                            "id": "UL_1",
+                            "name": "Android",
+                            "slug": "android",
+                            "description": "mobile",
+                            "isPrivate": False,
+                        }
+                    }
+                }
+            },
+        )
+    )
+
+    async with client:
+        created = await client.create_star_list("Android", description="mobile")
+
+    assert (created.id, created.name, created.slug) == ("UL_1", "Android", "android")
+    assert calls[0] == {"name": "Android", "description": "mobile", "isPrivate": False}
+
+
+@pytest.mark.asyncio
+async def test_update_star_list_passes_only_given_fields_as_values():
+    client, calls = _captured(
+        lambda body: httpx.Response(
+            200,
+            json={
+                "data": {
+                    "updateUserList": {
+                        "list": {
+                            "id": "UL_1",
+                            "name": "Android Core",
+                            "slug": "android-core",
+                            "description": "",
+                            "isPrivate": True,
+                        }
+                    }
+                }
+            },
+        )
+    )
+
+    async with client:
+        updated = await client.update_star_list("UL_1", name="Android Core", is_private=True)
+
+    assert updated.name == "Android Core"
+    assert updated.is_private is True
+    # description was not supplied, so it travels as null and GitHub keeps it.
+    assert calls[0]["description"] is None
+
+
+@pytest.mark.asyncio
+async def test_delete_star_list_issues_the_mutation():
+    client, calls = _captured(
+        lambda body: httpx.Response(
+            200, json={"data": {"deleteUserList": {"user": {"login": "x"}}}}
+        )
+    )
+
+    async with client:
+        await client.delete_star_list("UL_9")
+
+    assert calls[0] == {"listId": "UL_9"}
+
+
+@pytest.mark.asyncio
+async def test_set_repository_lists_resolves_node_id_then_overwrites():
+    def body_for(body):
+        if "owner" in body["variables"]:
+            return httpx.Response(200, json={"data": {"repository": {"id": "R_kg1"}}})
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "updateUserListsForItem": {
+                        "lists": [
+                            {"id": "UL_1", "name": "Android", "slug": "android"},
+                            {"id": "UL_2", "name": "KMP", "slug": "kmp"},
+                        ]
+                    }
+                }
+            },
+        )
+
+    client, calls = _captured(body_for)
+
+    async with client:
+        names = await client.set_repository_lists(
+            owner="square", name="metro", list_ids=["UL_1", "UL_2"]
+        )
+
+    assert names == ["Android", "KMP"]
+    assert calls[0] == {"owner": "square", "name": "metro"}
+    assert calls[1] == {"itemId": "R_kg1", "listIds": ["UL_1", "UL_2"]}
+
+
+@pytest.mark.asyncio
+async def test_set_repository_lists_raises_when_repo_is_unknown():
+    from app.adapters.github.exceptions import GitHubNotFoundError
+
+    client, _calls = _captured(
+        lambda body: httpx.Response(200, json={"data": {"repository": None}})
+    )
+
+    async with client:
+        with pytest.raises(GitHubNotFoundError):
+            await client.set_repository_lists(owner="nobody", name="nothing", list_ids=[])
+
+
+@pytest.mark.asyncio
+async def test_fetch_star_list_summaries_skips_item_paging():
+    client, calls = _captured(
+        lambda body: httpx.Response(
+            200,
+            json={
+                "data": {
+                    "viewer": {
+                        "lists": {
+                            "nodes": [
+                                {
+                                    "id": "UL_1",
+                                    "name": "Android",
+                                    "slug": "android",
+                                    "description": "",
+                                    "isPrivate": False,
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+        )
+    )
+
+    async with client:
+        summaries = await client.fetch_star_list_summaries()
+
+    assert [entry.name for entry in summaries] == ["Android"]
+    # One request, and no itemPageSize variable — items were never selected.
+    assert len(calls) == 1
+    assert "itemPageSize" not in calls[0]

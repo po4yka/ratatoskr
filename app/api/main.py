@@ -71,6 +71,7 @@ from app.api.routers import (
     search,
     signals,
     social_auth,
+    star_lists,
     status,
     streams,
     summaries,
@@ -373,6 +374,7 @@ app.include_router(
 )
 app.include_router(summaries.router, prefix="/v1/summaries", tags=["Summaries"])
 app.include_router(repositories.router)
+app.include_router(star_lists.router)
 app.include_router(git_mirrors.router)
 app.include_router(ai_backups.router)
 app.include_router(credentials.router)
