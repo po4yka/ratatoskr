@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import Select, and_, func, or_, select, update
+from sqlalchemy import Select, and_, case, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from app.core.logging_utils import get_logger, log_exception
@@ -31,6 +31,30 @@ from app.observability.metrics_source_content import (
 logger = get_logger(__name__)
 
 TERMINAL_JOB_STATUSES = {"succeeded", "dead_letter"}
+
+
+def _has_telegram_placeholder() -> Any:
+    """EXISTS() over requests whose user-facing delivery the taskiq worker owns.
+
+    A Telegram-originated request carries a placeholder message that ONLY
+    ``app.tasks.url_processing`` knows how to edit.  Both consumers of this table
+    -- the taskiq worker (``lease_next(by_id=...)``) and the API's polling queue
+    (``lease_next()``) -- can reclaim an expired ``running`` lease, but when the
+    poller wins it finishes the summary in the API process and the placeholder is
+    left on "Processing..." forever, because ``BackgroundRequestExecutor`` has no
+    Telegram transport.  Origin is only encoded at enqueue time (``pending`` for
+    the bot, ``queued`` for the API) and both collapse into ``running``, so the
+    poller re-derives it from the placeholder id instead.
+    """
+    return (
+        select(Request.id)
+        .where(
+            Request.id == RequestProcessingJob.request_id,
+            Request.bot_reply_message_id.is_not(None),
+        )
+        .correlate(RequestProcessingJob)
+        .exists()
+    )
 
 
 class LeaseLostError(RuntimeError):
@@ -184,6 +208,9 @@ class RequestProcessingJobRepository:
                             ),
                         ),
                         RequestProcessingJob.attempt_count < RequestProcessingJob.max_attempts,
+                        # Never steal a job whose Telegram placeholder only the
+                        # taskiq worker path can edit -- see _has_telegram_placeholder.
+                        ~_has_telegram_placeholder(),
                     )
                     .order_by(
                         RequestProcessingJob.retry_after.asc().nullsfirst(),
@@ -298,6 +325,36 @@ class RequestProcessingJobRepository:
                     msg = f"request {request_id} disappeared during job completion"
                     raise RuntimeError(msg)
         return True
+
+    async def release_lease(self, job: LeasedRequestJob, *, lease_owner: str) -> bool:
+        """Hand a live lease back so the owning path can re-lease the job.
+
+        For a cancelled worker -- not a failed run -- so ``requests.status`` is
+        deliberately left alone: the request is still in flight and the broker
+        will redeliver it.  ``pending`` is the status ``lease_next(by_id=...)``
+        accepts, which keeps the job on the taskiq path that owns its Telegram
+        placeholder.  Returns False when another owner already fenced us out.
+        """
+        now = _utcnow()
+        async with self._database.transaction() as session:
+            result = await session.execute(
+                update(RequestProcessingJob)
+                .where(
+                    RequestProcessingJob.id == job.id,
+                    RequestProcessingJob.lease_owner == lease_owner,
+                    RequestProcessingJob.lease_token == job.lease_token,
+                )
+                .values(
+                    status="pending",
+                    lease_owner=None,
+                    lease_expires_at=None,
+                    retry_after=None,
+                    last_error_code="CANCELLED",
+                    last_error_message="Worker task cancelled before completion",
+                    updated_at=now,
+                )
+            )
+            return bool(result.rowcount)
 
     async def mark_failed(
         self,
@@ -637,7 +694,11 @@ class RequestProcessingJobRepository:
                     RequestProcessingJob.attempt_count < RequestProcessingJob.max_attempts,
                 )
                 .values(
-                    status="queued",
+                    # "queued" is the API poller's inbox and "pending" the taskiq
+                    # worker's; routing every expired lease to "queued" handed
+                    # Telegram jobs to the poller, which cannot edit their
+                    # placeholder. Send each row back to the path that owns it.
+                    status=case((_has_telegram_placeholder(), "pending"), else_="queued"),
                     lease_owner=None,
                     lease_expires_at=None,
                     retry_after=now,

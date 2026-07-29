@@ -216,6 +216,23 @@ async def _process_url_request_body(
             lease_ttl_seconds=lease_ttl,
         )
     except asyncio.CancelledError:
+        # Cancellation is transient infrastructure death, not a failed run: taskiq
+        # runs its Redis ``listen()`` loop and the in-flight tasks in one TaskGroup,
+        # so a single ``Timeout reading from redis`` tears the group down and takes
+        # this task with it. Re-raising bare left the row ``running`` under a lease
+        # nobody would renew -- no log, no retry, and the Telegram placeholder stuck
+        # on "Processing..." until the lease expired 15 minutes later. Give the lease
+        # back so the broker's redelivery can pick the job up again.
+        logger.warning(
+            "process_url_request_cancelled",
+            extra={"request_id": request_id, "cid": cid},
+        )
+        # Shielded: we are already being cancelled, so a bare await here would be
+        # torn down before the UPDATE lands. If a second cancel arrives anyway the
+        # release keeps running on the loop and the worst case is unchanged --
+        # ``lease_next(by_id=...)`` also re-leases an expired ``running`` row.
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.shield(job_repo.release_lease(job, lease_owner=lease_owner))
         raise
     except Exception as exc:
         error_code = type(exc).__name__
