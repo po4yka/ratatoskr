@@ -130,6 +130,46 @@ async def test_requeue_expired_leases_routes_each_row_to_its_owning_path(
 
 
 @pytest.mark.asyncio
+async def test_reclaim_frees_a_dead_workers_lease_but_not_the_pollers(
+    database: Database, session: AsyncSession
+) -> None:
+    """Worker startup frees only leases a taskiq worker could have held."""
+    worker_id = await _expired_running_job(session, cid="cid-dead", bot_reply_message_id=1317)
+    api_id = await _expired_running_job(session, cid="cid-api3", bot_reply_message_id=None)
+    # Re-stamp the API row with the poller's own owner format ({host}:{uuid}).
+    await session.execute(
+        update(RequestProcessingJob)
+        .where(RequestProcessingJob.request_id == api_id)
+        .values(lease_owner="somehost:0123456789abcdef")
+    )
+    await session.commit()
+
+    repo = RequestProcessingJobRepository(database)
+    assert await repo.reclaim_orphaned_worker_leases() == 1
+
+    async def _row(request_id: int) -> RequestProcessingJob | None:
+        return await session.scalar(
+            select(RequestProcessingJob).where(RequestProcessingJob.request_id == request_id)
+        )
+
+    freed = await _row(worker_id)
+    assert freed is not None
+    assert freed.status == "pending"
+    assert freed.lease_owner is None
+    assert freed.last_error_code == "WORKER_RESTARTED"
+
+    untouched = await _row(api_id)
+    assert untouched is not None
+    assert untouched.status == "running"
+    assert untouched.lease_owner == "somehost:0123456789abcdef"
+
+    # The interrupted run is not a failed run.
+    request = await session.scalar(select(Request).where(Request.id == worker_id))
+    assert request is not None
+    assert request.status == "processing"
+
+
+@pytest.mark.asyncio
 async def test_release_lease_returns_job_without_failing_the_request(
     database: Database, session: AsyncSession
 ) -> None:

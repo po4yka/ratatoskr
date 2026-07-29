@@ -326,6 +326,46 @@ class RequestProcessingJobRepository:
                     raise RuntimeError(msg)
         return True
 
+    async def reclaim_orphaned_worker_leases(self) -> int:
+        """Free leases held by a taskiq worker that is no longer alive.
+
+        Call this from worker startup only. The cancellation handler in
+        ``app/tasks/url_processing.py`` cannot cover every death: when taskiq's
+        receiver TaskGroup collapses (a Redis read timeout does it), the process
+        exits before ``CancelledError`` reaches that handler, leaving the row
+        ``running`` under a lease nobody will renew. Nothing then touches it for
+        a full lease TTL. A worker that has just started is provably not running
+        any of these, so they can go straight back to ``pending`` -- the status
+        ``lease_next(by_id=...)`` accepts, keeping the job on the path that owns
+        its Telegram placeholder.
+
+        ``requests.status`` is deliberately untouched: the run was interrupted,
+        not failed, and the broker redelivers it.
+        """
+        # ponytail: reclaims every `worker:taskiq:%` lease, which is correct only
+        # while the deployment runs one worker process (TASKIQ_WORKER_PROCESSES=1,
+        # a single worker container). To scale workers out, put the process
+        # identity in lease_owner and reclaim only this process's own leases.
+        now = _utcnow()
+        async with self._database.transaction() as session:
+            result = await session.execute(
+                update(RequestProcessingJob)
+                .where(
+                    RequestProcessingJob.status == "running",
+                    RequestProcessingJob.lease_owner.like("worker:taskiq:%"),
+                )
+                .values(
+                    status="pending",
+                    lease_owner=None,
+                    lease_expires_at=None,
+                    retry_after=None,
+                    last_error_code="WORKER_RESTARTED",
+                    last_error_message="Worker process died holding this lease",
+                    updated_at=now,
+                )
+            )
+            return int(result.rowcount or 0)
+
     async def release_lease(self, job: LeasedRequestJob, *, lease_owner: str) -> bool:
         """Hand a live lease back so the owning path can re-lease the job.
 

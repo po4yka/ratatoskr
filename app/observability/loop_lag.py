@@ -34,8 +34,15 @@ async def _watch(*, interval_sec: float, threshold_ms: float) -> None:
         # control back -- i.e. how long a ready callback would have waited.
         lag_ms = (time.perf_counter() - started - interval_sec) * 1000
         if lag_ms >= threshold_ms:
+            # The value goes in the message *and* in extra on purpose: the API
+            # process logs JSON (which carries extra), but the worker -- the one
+            # that actually stalls -- uses the bracket formatter, which drops it.
+            # Structured-only reporting here would log that a stall happened
+            # while silently discarding how bad it was.
             logger.warning(
-                "event_loop_stalled",
+                "event_loop_stalled lag_ms=%.1f threshold_ms=%.0f",
+                lag_ms,
+                threshold_ms,
                 extra={"lag_ms": round(lag_ms, 1), "threshold_ms": threshold_ms},
             )
 

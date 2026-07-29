@@ -111,6 +111,25 @@ async def _stop_url_processing_checkpointer(_state: Any) -> None:
 
 
 @broker.on_event(TaskiqEvents.WORKER_STARTUP)
+async def _reclaim_orphaned_worker_leases(_state: Any) -> None:
+    """Free leases left behind by a worker process that died mid-task."""
+    from app.infrastructure.persistence.request_processing_job_repository import (
+        RequestProcessingJobRepository,
+    )
+
+    cfg = await get_app_config()
+    db = await get_db(cfg)
+    try:
+        reclaimed = await RequestProcessingJobRepository(db).reclaim_orphaned_worker_leases()
+    except Exception:
+        # Never block worker startup on a best-effort sweep.
+        logger.exception("orphaned_lease_reclaim_failed")
+        return
+    if reclaimed:
+        logger.warning("orphaned_leases_reclaimed count=%d", reclaimed, extra={"count": reclaimed})
+
+
+@broker.on_event(TaskiqEvents.WORKER_STARTUP)
 async def _start_loop_lag_monitor(_state: Any) -> None:
     """Watch this worker's event loop for the stalls that time out the broker read."""
     global _loop_lag_monitor_task
