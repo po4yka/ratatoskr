@@ -73,6 +73,7 @@ async def _get_url_processing_runtime(
 _url_processing_runtime_instance: URLProcessingTaskRuntime | None = None
 _url_processing_checkpointer_runtime: Any | None = None
 _credential_refresh_task: asyncio.Task[None] | None = None
+_loop_lag_monitor_task: asyncio.Task[None] | None = None
 
 
 async def _start_url_processing_checkpointer(cfg: AppConfig) -> Any | None:
@@ -107,6 +108,27 @@ async def _stop_url_processing_checkpointer(_state: Any) -> None:
     _url_processing_checkpointer_runtime = None
     if runtime is not None:
         await runtime.stop(timeout=10.0)
+
+
+@broker.on_event(TaskiqEvents.WORKER_STARTUP)
+async def _start_loop_lag_monitor(_state: Any) -> None:
+    """Watch this worker's event loop for the stalls that time out the broker read."""
+    global _loop_lag_monitor_task
+    from app.observability.loop_lag import start_loop_lag_monitor
+
+    _loop_lag_monitor_task = start_loop_lag_monitor()
+
+
+@broker.on_event(TaskiqEvents.WORKER_SHUTDOWN)
+async def _stop_loop_lag_monitor(_state: Any) -> None:
+    """Cancel the loop-lag probe during Taskiq shutdown."""
+    global _loop_lag_monitor_task
+    task = _loop_lag_monitor_task
+    _loop_lag_monitor_task = None
+    if task is not None:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
 
 @broker.on_event(TaskiqEvents.WORKER_STARTUP)
