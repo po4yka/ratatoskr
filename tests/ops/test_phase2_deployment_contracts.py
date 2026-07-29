@@ -535,6 +535,15 @@ def test_pi_deploy_smokes_reauth_browsers_in_the_production_timezone() -> None:
     assert "timezone=UTC" not in browser_runtime
 
 
+def test_reauth_live_validation_runbook_uses_the_production_timezone() -> None:
+    runbook = (ROOT / "docs/runbooks/ai-backup-live-validation.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "timezone=Asia%2FTbilisi&locale=en-US" in runbook
+    assert "timezone=UTC" not in runbook
+
+
 def test_pi_deploy_restores_each_reauth_browser_control_and_egress_network() -> None:
     script = _pi_deploy_script()
 

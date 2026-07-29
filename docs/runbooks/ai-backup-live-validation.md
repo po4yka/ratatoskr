@@ -134,7 +134,7 @@ docker exec ratatoskr-ai-backup-webauthn-bridge-claude \
 docker exec ratatoskr-cloakbrowser-reauth-chatgpt python -c \
   "import urllib.request; print(urllib.request.urlopen('http://localhost:9222/').status)"
 docker exec ratatoskr-cloakbrowser-reauth-chatgpt python -c \
-  "import json,urllib.request; u='http://localhost:9222/json/version?fingerprint=deadbeef0001&timezone=UTC&locale=en-US'; assert json.load(urllib.request.urlopen(u, timeout=20))['webSocketDebuggerUrl']"
+  "import json,urllib.request; u='http://localhost:9222/json/version?fingerprint=deadbeef0001&timezone=Asia%2FTbilisi&locale=en-US'; assert json.load(urllib.request.urlopen(u, timeout=20))['webSocketDebuggerUrl']"
 docker exec ratatoskr-cloakbrowser-reauth-chatgpt sh -c \
   "test -S /run/ratatoskr-dbus/system_bus_socket; A=\$(ps -eo args); ! printf '%s\n' \"\$A\" | grep '[c]hrome' | grep -F -- '--headless'; printf '%s\n' \"\$A\" | grep '[c]hrome' | grep -F -- '--ozone-platform=x11'"
 ```
