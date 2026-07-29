@@ -111,18 +111,23 @@ def test_provider_webauthn_bridges_expose_only_filtered_bluez_without_network() 
 
 
 @pytest.mark.parametrize(
-    ("hci0_powered", "hci1_powered", "expected_returncode"),
-    [("true", "false", 0), ("false", "false", 1), ("false", "true", 0)],
+    ("adapters_present", "hci0_powered", "hci1_powered", "expected_returncode"),
+    [
+        (True, "true", "false", 0),
+        (True, "false", "false", 1),
+        (True, "false", "true", 0),
+        (False, "false", "false", 1),
+    ],
 )
 def test_webauthn_bridge_health_accepts_any_powered_adapter(
     tmp_path: Path,
+    adapters_present: bool,
     hci0_powered: str,
     hci1_powered: str,
     expected_returncode: int,
 ) -> None:
     bus_socket = (
-        Path("/tmp")
-        / f"ratatoskr-webauthn-{os.getpid()}-{hci0_powered}-{hci1_powered}.sock"
+        Path("/tmp") / f"ratatoskr-webauthn-{os.getpid()}-{hci0_powered}-{hci1_powered}.sock"
     )
     bus_socket.unlink(missing_ok=True)
     listener = socket.socket(socket.AF_UNIX)
@@ -135,6 +140,10 @@ def test_webauthn_bridge_health_accepts_any_powered_adapter(
         """#!/bin/sh
 case "$*" in
   *org.freedesktop.DBus.ObjectManager.GetManagedObjects*)
+    if [ "${FAKE_ADAPTERS_PRESENT}" != "true" ]; then
+      printf '%s\n' 'method return' '   array ['
+      exit 0
+    fi
     printf '%s\n' \
       'method return time=0.0 sender=:1.1 -> destination=:1.2 serial=1 reply_serial=1' \
       '   array [' \
@@ -169,6 +178,7 @@ esac
     env = {
         **os.environ,
         "AI_BACKUP_WEBAUTHN_DBUS_SOCKET": str(bus_socket),
+        "FAKE_ADAPTERS_PRESENT": str(adapters_present).lower(),
         "FAKE_HCI0_POWERED": hci0_powered,
         "FAKE_HCI1_POWERED": hci1_powered,
         "PATH": f"{fake_bin}:{os.environ['PATH']}",
@@ -219,8 +229,8 @@ def test_pi_deploy_orders_display_then_browser_then_mobile_api_and_keeps_them_is
     assert "DISPLAY_DOCKERFILE=ops/docker/ai-backup-display/Dockerfile" in script
     assert "WEBAUTHN_DOCKERFILE=ops/docker/ai-backup-webauthn-bridge/Dockerfile" in script
     assert "REAUTH_PROVIDER_METADATA=(" in script
-    assert '\"chatgpt deadbeef0001\"' in script
-    assert '\"claude deadbeef0002\"' in script
+    assert '"chatgpt deadbeef0001"' in script
+    assert '"claude deadbeef0002"' in script
     assert 'DISPLAY_SERVICES+=("ai-backup-display-${reauth_provider}")' in script
     assert 'WEBAUTHN_SERVICES+=("ai-backup-webauthn-bridge-${reauth_provider}")' in script
     assert 'BROWSER_SERVICES+=("cloakbrowser-reauth-${reauth_provider}")' in script
