@@ -501,6 +501,18 @@ def test_pi_deploy_registers_dbus_clients_before_testing_bridge_policy() -> None
     assert "--address=unix:path=/run/ratatoskr-dbus/system_bus_socket" not in script
 
 
+def test_pi_deploy_uses_one_reauth_provider_metadata_source() -> None:
+    script = _pi_deploy_script()
+
+    assert "REAUTH_PROVIDER_METADATA=(" in script
+    assert '\"chatgpt deadbeef0001\"' in script
+    assert '\"claude deadbeef0002\"' in script
+    assert "reauth_service_metadata()" in script
+    for provider in ("chatgpt", "claude"):
+        assert f"cloakbrowser-reauth-{provider})" not in script
+        assert f"ai-backup-webauthn-bridge-{provider})" not in script
+
+
 def test_pi_deploy_requires_the_filtered_bus_policy_denial() -> None:
     script = _pi_deploy_script()
     bridge_runtime = script.split("verify_webauthn_bridge_runtime() {", maxsplit=1)[

@@ -82,10 +82,24 @@ MIGRATE_SERVICE=migrate
 SHARED_SERVICES=(ratatoskr worker scheduler mcp mcp-write mcp-public)
 API_SERVICES=(mobile-api)
 BACKUP_SERVICES=(pg-backup)
-DISPLAY_SERVICES=(ai-backup-display-chatgpt ai-backup-display-claude)
-WEBAUTHN_SERVICES=(ai-backup-webauthn-bridge-chatgpt ai-backup-webauthn-bridge-claude)
-BROWSER_SERVICES=(cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude)
-MOBILE_API_CONTROL_NETWORKS=(ai_backup_control_chatgpt ai_backup_control_claude)
+REAUTH_PROVIDER_METADATA=(
+  "chatgpt deadbeef0001"
+  "claude deadbeef0002"
+)
+REAUTH_PROVIDERS=()
+DISPLAY_SERVICES=()
+WEBAUTHN_SERVICES=()
+BROWSER_SERVICES=()
+MOBILE_API_CONTROL_NETWORKS=()
+for reauth_metadata in "${REAUTH_PROVIDER_METADATA[@]}"; do
+  read -r reauth_provider _ <<<"$reauth_metadata"
+  REAUTH_PROVIDERS+=("$reauth_provider")
+  DISPLAY_SERVICES+=("ai-backup-display-${reauth_provider}")
+  WEBAUTHN_SERVICES+=("ai-backup-webauthn-bridge-${reauth_provider}")
+  BROWSER_SERVICES+=("cloakbrowser-reauth-${reauth_provider}")
+  MOBILE_API_CONTROL_NETWORKS+=("ai_backup_control_${reauth_provider}")
+done
+unset reauth_metadata reauth_provider
 ALL_SERVICES=("${DISPLAY_SERVICES[@]}" "${WEBAUTHN_SERVICES[@]}" "${BROWSER_SERVICES[@]}" "${SHARED_SERVICES[@]}" "${API_SERVICES[@]}" "${BACKUP_SERVICES[@]}")
 READER_RELEASE_SERVICES=(ratatoskr worker scheduler mobile-api)
 
@@ -177,10 +191,37 @@ service_requested() {
   return 1
 }
 
+reauth_service_metadata() {
+  local svc=$1 metadata provider smoke_seed role
+  for metadata in "${REAUTH_PROVIDER_METADATA[@]}"; do
+    read -r provider smoke_seed <<<"$metadata"
+    case "$svc" in
+      "ai-backup-display-${provider}") role=display ;;
+      "ai-backup-webauthn-bridge-${provider}") role=bridge ;;
+      "cloakbrowser-reauth-${provider}") role=browser ;;
+      *) continue ;;
+    esac
+    printf '%s %s %s\n' "$provider" "$role" "$smoke_seed"
+    return 0
+  done
+  return 1
+}
+
+is_isolated_reauth_service() {
+  reauth_service_metadata "$1" >/dev/null
+}
+
+is_pinned_browser_service() {
+  local metadata provider role smoke_seed
+  metadata=$(reauth_service_metadata "$1") || return 1
+  read -r provider role smoke_seed <<<"$metadata"
+  [[ "$role" == browser ]]
+}
+
 add_reauth_prerequisites() {
   local provider browser display bridge
   local -a prerequisites=()
-  for provider in chatgpt claude; do
+  for provider in "${REAUTH_PROVIDERS[@]}"; do
     browser="cloakbrowser-reauth-${provider}"
     display="ai-backup-display-${provider}"
     bridge="ai-backup-webauthn-bridge-${provider}"
@@ -198,10 +239,7 @@ order_reauth_services() {
     service_requested "$candidate" && ordered+=("$candidate")
   done
   for svc in "${SERVICES[@]}"; do
-    case "$svc" in
-      ai-backup-display-chatgpt|ai-backup-display-claude|ai-backup-webauthn-bridge-chatgpt|ai-backup-webauthn-bridge-claude|cloakbrowser-reauth-chatgpt|cloakbrowser-reauth-claude) ;;
-      *) ordered+=("$svc") ;;
-    esac
+    is_isolated_reauth_service "$svc" || ordered+=("$svc")
   done
   SERVICES=("${ordered[@]}")
 }
@@ -260,12 +298,10 @@ done
 
 if [[ $ROLLBACK -eq 1 ]]; then
   for svc in "${SERVICES[@]}"; do
-    case "$svc" in
-      cloakbrowser-reauth-chatgpt|cloakbrowser-reauth-claude)
-        echo "ERROR: rollback is not supported for digest-pinned CloakBrowser services" >&2
-        exit 2
-        ;;
-    esac
+    if is_pinned_browser_service "$svc"; then
+      echo "ERROR: rollback is not supported for digest-pinned CloakBrowser services" >&2
+      exit 2
+    fi
   done
   SHARED_TO_BUILD=()
   API_TO_BUILD=()
@@ -446,21 +482,6 @@ COMPOSE_RUN=(
   -f ops/docker/docker-compose.pi.yml
 )
 
-is_isolated_reauth_service() {
-  local svc=$1
-  case "$svc" in
-    ai-backup-display-chatgpt|ai-backup-display-claude|ai-backup-webauthn-bridge-chatgpt|ai-backup-webauthn-bridge-claude|cloakbrowser-reauth-chatgpt|cloakbrowser-reauth-claude)
-      return 0 ;;
-    *)
-      return 1 ;;
-  esac
-}
-
-is_pinned_browser_service() {
-  local svc=$1
-  [[ "$svc" == "cloakbrowser-reauth-chatgpt" || "$svc" == "cloakbrowser-reauth-claude" ]]
-}
-
 ensure_mobile_api_control_networks() {
   local svc=$1
   [[ "$svc" == "mobile-api" ]] || return 0
@@ -486,12 +507,10 @@ ensure_mobile_api_control_networks() {
 
 ensure_reauth_browser_networks() {
   local svc=$1
-  local provider
-  case "$svc" in
-    cloakbrowser-reauth-chatgpt) provider=chatgpt ;;
-    cloakbrowser-reauth-claude) provider=claude ;;
-    *) return 0 ;;
-  esac
+  local metadata provider role smoke_seed
+  metadata=$(reauth_service_metadata "$svc") || return 0
+  read -r provider role smoke_seed <<<"$metadata"
+  [[ "$role" == browser ]] || return 0
 
   local network
   for network in \
@@ -525,14 +544,14 @@ verify_pinned_cloakbrowser_image() {
 }
 
 verify_webauthn_host() {
-  local requested=0 svc
+  local requested=0 svc metadata provider role smoke_seed
   for svc in "${SERVICES[@]}"; do
-    case "$svc" in
-      ai-backup-webauthn-bridge-chatgpt|ai-backup-webauthn-bridge-claude|cloakbrowser-reauth-chatgpt|cloakbrowser-reauth-claude)
-        requested=1
-        break
-        ;;
-    esac
+    metadata=$(reauth_service_metadata "$svc") || continue
+    read -r provider role smoke_seed <<<"$metadata"
+    if [[ "$role" == bridge || "$role" == browser ]]; then
+      requested=1
+      break
+    fi
   done
   [[ $requested -eq 1 ]] || return 0
 
@@ -546,14 +565,13 @@ verify_webauthn_host() {
 
 verify_webauthn_bridge_runtime() {
   local svc=$1
-  local container
-  case "$svc" in
-    ai-backup-webauthn-bridge-chatgpt) container=ratatoskr-ai-backup-webauthn-bridge-chatgpt ;;
-    ai-backup-webauthn-bridge-claude) container=ratatoskr-ai-backup-webauthn-bridge-claude ;;
-    *) return 0 ;;
-  esac
+  local metadata provider role smoke_seed
+  metadata=$(reauth_service_metadata "$svc") || return 0
+  read -r provider role smoke_seed <<<"$metadata"
+  [[ "$role" == bridge ]] || return 0
+  local container="ratatoskr-${svc}"
 
-  echo "==> Verifying filtered BlueZ D-Bus bridge for ${svc##*-}"
+  echo "==> Verifying filtered BlueZ D-Bus bridge for ${provider}"
   ssh "$RASPI_HOST" "set -eu; \
     CID=\$(docker inspect --format '{{.Id}}' '${container}'); \
     [ \"\$(docker inspect --format '{{.HostConfig.NetworkMode}}' \"\$CID\")\" = none ]; \
@@ -581,12 +599,10 @@ verify_webauthn_bridge_runtime() {
 
 verify_headed_browser_runtime() {
   local svc=$1
-  local smoke_seed
-  case "$svc" in
-    cloakbrowser-reauth-chatgpt) smoke_seed=deadbeef0001 ;;
-    cloakbrowser-reauth-claude) smoke_seed=deadbeef0002 ;;
-    *) return 0 ;;
-  esac
+  local metadata provider role smoke_seed
+  metadata=$(reauth_service_metadata "$svc") || return 0
+  read -r provider role smoke_seed <<<"$metadata"
+  [[ "$role" == browser ]] || return 0
 
   echo "==> Verifying headed Chromium/X11 runtime for ${svc}"
   if ! ssh "$RASPI_HOST" "set -u; \

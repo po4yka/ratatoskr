@@ -217,13 +217,13 @@ def test_pi_deploy_orders_display_then_browser_then_mobile_api_and_keeps_them_is
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
     assert "DISPLAY_DOCKERFILE=ops/docker/ai-backup-display/Dockerfile" in script
-    assert "DISPLAY_SERVICES=(ai-backup-display-chatgpt ai-backup-display-claude)" in script
     assert "WEBAUTHN_DOCKERFILE=ops/docker/ai-backup-webauthn-bridge/Dockerfile" in script
-    assert (
-        "WEBAUTHN_SERVICES=(ai-backup-webauthn-bridge-chatgpt "
-        "ai-backup-webauthn-bridge-claude)" in script
-    )
-    assert "BROWSER_SERVICES=(cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude)" in script
+    assert "REAUTH_PROVIDER_METADATA=(" in script
+    assert '\"chatgpt deadbeef0001\"' in script
+    assert '\"claude deadbeef0002\"' in script
+    assert 'DISPLAY_SERVICES+=("ai-backup-display-${reauth_provider}")' in script
+    assert 'WEBAUTHN_SERVICES+=("ai-backup-webauthn-bridge-${reauth_provider}")' in script
+    assert 'BROWSER_SERVICES+=("cloakbrowser-reauth-${reauth_provider}")' in script
     assert 'build_and_ship "$DISPLAY_DOCKERFILE" -- "${DISPLAY_TO_BUILD[@]}"' in script
     assert 'build_and_ship "$WEBAUTHN_DOCKERFILE" -- "${WEBAUTHN_TO_BUILD[@]}"' in script
     assert "verify_pinned_cloakbrowser_image" in script
@@ -234,9 +234,7 @@ def test_pi_deploy_orders_display_then_browser_then_mobile_api_and_keeps_them_is
     assert "add_reauth_prerequisites" in script
     assert 'service_requested "$display" || prerequisites+=("$display")' in script
     assert 'service_requested "$bridge" || prerequisites+=("$bridge")' in script
-    assert (
-        "MOBILE_API_CONTROL_NETWORKS=(ai_backup_control_chatgpt ai_backup_control_claude)" in script
-    )
+    assert 'MOBILE_API_CONTROL_NETWORKS+=("ai_backup_control_${reauth_provider}")' in script
     assert "ensure_mobile_api_control_networks" in script
     assert "docker network connect --alias 'mobile-api'" in script
     assert script.index('restart_service_verified "$svc"') < script.index(
