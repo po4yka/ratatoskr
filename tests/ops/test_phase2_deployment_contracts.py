@@ -501,6 +501,18 @@ def test_pi_deploy_registers_dbus_clients_before_testing_bridge_policy() -> None
     assert "--address=unix:path=/run/ratatoskr-dbus/system_bus_socket" not in script
 
 
+def test_pi_deploy_probes_bluez_from_the_reauth_browser_container() -> None:
+    script = _pi_deploy_script()
+    browser_runtime = script.split("verify_headed_browser_runtime() {", maxsplit=1)[1].split(
+        "retire_legacy_qdrant_container() {", maxsplit=1
+    )[0]
+
+    browser_probe = r'docker exec \"\$CID\" dbus-send'
+    assert browser_probe in browser_runtime
+    assert "org.freedesktop.DBus.ObjectManager.GetManagedObjects" in browser_runtime
+    assert browser_runtime.index(browser_probe) < browser_runtime.index("pkill -TERM")
+
+
 def test_pi_deploy_restores_each_reauth_browser_control_and_egress_network() -> None:
     script = _pi_deploy_script()
 

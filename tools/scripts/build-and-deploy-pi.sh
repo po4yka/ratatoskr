@@ -587,6 +587,7 @@ verify_headed_browser_runtime() {
     if printf '%s\\n' \"\$ARGS\" | grep '[c]hrome' | grep -F -- '--headless' >/dev/null; then STATUS=1; fi; \
     printf '%s\\n' \"\$ARGS\" | grep '[c]hrome' | grep -F -- '--ozone-platform=x11' >/dev/null || STATUS=1; \
     docker exec \"\$CID\" python -c \"import os; assert os.environ.get('DBUS_SYSTEM_BUS_ADDRESS') == 'unix:path=/run/ratatoskr-dbus/system_bus_socket'; assert os.path.exists('/run/ratatoskr-dbus/system_bus_socket')\" || STATUS=1; \
+    docker exec \"\$CID\" dbus-send --bus=unix:path=/run/ratatoskr-dbus/system_bus_socket --type=method_call --print-reply --reply-timeout=3000 --dest=org.bluez / org.freedesktop.DBus.ObjectManager.GetManagedObjects >/dev/null || STATUS=1; \
     docker exec \"\$CID\" sh -c \"pkill -TERM -f '[/]chrome' || true; i=0; while pgrep -f '[/]chrome' >/dev/null && [ \\\$i -lt 50 ]; do i=\\\$((i + 1)); sleep 0.1; done; if pgrep -f '[/]chrome' >/dev/null; then pkill -KILL -f '[/]chrome' || true; fi; ! pgrep -f '[/]chrome' >/dev/null\" || STATUS=1; \
     [ \"\$STATUS\" -eq 0 ]"; then
     diagnose_service_health "$svc"
