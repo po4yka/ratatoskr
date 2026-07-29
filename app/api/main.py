@@ -34,8 +34,6 @@ from app.api.error_handlers import (
 )
 from app.api.exceptions import APIException
 from app.api.metrics_auth import require_metrics_bearer
-from app.api.models.responses.common import TypedSuccessResponse
-from app.api.models.responses.operational import BasicHealthData
 from app.api.middleware import (
     correlation_id_middleware,
     http_red_metrics_middleware,
@@ -44,7 +42,8 @@ from app.api.middleware import (
     webapp_auth_middleware,
 )
 from app.api.models.responses import success_response
-from app.api.models.responses.common import API_CONTRACT_VERSION
+from app.api.models.responses.common import API_CONTRACT_VERSION, TypedSuccessResponse
+from app.api.models.responses.operational import BasicHealthData
 from app.api.routers import (
     admin,
     aggregation,
@@ -160,10 +159,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         set_current_api_runtime(runtime)
 
         from app.adapters.ai_backup.reauth import AiBackupReauthCoordinator
+        from app.tasks.ai_backup_sync import enqueue_targeted_backup
 
         ai_backup_reauth_coordinator = AiBackupReauthCoordinator(
             cfg=runtime.cfg,
             db=runtime.db,
+            enqueue_backup=enqueue_targeted_backup,
         )
         app.state.ai_backup_reauth_coordinator = ai_backup_reauth_coordinator
 

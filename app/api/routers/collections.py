@@ -23,11 +23,11 @@ from app.api.models.requests import (
 from app.api.models.responses import (
     CollectionAclEntry,
     CollectionAclResponse,
+    CollectionEvaluationResponse,
     CollectionIncomingInvite,
     CollectionIncomingInvitesResponse,
     CollectionInviteResponse,
     CollectionItem,
-    CollectionEvaluationResponse,
     CollectionItemsMoveResponse,
     CollectionItemsResponse,
     CollectionListResponse,

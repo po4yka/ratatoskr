@@ -141,7 +141,7 @@ class AiBackupReauthCoordinator:
         repository: Any | None = None,
         browser_context_factory: BrowserContextFactory | None = None,
         auth_probe: AuthProbe | None = None,
-        enqueue_backup: EnqueueBackup | None = None,
+        enqueue_backup: EnqueueBackup,
         poll_interval_seconds: float = 5.0,
         flow_timeout_seconds: float = 15 * 60,
     ) -> None:
@@ -154,7 +154,7 @@ class AiBackupReauthCoordinator:
         self._repo = repository or AiBackupRepository(db)
         self._browser_context_factory = browser_context_factory or authenticated_context
         self._auth_probe = auth_probe or _probe_authenticated
-        self._enqueue_backup = enqueue_backup or enqueue_targeted_backup
+        self._enqueue_backup = enqueue_backup
         self._poll_interval = poll_interval_seconds
         self._timeout = flow_timeout_seconds
         self._flows: dict[str, _Flow] = {}
@@ -553,12 +553,6 @@ async def _probe_authenticated(page: Any, context: Any, service: AiBackupService
         return False
 
 
-async def enqueue_targeted_backup(user_id: int, service: AiBackupService) -> None:
-    from app.tasks.ai_backup_sync import sync_one_ai_backup
-
-    await sync_one_ai_backup.kiq(user_id, service.value)
-
-
 __all__ = [
     "AiBackupReauthCoordinator",
     "DuplicateViewerError",
@@ -568,5 +562,4 @@ __all__ = [
     "ReauthInputEvent",
     "ViewerLease",
     "ViewerTicket",
-    "enqueue_targeted_backup",
 ]

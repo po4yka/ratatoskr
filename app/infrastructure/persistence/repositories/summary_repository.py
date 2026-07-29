@@ -93,8 +93,7 @@ class SummaryRepositoryAdapter:
                     select(CrawlResult.id).where(
                         CrawlResult.request_id == request_id,
                         CrawlResult.is_deleted.is_(False),
-                        func.length(func.btrim(func.coalesce(CrawlResult.content_text, "")))
-                        > 0,
+                        func.length(func.btrim(func.coalesce(CrawlResult.content_text, ""))) > 0,
                     )
                 )
                 request_update = request_update.where(
@@ -105,9 +104,7 @@ class SummaryRepositoryAdapter:
             )
             if not getattr(update_result, "rowcount", 0):
                 if status_value == RequestStatus.COMPLETED.value:
-                    record_source_artifact_invariant_violation(
-                        stage="legacy_summary_finalize"
-                    )
+                    record_source_artifact_invariant_violation(stage="legacy_summary_finalize")
                 msg = (
                     "Refusing summary finalization without an eligible request "
                     f"for request_id={request_id}"

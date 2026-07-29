@@ -281,3 +281,14 @@ async def _run_sync(
         names = ",".join(failed_services)
         raise RuntimeError(f"ai_backup_sync_failed: non-successful services={names}")
     await notifier._ping("")
+
+
+async def enqueue_targeted_backup(user_id: int, service: AiBackupService) -> None:
+    """Queue :func:`sync_one_ai_backup` for one owner/provider pair.
+
+    Lives here rather than in ``app.adapters.ai_backup.reauth`` because an
+    adapter must not import ``app.tasks`` (import-linter layering contract).
+    The reauth coordinator takes this as an injected ``enqueue_backup``
+    callable and the composition root supplies it.
+    """
+    await sync_one_ai_backup.kiq(user_id, service.value)

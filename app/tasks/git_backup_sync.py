@@ -97,10 +97,13 @@ async def _enumerate_and_upsert_gists(cfg: AppConfig, db: Database) -> int:
     return total_upserted
 
 
-async def _enumerate_and_upsert_github_repos(cfg: AppConfig, db: Database) -> int:
+async def _enumerate_and_upsert_github_repos(
+    cfg: AppConfig, db: Database
+) -> tuple[int, dict[int, set[str]]]:
     """Enumerate starred/owned/watched GitHub repos for all active integrations and upsert GitMirror rows.
 
-    Returns the total number of mirror rows upserted across all users and repo categories.
+    Returns the total number of mirror rows upserted and, per user, the clone URLs
+    this run actually saw (used to release mirrors of unstarred repositories).
 
     Behaviour:
     - Only the categories enabled in cfg.git_backup (mirror_starred / mirror_owned /
@@ -134,6 +137,9 @@ async def _enumerate_and_upsert_github_repos(cfg: AppConfig, db: Database) -> in
 
     mirror_repo = GitMirrorRepository(db, git_cfg)
     total_upserted = 0
+    # user_id -> clone URLs seen this run; only populated for users whose
+    # enumeration ran to completion.
+    seen_by_user: dict[int, set[str]] = {}
 
     for integration in integrations:
         user_id = integration.user_id
@@ -214,12 +220,87 @@ async def _enumerate_and_upsert_github_repos(cfg: AppConfig, db: Database) -> in
                     },
                 )
 
+        # Only a user whose enumeration completed can be reconciled below; a
+        # partial listing would look like "everything disappeared".
+        seen_by_user[user_id] = set(repos_by_clone_url)
+
         logger.debug(
             "git_backup_repos_enumerated",
             extra={"user_id": user_id, "count": len(repos_by_clone_url)},
         )
 
-    return total_upserted
+    return total_upserted, seen_by_user
+
+
+async def _release_unstarred_mirrors(
+    cfg: AppConfig,
+    db: Database,
+    seen_by_user: dict[int, set[str]],
+) -> int:
+    """Tombstone mirrors of repositories the user no longer stars.
+
+    Without this a mirror auto-enrolled from the star listing stays in rotation
+    forever: it keeps being fetched every run, holds disk, and holds a Qdrant
+    point, because ``EXCLUDED`` is otherwise only set when the upstream repo is
+    permanently gone.
+
+    Two independent signals must agree before a row is touched:
+
+    1. ``repository_id`` is set — mirrors added by hand through ``/mirror`` or
+       the API carry no FK, and the Telegram handler stores ``source=GITHUB``
+       for any github.com URL, so the source column alone cannot tell an
+       auto-enrolled mirror from a hand-added one.
+    2. The linked ``repositories`` row is ``source=starred`` and no longer
+       starred, and the clone URL was absent from this run's enumeration. The
+       second half keeps a repo that is still owned or watched — and therefore
+       still legitimately mirrored — out of the sweep.
+
+    Turning ``GIT_BACKUP_MIRROR_STARRED`` off cannot trigger a purge: the
+    candidates must also be unstarred, and the row stays revivable (a later
+    ``upsert_target`` flips ``EXCLUDED`` back to ``PENDING``). Actual deletion
+    still only happens through ``GIT_BACKUP_PRUNE_EXCLUDED_DAYS``.
+
+    A mirror whose repo was never ingested by the GitHub metadata sync has no
+    ``repository_id`` and is left alone.
+    """
+    from app.adapters.git_backup.repository import GitMirrorRepository
+    from app.db.models.git_backup import GitMirror, GitMirrorSource, GitMirrorStatus
+    from app.db.models.repository import Repository, RepoSource
+
+    if not seen_by_user:
+        return 0
+
+    mirror_repo = GitMirrorRepository(db, cfg.git_backup)
+    released = 0
+    for user_id, seen_urls in seen_by_user.items():
+        async with db.session() as session:
+            result = await session.execute(
+                select(GitMirror.id, GitMirror.clone_url)
+                .join(Repository, Repository.id == GitMirror.repository_id)
+                .where(
+                    GitMirror.user_id == user_id,
+                    GitMirror.source == GitMirrorSource.GITHUB,
+                    GitMirror.status != GitMirrorStatus.EXCLUDED,
+                    Repository.user_id == user_id,
+                    Repository.source == RepoSource.STARRED,
+                    Repository.is_starred == False,  # noqa: E712
+                )
+            )
+            candidates = [row for row in result.all() if row.clone_url not in seen_urls]
+
+        for mirror_id, clone_url in candidates:
+            await mirror_repo.record_excluded(
+                mirror_id,
+                user_id,
+                "repository is no longer starred on GitHub",
+            )
+            released += 1
+            logger.info(
+                "git_backup_mirror_released_unstarred",
+                extra={"user_id": user_id, "clone_url": clone_url},
+            )
+
+    return released
 
 
 async def _index_mirror_readmes(
@@ -572,11 +653,24 @@ async def sync_git_backup(
                 or cfg.git_backup.mirror_owned
                 or cfg.git_backup.mirror_watched
             ):
-                repos_upserted = await _enumerate_and_upsert_github_repos(cfg, db)
+                repos_upserted, seen_by_user = await _enumerate_and_upsert_github_repos(cfg, db)
                 logger.info(
                     "git_backup_repos_upserted",
                     extra={"count": repos_upserted},
                 )
+
+                # Release mirrors whose repository is no longer starred, so an
+                # unstarred repo stops consuming fetch budget and disk. Runs
+                # before perform_sync so the released rows are skipped this run.
+                try:
+                    released = await _release_unstarred_mirrors(cfg, db, seen_by_user)
+                    if released:
+                        logger.info(
+                            "git_backup_mirrors_released",
+                            extra={"count": released},
+                        )
+                except Exception:
+                    logger.warning("git_backup_release_unstarred_failed")
 
             runtime = build_git_backup_task_runtime(cfg, db)
             _sync_start = time.perf_counter()

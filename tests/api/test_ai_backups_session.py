@@ -103,7 +103,7 @@ def _patched_internals(
             return_value=mock_repo,
         ),
         patch(
-            "app.adapters.ai_backup.reauth.enqueue_targeted_backup",
+            "app.tasks.ai_backup_sync.enqueue_targeted_backup",
             new=AsyncMock(),
         ),
     )
@@ -185,7 +185,7 @@ def test_first_session_ingest_makes_pending_unverified_status_immediately_readab
         ),
         patch("app.api.routers.ai_backups._get_repo", return_value=repo),
         patch(
-            "app.adapters.ai_backup.reauth.enqueue_targeted_backup",
+            "app.tasks.ai_backup_sync.enqueue_targeted_backup",
             new=AsyncMock(),
         ),
     ):

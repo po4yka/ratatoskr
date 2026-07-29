@@ -120,9 +120,7 @@ def test_auth_endpoints_resolve_to_route_specific_buckets() -> None:
         assert bucket != "auth"
 
     assert middleware._resolve_bucket("GET", "/v1/auth/unknown") == "auth_other"
-    assert middleware._resolve_limit_from_bucket(
-        cfg=DummyCfg(), bucket="ai_backup_reauth"
-    ) == 600
+    assert middleware._resolve_limit_from_bucket(cfg=DummyCfg(), bucket="ai_backup_reauth") == 600
 
 
 @pytest.mark.asyncio

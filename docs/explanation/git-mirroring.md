@@ -113,6 +113,13 @@ The conservative detection function `is_permanently_gone` (`app/adapters/git_bac
 
 A tombstoned mirror can be revived by the user re-adding the same URL via `/mirror` or the `POST /v1/git-mirrors` API endpoint. `GitMirrorRepository.upsert_target` detects the `excluded` status on the existing row and resets it to `pending`, clearing `excluded_at`, `consecutive_failures`, `backoff_until`, and `last_error` so the next sync cycle retries from a clean state.
 
+The second tombstoning trigger is unstarring. A mirror auto-enrolled from the star listing would otherwise stay in rotation forever — fetched every run, holding disk and a Qdrant point — because a repo that is merely unstarred is still perfectly alive upstream. `_release_unstarred_mirrors` (`app/tasks/git_backup_sync.py`) runs right after the repo enumeration and requires two independent signals before touching a row:
+
+1. `repository_id` is set. Mirrors added by hand carry no FK, and the Telegram `/mirror` handler stores `source=github` for any github.com URL, so the source column alone cannot separate an auto-enrolled mirror from a hand-added one.
+2. The linked `repositories` row is `source=starred` with `is_starred=false`, **and** the clone URL was absent from this run's enumeration. The second half keeps a repo that is still owned or watched — and therefore still legitimately mirrored — out of the sweep.
+
+Turning `GIT_BACKUP_MIRROR_STARRED` off therefore cannot trigger a purge: candidates must also be unstarred, and the row stays revivable. Actual deletion still only happens through `GIT_BACKUP_PRUNE_EXCLUDED_DAYS`. A repo the GitHub metadata sync has never ingested has no `repository_id` and is left alone; accuracy also depends on `is_starred` being truthful, which is what the periodic full snapshot (`GITHUB_FULL_SYNC_INTERVAL_DAYS`) guarantees.
+
 ---
 
 ## Credentials

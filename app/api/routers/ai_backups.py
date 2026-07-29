@@ -494,7 +494,7 @@ async def ingest_session(
     # Manual storage_state ingest is the recovery fallback for environments
     # where the interactive browser cannot complete provider login. Verify the
     # supplied session immediately instead of waiting for the next cron run.
-    from app.adapters.ai_backup.reauth import enqueue_targeted_backup
+    from app.tasks.ai_backup_sync import enqueue_targeted_backup
 
     await enqueue_targeted_backup(user_id, service)
 

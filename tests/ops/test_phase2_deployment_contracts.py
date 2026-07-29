@@ -505,8 +505,8 @@ def test_pi_deploy_uses_one_reauth_provider_metadata_source() -> None:
     script = _pi_deploy_script()
 
     assert "REAUTH_PROVIDER_METADATA=(" in script
-    assert '\"chatgpt deadbeef0001\"' in script
-    assert '\"claude deadbeef0002\"' in script
+    assert '"chatgpt deadbeef0001"' in script
+    assert '"claude deadbeef0002"' in script
     assert "reauth_service_metadata()" in script
     for provider in ("chatgpt", "claude"):
         assert f"cloakbrowser-reauth-{provider})" not in script
@@ -515,9 +515,9 @@ def test_pi_deploy_uses_one_reauth_provider_metadata_source() -> None:
 
 def test_pi_deploy_requires_the_filtered_bus_policy_denial() -> None:
     script = _pi_deploy_script()
-    bridge_runtime = script.split("verify_webauthn_bridge_runtime() {", maxsplit=1)[
-        1
-    ].split("verify_headed_browser_runtime() {", maxsplit=1)[0]
+    bridge_runtime = script.split("verify_webauthn_bridge_runtime() {", maxsplit=1)[1].split(
+        "verify_headed_browser_runtime() {", maxsplit=1
+    )[0]
 
     assert "--bus=unix:path=/run/host-dbus/system_bus_socket" in bridge_runtime
     assert "DENIED_OUTPUT=" in bridge_runtime
@@ -531,7 +531,7 @@ def test_pi_deploy_probes_bluez_from_the_reauth_browser_container() -> None:
         "retire_legacy_qdrant_container() {", maxsplit=1
     )[0]
 
-    browser_probe = r'docker exec \"\$CID\" dbus-send'
+    browser_probe = r"docker exec \"\$CID\" dbus-send"
     assert browser_probe in browser_runtime
     assert "org.freedesktop.DBus.ObjectManager.GetManagedObjects" in browser_runtime
     assert browser_runtime.index(browser_probe) < browser_runtime.index("pkill -TERM")
@@ -548,9 +548,7 @@ def test_pi_deploy_smokes_reauth_browsers_in_the_production_timezone() -> None:
 
 
 def test_reauth_live_validation_runbook_uses_the_production_timezone() -> None:
-    runbook = (ROOT / "docs/runbooks/ai-backup-live-validation.md").read_text(
-        encoding="utf-8"
-    )
+    runbook = (ROOT / "docs/runbooks/ai-backup-live-validation.md").read_text(encoding="utf-8")
 
     assert "timezone=Asia%2FTbilisi&locale=en-US" in runbook
     assert "timezone=UTC" not in runbook
@@ -560,8 +558,8 @@ def test_pi_deploy_restores_each_reauth_browser_control_and_egress_network() -> 
     script = _pi_deploy_script()
 
     assert "ensure_reauth_browser_networks" in script
-    assert '${COMPOSE_PROJECT}_ai_backup_control_${provider}' in script
-    assert '${COMPOSE_PROJECT}_ai_backup_browser_egress_${provider}' in script
+    assert "${COMPOSE_PROJECT}_ai_backup_control_${provider}" in script
+    assert "${COMPOSE_PROJECT}_ai_backup_browser_egress_${provider}" in script
     assert "docker network connect --alias '${svc}' '${network}'" in script
     assert script.index('ensure_reauth_browser_networks "$svc"') < script.index(
         'wait_for_service_health "$svc"'
@@ -580,8 +578,8 @@ def test_pi_deploy_ships_and_starts_postgres_backup_without_remote_build() -> No
     assert "--entrypoint sh -v ${COMPOSE_PROJECT}_pg_backup_metrics:/textfile" in script
     assert (
         '--services "ai-backup-display-chatgpt ai-backup-display-claude '
-        'ai-backup-webauthn-bridge-chatgpt ai-backup-webauthn-bridge-claude '
-        'cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude ratatoskr worker scheduler '
+        "ai-backup-webauthn-bridge-chatgpt ai-backup-webauthn-bridge-claude "
+        "cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude ratatoskr worker scheduler "
         'mobile-api pg-backup"' in makefile
     )
     assert "BACKUP_RUN_ON_START=${BACKUP_RUN_ON_START:-true}" in pi_overlay
