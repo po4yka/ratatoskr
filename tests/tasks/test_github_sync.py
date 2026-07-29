@@ -61,7 +61,13 @@ def _evict_task_modules():
 # ---------------------------------------------------------------------------
 
 
-def _build_cfg(*, sync_enabled: bool = True, llm_concurrency: int = 2, llm_daily_budget: int = 100):
+def _build_cfg(
+    *,
+    sync_enabled: bool = True,
+    llm_concurrency: int = 2,
+    llm_daily_budget: int = 100,
+    sync_star_lists: bool = False,
+):
     return SimpleNamespace(
         github=SimpleNamespace(
             sync_enabled=sync_enabled,
@@ -69,6 +75,10 @@ def _build_cfg(*, sync_enabled: bool = True, llm_concurrency: int = 2, llm_daily
             llm_concurrency=llm_concurrency,
             llm_daily_budget=llm_daily_budget,
             sync_batch_size=50,
+            full_sync_interval_days=7,
+            # Off by default here so the star-sync tests need no GraphQL fake;
+            # the list-mirror tests below opt in explicitly.
+            sync_star_lists=sync_star_lists,
         ),
         digest=SimpleNamespace(enabled=False, digest_times=[], timezone="UTC"),
         rss=SimpleNamespace(enabled=False, poll_interval_minutes=30),
@@ -90,6 +100,7 @@ def _make_integration(
     user_id: int = 42,
     status: str = "active",
     last_synced_at=None,
+    last_full_sync_at=None,
     notified_needs_reauth_at=None,
 ):
     from app.db.models.repository import GitHubIntegrationStatus
@@ -100,7 +111,7 @@ def _make_integration(
     integ.status = GitHubIntegrationStatus(status)
     integ.encrypted_token = b"fake-token"
     integ.last_synced_at = last_synced_at
-    integ.last_full_sync_at = None
+    integ.last_full_sync_at = last_full_sync_at
     integ.notified_needs_reauth_at = notified_needs_reauth_at
     return integ
 
@@ -331,7 +342,7 @@ async def test_rate_limited_user_does_not_block_other_users_and_resumes_next_run
         if integration.user_id == user_a.user_id and processed.count(user_a.user_id) == 1:
             raise GitHubRateLimitError(reset_epoch=1)
         integration.last_sync_cursor = None
-        return (1, 0, 0, 1, 0)
+        return (1, 0, 0, 1, 0, 0, 0)
 
     with (
         patch(
@@ -447,7 +458,7 @@ async def test_sync_imports_new_starred_repos(monkeypatch):
         fake_client.list_starred = AsyncMock(return_value=_async_iter(starred_items))
 
         with patch("app.tasks.github_sync.GitHubAPIClient", return_value=fake_client):
-            imported, updated, _unstarred, _llm_made, _llm_deferred = await _sync_one_integration(
+            imported, updated, *_rest = await _sync_one_integration(
                 integration=integration,
                 cfg=_build_cfg(),
                 db=db,
@@ -546,7 +557,7 @@ async def test_sync_unstars_repos_no_longer_starred(monkeypatch):
         patch("app.tasks.github_sync._build_analyze_use_case", return_value=fake_use_case),
         patch("app.tasks.github_sync.GitHubAPIClient", return_value=fake_client),
     ):
-        _imported, _updated, unstarred, _, _ = await _sync_one_integration(
+        _imported, _updated, unstarred, *_rest = await _sync_one_integration(
             integration=integration,
             cfg=_build_cfg(),
             db=db,
@@ -567,7 +578,11 @@ async def test_incremental_sync_does_not_unstar_repos_not_returned(monkeypatch):
 
     from app.tasks.github_sync import _sync_one_integration
 
-    integration = _make_integration(last_synced_at=datetime(2024, 5, 1, tzinfo=UTC))
+    # Snapshot taken just now, so this run takes the incremental branch.
+    integration = _make_integration(
+        last_synced_at=datetime(2024, 5, 1, tzinfo=UTC),
+        last_full_sync_at=datetime.now(UTC),
+    )
     starred_items = [_make_starred_item(github_id=1001, name="repo1")]
     update_execute_calls: list[object] = []
 
@@ -622,7 +637,7 @@ async def test_incremental_sync_does_not_unstar_repos_not_returned(monkeypatch):
         patch("app.tasks.github_sync._build_analyze_use_case", return_value=fake_use_case),
         patch("app.tasks.github_sync.GitHubAPIClient", return_value=fake_client),
     ):
-        _imported, _updated, unstarred, _, _ = await _sync_one_integration(
+        _imported, _updated, unstarred, *_rest = await _sync_one_integration(
             integration=integration,
             cfg=_build_cfg(),
             db=db,
@@ -633,6 +648,296 @@ async def test_incremental_sync_does_not_unstar_repos_not_returned(monkeypatch):
     assert unstarred == 0
     assert fake_client.list_starred.await_args.kwargs["since"] == integration.last_synced_at
     assert len(update_execute_calls) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("snapshot_age_days", "force_full"),
+    [
+        (8, False),  # stale stamp — the periodic snapshot is due
+        (0, True),  # fresh stamp, but --full overrides it
+    ],
+    ids=["interval_due", "force_full"],
+)
+async def test_full_snapshot_pages_whole_listing_and_unstars(
+    monkeypatch, snapshot_age_days, force_full
+):
+    """A snapshot run pages everything (since=None) and soft-unstars the misses."""
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.tasks.github_sync import _sync_one_integration
+
+    now = datetime.now(UTC)
+    integration = _make_integration(
+        last_synced_at=now - timedelta(days=1),
+        last_full_sync_at=now - timedelta(days=snapshot_age_days),
+    )
+    starred_items = [_make_starred_item(github_id=1001, name="repo1")]
+    integ_row = MagicMock(last_sync_cursor=None, last_full_sync_at=None)
+
+    class _TxnSession:
+        async def execute(self, stmt):
+            r = MagicMock()
+            r.fetchall.return_value = [(1002,)]
+            return r
+
+        async def flush(self):
+            pass
+
+        def add(self, row):
+            pass
+
+        async def get(self, model, pk):
+            return integ_row
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+    class _ReadSession:
+        async def execute(self, stmt):
+            r = MagicMock()
+            r.scalar_one_or_none.return_value = None
+            return r
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+    db = MagicMock()
+    db.session = MagicMock(side_effect=_ReadSession)
+    db.transaction = MagicMock(side_effect=_TxnSession)
+
+    fake_client = MagicMock()
+    fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+    fake_client.__aexit__ = AsyncMock(return_value=False)
+    fake_client.list_starred = AsyncMock(return_value=_async_iter(starred_items))
+
+    fake_use_case = MagicMock()
+    fake_use_case.analyze = AsyncMock(return_value=MagicMock(cached=False))
+
+    with (
+        patch("app.tasks.github_sync.decrypt_token", return_value="ghp_fake"),
+        patch("app.tasks.github_sync._build_analyze_use_case", return_value=fake_use_case),
+        patch("app.tasks.github_sync.GitHubAPIClient", return_value=fake_client),
+    ):
+        _imported, _updated, unstarred, *_rest = await _sync_one_integration(
+            integration=integration,
+            cfg=_build_cfg(),
+            db=db,
+            bot=None,
+            correlation_id="test-cid",
+            force_full=force_full,
+        )
+
+    assert fake_client.list_starred.await_args.kwargs["since"] is None
+    assert unstarred == 1
+    assert integ_row.last_full_sync_at is not None
+
+
+@pytest.mark.asyncio
+async def test_sync_star_lists_writes_membership_and_clears_dropped(monkeypatch):
+    """Every row is reconciled: joined lists get names, dropped rows get []."""
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.adapters.github.types import StarListDTO
+    from app.tasks.github_sync import _sync_star_lists
+
+    # 1001: never tagged, now in two lists. 1002: had no list, joined one.
+    # 1003: dropped from every list. 1004: unchanged and must not be rewritten.
+    rows = [
+        (1, 1001, None),
+        (2, 1002, []),
+        (3, 1003, ["Obsidian"]),
+        (4, 1004, ["InfoSec"]),
+    ]
+    updates: list = []
+
+    class _TxnSession:
+        async def execute(self, stmt):
+            if str(stmt).startswith("UPDATE"):
+                updates.append(stmt)
+                return MagicMock()
+            r = MagicMock()
+            r.all.return_value = rows
+            return r
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+    db = MagicMock()
+    db.transaction = MagicMock(side_effect=_TxnSession)
+
+    fake_gql = MagicMock()
+    fake_gql.__aenter__ = AsyncMock(return_value=fake_gql)
+    fake_gql.__aexit__ = AsyncMock(return_value=False)
+    fake_gql.fetch_star_lists = AsyncMock(
+        return_value=[
+            StarListDTO(name="Android", slug="android", repo_github_ids=[1001, 1002]),
+            StarListDTO(name="KMP", slug="kmp", repo_github_ids=[1001]),
+            StarListDTO(name="InfoSec", slug="infosec", repo_github_ids=[1004]),
+        ]
+    )
+
+    with patch("app.tasks.github_sync.GitHubGraphQLClient", return_value=fake_gql):
+        lists_seen, repos_tagged = await _sync_star_lists(
+            token="ghp_fake",
+            db=db,
+            user_id=42,
+            correlation_id="test-cid",
+        )
+
+    assert lists_seen == 3
+    # 1001 gains two names, 1002 gains one, 1003 is cleared; 1004 is unchanged.
+    assert repos_tagged == 3
+    assert len(updates) == 3
+
+
+@pytest.mark.asyncio
+async def test_sync_star_lists_dry_run_writes_nothing(monkeypatch):
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.adapters.github.types import StarListDTO
+    from app.tasks.github_sync import _sync_star_lists
+
+    db = MagicMock()
+    db.transaction = MagicMock(side_effect=AssertionError("dry run must not open a transaction"))
+
+    fake_gql = MagicMock()
+    fake_gql.__aenter__ = AsyncMock(return_value=fake_gql)
+    fake_gql.__aexit__ = AsyncMock(return_value=False)
+    fake_gql.fetch_star_lists = AsyncMock(
+        return_value=[StarListDTO(name="Android", slug="android", repo_github_ids=[1001])]
+    )
+
+    with patch("app.tasks.github_sync.GitHubGraphQLClient", return_value=fake_gql):
+        lists_seen, repos_tagged = await _sync_star_lists(
+            token="ghp_fake",
+            db=db,
+            user_id=42,
+            correlation_id="test-cid",
+            dry_run=True,
+        )
+
+    assert (lists_seen, repos_tagged) == (1, 1)
+
+
+@pytest.mark.asyncio
+async def test_star_list_failure_does_not_fail_star_sync(monkeypatch):
+    """A GraphQL outage must not lose the star sync that already committed."""
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.tasks.github_sync import _sync_one_integration
+
+    integration = _make_integration(last_synced_at=datetime.now(UTC) - timedelta(days=1))
+    integration.last_full_sync_at = datetime.now(UTC)
+    starred_items = [_make_starred_item(github_id=1001, name="repo1")]
+
+    class _Session:
+        async def execute(self, stmt):
+            r = MagicMock()
+            r.scalar_one_or_none.return_value = None
+            r.fetchall.return_value = []
+            return r
+
+        async def flush(self):
+            pass
+
+        def add(self, row):
+            pass
+
+        async def get(self, model, pk):
+            return MagicMock(last_sync_cursor=None)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+    db = MagicMock()
+    db.session = MagicMock(side_effect=_Session)
+    db.transaction = MagicMock(side_effect=_Session)
+
+    fake_client = MagicMock()
+    fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+    fake_client.__aexit__ = AsyncMock(return_value=False)
+    fake_client.list_starred = AsyncMock(return_value=_async_iter(starred_items))
+
+    fake_use_case = MagicMock()
+    fake_use_case.analyze = AsyncMock(return_value=MagicMock(cached=False))
+
+    with (
+        patch("app.tasks.github_sync.decrypt_token", return_value="ghp_fake"),
+        patch("app.tasks.github_sync._build_analyze_use_case", return_value=fake_use_case),
+        patch("app.tasks.github_sync.GitHubAPIClient", return_value=fake_client),
+        patch(
+            "app.tasks.github_sync._sync_star_lists",
+            AsyncMock(side_effect=RuntimeError("graphql down")),
+        ),
+    ):
+        (
+            imported,
+            _updated,
+            _unstarred,
+            _made,
+            _deferred,
+            star_lists,
+            tagged,
+        ) = await _sync_one_integration(
+            integration=integration,
+            cfg=_build_cfg(sync_star_lists=True),
+            db=db,
+            bot=None,
+            correlation_id="test-cid",
+        )
+
+    assert imported == 1
+    assert (star_lists, tagged) == (0, 0)
+
+
+def test_needs_full_star_snapshot_branches(monkeypatch):
+    """Snapshot due on first sync, on a missing/stale stamp; not when fresh or disabled."""
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    from app.tasks.github_sync import _needs_full_star_snapshot
+
+    now = datetime(2026, 7, 29, tzinfo=UTC)
+    never_synced = _make_integration()
+    missing_stamp = _make_integration(last_synced_at=now - timedelta(days=1))
+    stale = _make_integration(
+        last_synced_at=now - timedelta(days=1),
+        last_full_sync_at=now - timedelta(days=7),
+    )
+    fresh = _make_integration(
+        last_synced_at=now - timedelta(days=1),
+        last_full_sync_at=now - timedelta(days=6),
+    )
+
+    assert _needs_full_star_snapshot(never_synced, interval_days=7, now=now) is True
+    assert _needs_full_star_snapshot(missing_stamp, interval_days=7, now=now) is True
+    assert _needs_full_star_snapshot(stale, interval_days=7, now=now) is True
+    assert _needs_full_star_snapshot(fresh, interval_days=7, now=now) is False
+    # interval_days=0 disables the periodic refresh but never blocks the first sync.
+    assert _needs_full_star_snapshot(stale, interval_days=0, now=now) is False
+    assert _needs_full_star_snapshot(never_synced, interval_days=0, now=now) is True
 
 
 def test_repository_watch_first_observation_records_baseline_without_event(monkeypatch):
@@ -1186,7 +1491,7 @@ async def test_one_user_failure_does_not_break_others(monkeypatch):
         calls.append(integration.user_id)
         if integration.user_id == 1:
             raise RuntimeError("first user exploded")
-        return (0, 0, 0, 0, 0)
+        return (0, 0, 0, 0, 0, 0, 0)
 
     with patch("app.tasks.github_sync._sync_one_integration", side_effect=_fake_sync_one):
         result = await _sync_body(_build_cfg(), db, bot=None)

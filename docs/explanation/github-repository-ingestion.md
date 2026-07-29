@@ -67,9 +67,13 @@ sync_all_active_integrations task (app/tasks/github_sync.py)
   for each UserGitHubIntegration with status=active:
     |-- decrypt_token(integration.encrypted_token) -> plaintext PAT / OAuth token
     |-- GitHubAPIClient(token=...) constructed per-user
+    |-- decide snapshot vs incremental (_needs_full_star_snapshot):
+    |     snapshot when last_synced_at is NULL, last_full_sync_at is NULL, or
+    |     last_full_sync_at is older than GITHUB_FULL_SYNC_INTERVAL_DAYS
     |-- paginate GET /user/starred?sort=created&direction=desc&per_page=100
     |   (Accept: application/vnd.github.star+json  ->  starred_at timestamp)
-    |-- early-exit when starred_at < integration.last_synced_at (incremental)
+    |-- early-exit when starred_at < integration.last_synced_at (incremental only;
+    |   a snapshot passes since=None and pages the whole listing)
     |
     for each starred repo:
       |-- upsert Repository (source=starred, is_starred=true)
@@ -77,8 +81,13 @@ sync_all_active_integrations task (app/tasks/github_sync.py)
       |-- if llm_calls_made >= GITHUB_LLM_DAILY_BUDGET:
       |     set pending_analysis=true, skip LLM
     |
-    |-- flip is_starred=false for repos no longer in the listing (soft-unstar)
-    |-- update integration.last_synced_at
+    |-- SNAPSHOT ONLY: flip is_starred=false for repos no longer in the
+    |   listing (soft-unstar). An incremental run has not seen the whole
+    |   listing, so a miss proves nothing and must not unstar.
+    |-- update integration.last_synced_at (and last_full_sync_at on a snapshot)
+    |-- GraphQL viewer.lists -> reconcile repositories.list_names for every
+    |   row of the user (REST has no star lists at all); errors are logged
+    |   and never fail the star sync
     |
     on GitHubAuthError:
       |-- integration.status = needs_reauth
@@ -89,6 +98,49 @@ sync_all_active_integrations task (app/tasks/github_sync.py)
 ```
 
 ---
+
+## Star lists
+
+Star lists are the buckets a user curates on `github.com/<user>?tab=stars`. They
+carry the strongest available signal about _why_ a repo was kept — stronger than
+topics, which the repo's own author writes — so they are mirrored into
+`repositories.list_names` and exposed as a filter everywhere repos are read.
+
+REST v3 does not expose lists in any form; `viewer.lists` in GraphQL is the only
+source. That is why `app/adapters/github/` holds two clients:
+
+| Client | Transport | Covers |
+|--------|-----------|--------|
+| `GitHubAPIClient` | REST v3 | repos, README, languages, releases, starred, gists, subscriptions |
+| `GitHubGraphQLClient` | GraphQL v4 | star lists only (`viewer.lists`) |
+
+Pagination is two-dimensional — lists are a connection and each list's items are
+another. GraphQL cannot resume a nested connection directly, so a list whose
+items overflow one page is re-selected with `lists(first: 1, after: <cursor of
+the preceding list>)` and paged from there.
+
+The mirror is reconciled against _every_ repository row of the user, not just
+the ones this run's star listing walked: an incremental run only sees recently
+starred repos, but a repo can be moved between lists years after it was starred.
+A repo dropped from every list gets an empty array rather than a stale one.
+
+Membership is not part of `content_hash`: moving a repo between lists is not a
+content change and must not trigger a re-analysis. The Qdrant payload does carry
+`list_names`, so a re-embed picks it up; until then the Postgres filter is
+authoritative.
+
+Failures are contained. The GraphQL call runs after the star sync has committed
+and is wrapped so that an outage, a revoked scope, or a rate limit is logged and
+leaves the star sync intact — the mirror is derived data and the next run
+rebuilds it. Set `GITHUB_SYNC_STAR_LISTS=false` to skip the call entirely.
+
+Reads:
+
+- `GET /v1/repositories?list_name=Android` — exact-match filter, GIN-indexed
+- `GET /v1/search/repositories?list_names=Android&list_names=KMP` — semantic
+  search narrowed to repos in **both** lists (lists are AND-ed, unlike topics,
+  which are OR-ed)
+- `list_names` is returned on every repository compact/detail/search payload
 
 ## Schema
 
@@ -109,6 +161,7 @@ Three new tables live in `app/db/models/repository.py`. They have no foreign key
 | `primary_language` | varchar(100) | yes | Dominant language as reported by GitHub |
 | `languages_json` | jsonb | yes | Full language breakdown: `{"Python": 12345, "Rust": 678}` |
 | `topics_json` | jsonb | yes | Repo topics list: `["web", "async"]` |
+| `list_names` | jsonb | yes | Star-list membership mirrored from GraphQL: `["Android", "KMP"]`. GIN-indexed for the `list_name` filter |
 | `stars` | integer | no | Star count; refreshed every sync |
 | `forks` | integer | no | Fork count; refreshed every sync |
 | `watchers` | integer | no | Watcher count; refreshed every sync |
@@ -226,11 +279,13 @@ async def sync_body(cfg, db, bot):
                     # metadata refresh only (stars, forks, last_pushed_at); no LLM
                     update_metadata_fields(existing, repo_dto)
 
-            # Soft-unstar: rows in DB but not in this sync's listing
-            stale = query(Repository, user_id=integration.user_id, is_starred=True,
-                          github_id NOT IN seen_github_ids)
-            for repo in stale:
-                repo.is_starred = False
+            # Soft-unstar: rows in DB but not in this sync's listing.
+            # Guarded by is_full_star_snapshot — only a full listing proves absence.
+            if is_full_star_snapshot:
+                stale = query(Repository, user_id=integration.user_id, is_starred=True,
+                              github_id NOT IN seen_github_ids)
+                for repo in stale:
+                    repo.is_starred = False
 
             # Watch subscriptions: first sync records README/release baselines; later deltas emit RepositoryWatchTriggered once per new README SHA256 or release tag.
             for watch in query(UserRepositoryWatch, user_id=integration.user_id):
@@ -239,7 +294,7 @@ async def sync_body(cfg, db, bot):
                 compare_with_watch_baseline_and_emit_once(watch, readme_sha, latest_release_tag)
 
             integration.last_synced_at = utcnow()
-            if was_full_pagination:
+            if is_full_star_snapshot:
                 integration.last_full_sync_at = utcnow()
 
         except GitHubAuthError:
@@ -357,6 +412,8 @@ All variables are read by `app/config/github.py::GitHubConfig`.
 | `GITHUB_SYNC_CRON` | `0 2 * * *` | No | UTC cron expression for the sync job; default is 02:00 UTC |
 | `GITHUB_SYNC_LLM_CONCURRENCY` | `2` | No | Maximum concurrent LLM analysis calls within a single sync run |
 | `GITHUB_SYNC_LLM_DAILY_BUDGET` | `100` | No | Maximum LLM calls loaded for one sync run; excess repos remain pending |
+| `GITHUB_SYNC_STAR_LISTS` | `true` | No | Mirror star lists into `repositories.list_names` via GraphQL; a failure is logged and never fails the star sync |
+| `GITHUB_FULL_SYNC_INTERVAL_DAYS` | `7` | No | Days between full star snapshots. Only a snapshot can soft-unstar, so this is what keeps `is_starred` honest; `0` disables the periodic refresh and leaves the first sync as the only full one |
 
 ---
 

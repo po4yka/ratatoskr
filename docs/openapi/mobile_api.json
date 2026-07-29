@@ -3850,6 +3850,25 @@
             }
           },
           {
+            "name": "list_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "GitHub star list name",
+              "title": "List Name"
+            },
+            "description": "GitHub star list name"
+          },
+          {
             "name": "source",
             "in": "query",
             "required": false,
@@ -7441,6 +7460,27 @@
               ],
               "title": "Topics"
             }
+          },
+          {
+            "name": "list_names",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "GitHub star lists; AND-ed",
+              "title": "List Names"
+            },
+            "description": "GitHub star lists; AND-ed"
           },
           {
             "name": "is_starred",
@@ -24694,6 +24734,13 @@
             "type": "array",
             "title": "Topics"
           },
+          "list_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "List Names"
+          },
           "stars": {
             "type": "integer",
             "title": "Stars"
@@ -24811,6 +24858,13 @@
             },
             "type": "array",
             "title": "Topics"
+          },
+          "list_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "List Names"
           },
           "stars": {
             "type": "integer",
@@ -25079,6 +25133,13 @@
             },
             "type": "array",
             "title": "Topics"
+          },
+          "list_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "List Names"
           },
           "stars": {
             "type": "integer",

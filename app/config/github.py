@@ -98,3 +98,24 @@ class GitHubConfig(BaseModel):
         validation_alias="GITHUB_SYNC_BATCH_SIZE",
         description="Number of repo upserts to batch in a single transaction during stars sync",
     )
+    sync_star_lists: bool = Field(
+        default=True,
+        validation_alias="GITHUB_SYNC_STAR_LISTS",
+        description=(
+            "Mirror GitHub star lists into repositories.list_names via GraphQL. "
+            "Costs roughly one request per 100 list items per sync run; a failure "
+            "is logged and never fails the star sync itself."
+        ),
+    )
+    full_sync_interval_days: int = Field(
+        default=7,
+        ge=0,
+        le=365,
+        validation_alias="GITHUB_FULL_SYNC_INTERVAL_DAYS",
+        description=(
+            "Days between full star snapshots. Incremental runs only add and update; "
+            "soft-unstar (is_starred=false for repos no longer starred) needs the full "
+            "listing, so it can only run on a snapshot. 0 disables periodic snapshots, "
+            "leaving the first sync as the only full one."
+        ),
+    )

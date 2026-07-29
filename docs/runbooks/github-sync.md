@@ -37,7 +37,8 @@ docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c "SELECT 
 4. If `GITHUB_TOKEN_ENCRYPTION_KEY` changed or decrypt errors appear, follow `docs/runbooks/secret-rotation.md`; if the previous key is lost, affected users must reconnect.
 5. If `pending_analysis` is high because the daily budget was reached, either wait for the next day or temporarily raise `GITHUB_SYNC_LLM_DAILY_BUDGET` after checking LLM cost alerts.
 6. Run a dry-run before manual replay: `python -m app.cli.sync_github_stars --user-id <id> --dry-run`; then run `python -m app.cli.sync_github_stars --user-id <id>` once.
-7. If the Taskiq job dead-lettered, inspect `taskiq_failed_jobs`, fix the upstream GitHub/LLM/config issue, then replay using `python -m app.cli.requeue_failed_task <id>`.
+7. When `is_starred` looks stale (repos unstarred on GitHub still flagged as starred), force a snapshot instead of waiting for `GITHUB_FULL_SYNC_INTERVAL_DAYS`: `python -m app.cli.sync_github_stars --user-id <id> --full --dry-run` shows the would-be `repos_unstarred` count, then drop `--dry-run` to apply. A snapshot pages the whole `/user/starred` listing, so it costs one API request per 100 stars.
+8. If the Taskiq job dead-lettered, inspect `taskiq_failed_jobs`, fix the upstream GitHub/LLM/config issue, then replay using `python -m app.cli.requeue_failed_task <id>`.
 
 ## Escalation
 

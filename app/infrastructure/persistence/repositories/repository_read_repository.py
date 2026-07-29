@@ -36,6 +36,7 @@ class RepositoryReadRepositoryAdapter:
         is_starred: bool | None,
         language: str | None,
         topic: str | None,
+        list_name: str | None,
         source: Literal["manual", "starred"] | None,
         pending_analysis: bool | None,
         sort: Any,
@@ -50,6 +51,8 @@ class RepositoryReadRepositoryAdapter:
                 conditions.append(Repository.primary_language == language)
             if topic is not None:
                 conditions.append(Repository.topics_json.contains(cast([topic], JSONB)))
+            if list_name is not None:
+                conditions.append(Repository.list_names.contains(cast([list_name], JSONB)))
             if source is not None:
                 conditions.append(Repository.source == source)
             if pending_analysis is not None:
@@ -239,6 +242,7 @@ class RepositoryReadRepositoryAdapter:
     @staticmethod
     def _repo_to_compact(row: Repository) -> RepositoryCompactDTO:
         topics: list[str] = list(row.topics_json) if isinstance(row.topics_json, list) else []
+        list_names: list[str] = list(row.list_names) if isinstance(row.list_names, list) else []
         return RepositoryCompactDTO(
             id=row.id,
             github_id=row.github_id,
@@ -248,6 +252,7 @@ class RepositoryReadRepositoryAdapter:
             description=row.description,
             primary_language=row.primary_language,
             topics=topics,
+            list_names=list_names,
             stars=row.stars,
             forks=row.forks,
             is_starred=row.is_starred,
@@ -262,6 +267,7 @@ class RepositoryReadRepositoryAdapter:
     @staticmethod
     def _repo_to_detail(row: Repository) -> RepositoryDetailDTO:
         topics: list[str] = list(row.topics_json) if isinstance(row.topics_json, list) else []
+        list_names: list[str] = list(row.list_names) if isinstance(row.list_names, list) else []
         languages: dict[str, int] = (
             dict(row.languages_json) if isinstance(row.languages_json, dict) else {}
         )
@@ -300,6 +306,7 @@ class RepositoryReadRepositoryAdapter:
             description=row.description,
             primary_language=row.primary_language,
             topics=topics,
+            list_names=list_names,
             stars=row.stars,
             forks=row.forks,
             is_starred=row.is_starred,

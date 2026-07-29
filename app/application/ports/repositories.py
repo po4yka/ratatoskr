@@ -24,6 +24,7 @@ class RepositoryReadRepositoryPort(Protocol):
         is_starred: bool | None,
         language: str | None,
         topic: str | None,
+        list_name: str | None,
         source: Literal["manual", "starred"] | None,
         pending_analysis: bool | None,
         sort: Any,
