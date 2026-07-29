@@ -558,12 +558,23 @@ verify_webauthn_bridge_runtime() {
     CID=\$(docker inspect --format '{{.Id}}' '${container}'); \
     [ \"\$(docker inspect --format '{{.HostConfig.NetworkMode}}' \"\$CID\")\" = none ]; \
     docker exec \"\$CID\" /usr/local/bin/ai-backup-webauthn-healthcheck.sh; \
-    if docker exec \"\$CID\" dbus-send \
+    docker exec \"\$CID\" dbus-send \
+      --bus=unix:path=/run/host-dbus/system_bus_socket \
+      --type=method_call --print-reply --reply-timeout=3000 \
+      --dest=org.freedesktop.hostname1 /org/freedesktop/hostname1 \
+      org.freedesktop.DBus.Peer.Ping >/dev/null; \
+    if DENIED_OUTPUT=\$(docker exec \"\$CID\" dbus-send \
       --bus=unix:path=/run/ratatoskr-dbus/system_bus_socket \
       --type=method_call --print-reply --reply-timeout=3000 \
       --dest=org.freedesktop.hostname1 /org/freedesktop/hostname1 \
-      org.freedesktop.DBus.Peer.Ping >/dev/null 2>&1; then \
+      org.freedesktop.DBus.Peer.Ping 2>&1); then \
       echo 'ERROR: filtered D-Bus bridge allowed a non-BlueZ service' >&2; exit 1; \
+    fi; \
+    if ! printf '%s\n' \"\$DENIED_OUTPUT\" | grep -Fq \
+      'Error org.freedesktop.DBus.Error.ServiceUnknown:'; then \
+      echo 'ERROR: unexpected D-Bus policy response' >&2; \
+      printf '%s\n' \"\$DENIED_OUTPUT\" >&2; \
+      exit 1; \
     fi"
   echo "    org.bluez is reachable; unrelated system-bus services are denied"
 }

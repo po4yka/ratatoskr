@@ -501,6 +501,18 @@ def test_pi_deploy_registers_dbus_clients_before_testing_bridge_policy() -> None
     assert "--address=unix:path=/run/ratatoskr-dbus/system_bus_socket" not in script
 
 
+def test_pi_deploy_requires_the_filtered_bus_policy_denial() -> None:
+    script = _pi_deploy_script()
+    bridge_runtime = script.split("verify_webauthn_bridge_runtime() {", maxsplit=1)[
+        1
+    ].split("verify_headed_browser_runtime() {", maxsplit=1)[0]
+
+    assert "--bus=unix:path=/run/host-dbus/system_bus_socket" in bridge_runtime
+    assert "DENIED_OUTPUT=" in bridge_runtime
+    assert "Error org.freedesktop.DBus.Error.ServiceUnknown:" in bridge_runtime
+    assert "unexpected D-Bus policy response" in bridge_runtime
+
+
 def test_pi_deploy_probes_bluez_from_the_reauth_browser_container() -> None:
     script = _pi_deploy_script()
     browser_runtime = script.split("verify_headed_browser_runtime() {", maxsplit=1)[1].split(
