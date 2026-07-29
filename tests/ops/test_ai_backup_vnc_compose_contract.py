@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
+import socket
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,14 +44,10 @@ def test_provider_browsers_have_separate_internal_displays_and_no_published_cont
             "/usr/local/bin/ratatoskr-cloakserve-headed",
         ]
         assert any(
-            "cloakbrowser-reauth/entrypoint.sh" in volume
-            and volume.endswith(":ro")
+            "cloakbrowser-reauth/entrypoint.sh" in volume and volume.endswith(":ro")
             for volume in browser["volumes"]
         )
-        assert (
-            f"ai-backup-webauthn-dbus-{provider}:/run/ratatoskr-dbus:ro"
-            in browser["volumes"]
-        )
+        assert f"ai-backup-webauthn-dbus-{provider}:/run/ratatoskr-dbus:ro" in browser["volumes"]
         assert browser["depends_on"][f"ai-backup-webauthn-bridge-{provider}"] == {
             "condition": "service_healthy"
         }
@@ -77,33 +76,27 @@ def test_provider_webauthn_bridges_expose_only_filtered_bluez_without_network() 
     compose = _compose()
     for provider in ("chatgpt", "claude"):
         bridge = compose["services"][f"ai-backup-webauthn-bridge-{provider}"]
-        assert bridge["build"]["dockerfile"] == (
-            "ops/docker/ai-backup-webauthn-bridge/Dockerfile"
-        )
+        assert bridge["build"]["dockerfile"] == ("ops/docker/ai-backup-webauthn-bridge/Dockerfile")
         assert bridge["network_mode"] == "none"
         assert "ports" not in bridge
         assert bridge["read_only"] is True
         assert bridge["cap_drop"] == ["ALL"]
         assert bridge["security_opt"] == ["no-new-privileges:true"]
         assert (
-            "/run/dbus/system_bus_socket:/run/host-dbus/system_bus_socket:ro"
-            in bridge["volumes"]
+            "/run/dbus/system_bus_socket:/run/host-dbus/system_bus_socket:ro" in bridge["volumes"]
         )
-        assert (
-            f"ai-backup-webauthn-dbus-{provider}:/run/ratatoskr-dbus"
-            in bridge["volumes"]
-        )
+        assert f"ai-backup-webauthn-dbus-{provider}:/run/ratatoskr-dbus" in bridge["volumes"]
         assert bridge["healthcheck"]["test"][-1].endswith("healthcheck.sh")
 
-    dockerfile = (
-        ROOT / "ops/docker/ai-backup-webauthn-bridge/Dockerfile"
-    ).read_text(encoding="utf-8")
-    entrypoint = (
-        ROOT / "ops/docker/ai-backup-webauthn-bridge/entrypoint.sh"
-    ).read_text(encoding="utf-8")
-    healthcheck = (
-        ROOT / "ops/docker/ai-backup-webauthn-bridge/healthcheck.sh"
-    ).read_text(encoding="utf-8")
+    dockerfile = (ROOT / "ops/docker/ai-backup-webauthn-bridge/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    entrypoint = (ROOT / "ops/docker/ai-backup-webauthn-bridge/entrypoint.sh").read_text(
+        encoding="utf-8"
+    )
+    healthcheck = (ROOT / "ops/docker/ai-backup-webauthn-bridge/healthcheck.sh").read_text(
+        encoding="utf-8"
+    )
 
     assert "debian:trixie-slim@sha256:" in dockerfile
     assert "xdg-dbus-proxy" in dockerfile
@@ -111,9 +104,68 @@ def test_provider_webauthn_bridges_expose_only_filtered_bluez_without_network() 
     assert "--filter" in entrypoint
     assert "--talk=org.bluez" in entrypoint
     assert "/run/host-dbus/system_bus_socket" in entrypoint
-    assert "--bus=unix:path=/run/ratatoskr-dbus/system_bus_socket" in healthcheck
+    assert "AI_BACKUP_WEBAUTHN_DBUS_SOCKET" in healthcheck
+    assert '--bus="unix:path=${bus_socket}"' in healthcheck
     assert "--address=" not in healthcheck
     assert "--dest=org.bluez" in healthcheck
+
+
+@pytest.mark.parametrize(("powered", "expected_returncode"), [("true", 0), ("false", 1)])
+def test_webauthn_bridge_health_requires_a_powered_adapter(
+    tmp_path: Path,
+    powered: str,
+    expected_returncode: int,
+) -> None:
+    bus_socket = Path("/tmp") / f"ratatoskr-webauthn-{os.getpid()}-{powered}.sock"
+    bus_socket.unlink(missing_ok=True)
+    listener = socket.socket(socket.AF_UNIX)
+    listener.bind(str(bus_socket))
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_dbus_send = fake_bin / "dbus-send"
+    fake_dbus_send.write_text(
+        """#!/bin/sh
+case "$*" in
+  *org.freedesktop.DBus.ObjectManager.GetManagedObjects*)
+    printf '%s\n' \
+      'method return time=0.0 sender=:1.1 -> destination=:1.2 serial=1 reply_serial=1' \
+      '   array [' \
+      '      dict entry(' \
+      '         object path "/org/bluez/hci0"' \
+      '         array [' \
+      '            dict entry(' \
+      '               string "org.bluez.Adapter1"'
+    ;;
+  *org.freedesktop.DBus.Properties.Get*)
+    printf '%s\n' \
+      'method return time=0.0 sender=:1.1 -> destination=:1.2 serial=2 reply_serial=2' \
+      "   variant       boolean ${FAKE_ADAPTER_POWERED}"
+    ;;
+  *) exit 2 ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    fake_dbus_send.chmod(0o755)
+
+    env = {
+        **os.environ,
+        "AI_BACKUP_WEBAUTHN_DBUS_SOCKET": str(bus_socket),
+        "FAKE_ADAPTER_POWERED": powered,
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+    }
+    try:
+        result = subprocess.run(
+            ["sh", str(ROOT / "ops/docker/ai-backup-webauthn-bridge/healthcheck.sh")],
+            check=False,
+            env=env,
+        )
+    finally:
+        listener.close()
+        bus_socket.unlink(missing_ok=True)
+
+    assert result.returncode == expected_returncode
 
 
 def test_display_image_is_digest_pinned_and_starts_xvnc_with_openbox() -> None:
@@ -128,16 +180,14 @@ def test_display_image_is_digest_pinned_and_starts_xvnc_with_openbox() -> None:
     assert "-geometry 1920x1080" in entrypoint
     assert "-SecurityTypes None" in entrypoint
     assert "openbox --config-file" in entrypoint
-    assert "/proc/net/tcp" in (
-        ROOT / "ops/docker/ai-backup-display/healthcheck.sh"
-    ).read_text(encoding="utf-8")
+    assert "/proc/net/tcp" in (ROOT / "ops/docker/ai-backup-display/healthcheck.sh").read_text(
+        encoding="utf-8"
+    )
     assert "<maximized>yes</maximized>" in openbox
 
 
 def test_headed_cloakbrowser_wrapper_fixes_only_the_pinned_false_flag_bug() -> None:
-    wrapper = (ROOT / "ops/docker/cloakbrowser-reauth/entrypoint.sh").read_text(
-        encoding="utf-8"
-    )
+    wrapper = (ROOT / "ops/docker/cloakbrowser-reauth/entrypoint.sh").read_text(encoding="utf-8")
 
     assert "text.count(bug) != 1" in wrapper
     assert 'config["headless"] = False' in wrapper
@@ -167,8 +217,7 @@ def test_pi_deploy_orders_display_then_browser_then_mobile_api_and_keeps_them_is
     assert 'service_requested "$display" || prerequisites+=("$display")' in script
     assert 'service_requested "$bridge" || prerequisites+=("$bridge")' in script
     assert (
-        "MOBILE_API_CONTROL_NETWORKS=(ai_backup_control_chatgpt "
-        "ai_backup_control_claude)" in script
+        "MOBILE_API_CONTROL_NETWORKS=(ai_backup_control_chatgpt ai_backup_control_claude)" in script
     )
     assert "ensure_mobile_api_control_networks" in script
     assert "docker network connect --alias 'mobile-api'" in script
