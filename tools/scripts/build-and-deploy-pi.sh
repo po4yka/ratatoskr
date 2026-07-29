@@ -592,7 +592,7 @@ verify_headed_browser_runtime() {
   if ! ssh "$RASPI_HOST" "set -u; \
     CID=\$(docker inspect --format '{{.Id}}' 'ratatoskr-${svc}' 2>/dev/null); \
     STATUS=0; \
-    docker exec \"\$CID\" python -c \"import json,urllib.request; url='http://localhost:9222/json/version?fingerprint=${smoke_seed}&timezone=UTC&locale=en-US'; data=json.load(urllib.request.urlopen(url, timeout=20)); assert data.get('webSocketDebuggerUrl'), data\" || STATUS=1; \
+    docker exec \"\$CID\" python -c \"import json,urllib.request; url='http://localhost:9222/json/version?fingerprint=${smoke_seed}&timezone=Asia%2FTbilisi&locale=en-US'; data=json.load(urllib.request.urlopen(url, timeout=20)); assert data.get('webSocketDebuggerUrl'), data\" || STATUS=1; \
     ARGS=\$(docker exec \"\$CID\" ps -eo args 2>/dev/null) || STATUS=1; \
     printf '%s\\n' \"\$ARGS\" | grep '[c]hrome' >/dev/null || STATUS=1; \
     if printf '%s\\n' \"\$ARGS\" | grep '[c]hrome' | grep -F -- '--headless' >/dev/null; then STATUS=1; fi; \

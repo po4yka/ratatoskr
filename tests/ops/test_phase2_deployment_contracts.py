@@ -525,6 +525,16 @@ def test_pi_deploy_probes_bluez_from_the_reauth_browser_container() -> None:
     assert browser_runtime.index(browser_probe) < browser_runtime.index("pkill -TERM")
 
 
+def test_pi_deploy_smokes_reauth_browsers_in_the_production_timezone() -> None:
+    script = _pi_deploy_script()
+    browser_runtime = script.split("verify_headed_browser_runtime() {", maxsplit=1)[1].split(
+        "retire_legacy_qdrant_container() {", maxsplit=1
+    )[0]
+
+    assert "timezone=Asia%2FTbilisi&locale=en-US" in browser_runtime
+    assert "timezone=UTC" not in browser_runtime
+
+
 def test_pi_deploy_restores_each_reauth_browser_control_and_egress_network() -> None:
     script = _pi_deploy_script()
 
