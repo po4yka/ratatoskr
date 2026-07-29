@@ -416,12 +416,42 @@ build_and_ship() {
     docker tag "$primary_tag" "${COMPOSE_PROJECT}-${s}:latest"
   done
 
-  echo "==> Streaming ${#all_tags[@]} tag(s) to ${RASPI_HOST}: ${all_tags[*]}"
-  # `ssh 'gunzip | docker load'` occasionally exits 255 after the remote
-  # docker load completes (SSH disconnects before flushing). Treat exit code
-  # as advisory and verify by checking that each tag exists on the Pi.
+  echo "==> Shipping ${#all_tags[@]} tag(s) to ${RASPI_HOST}: ${all_tags[*]}"
+  # Staged rather than piped. `docker save | gzip | ssh 'gunzip | docker load'`
+  # is a single-shot multi-GB stream with no resume: one dropped SSH connection
+  # truncates the tar and the Pi reports `unexpected EOF`, leaving the tag on the
+  # PREVIOUS image (observed 2026-07-29, reproducible -- the local half of the
+  # pipeline completes fine, so the loss is in transport). Staging to a file and
+  # syncing with `rsync --partial` makes each retry resume instead of restarting
+  # from zero.
+  local archive="ratatoskr-deploy-$$-${primary}.tar.gz"
+  local staged="${TMPDIR:-/tmp}/${archive}"
+  local remote_dir="\$HOME/.cache/ratatoskr-deploy"
+  local remote_archive="${remote_dir}/${archive}"
+  docker save "${all_tags[@]}" | gzip > "$staged"
+  echo "    staged $(du -h "$staged" | cut -f1) at ${staged}"
+
+  ssh "$RASPI_HOST" "mkdir -p ${remote_dir}"
+  local synced=0
+  for attempt in 1 2 3 4 5; do
+    set +e
+    rsync --partial --inplace --compress-level=0 --timeout=180 \
+      "$staged" "${RASPI_HOST}:${remote_archive}"
+    local rsync_exit=$?
+    set -e
+    [[ $rsync_exit -eq 0 ]] && { synced=1; break; }
+    echo "    rsync exited ${rsync_exit}; resuming (attempt ${attempt}/5)..." >&2
+    sleep 5
+  done
+  if [[ $synced -ne 1 ]]; then
+    rm -f "$staged"
+    echo "ERROR: could not ship ${archive} to ${RASPI_HOST} after 5 attempts" >&2
+    exit 1
+  fi
+  rm -f "$staged"
+
   set +e
-  docker save "${all_tags[@]}" | gzip | ssh "$RASPI_HOST" 'gunzip | docker load'
+  ssh "$RASPI_HOST" "gunzip < ${remote_archive} | docker load; rm -f ${remote_archive}"
   local stream_exit=$?
   set -e
   [[ $stream_exit -ne 0 ]] && echo "    (ssh exited $stream_exit -- verifying tag presence on Pi)"
