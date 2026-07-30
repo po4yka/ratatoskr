@@ -110,11 +110,15 @@ class ErrorHandler:
 
     _RETRY_AFTER_MAX_SEC: int = 120
 
-    async def handle_rate_limit(self, response_headers: Any) -> None:
-        """Handle rate limiting with proper delay.
+    async def handle_rate_limit(self, response_headers: Any) -> bool:
+        """Wait out a 429 using the server's Retry-After hint.
 
         The Retry-After value is capped at _RETRY_AFTER_MAX_SEC to prevent
         an attacker-controlled header from causing an unbounded sleep.
+
+        Returns True when this call actually slept. The caller needs to know:
+        a 429 with no usable header must still get the standard backoff, or the
+        cascade retries a rate-limited provider with no pause at all.
         """
         retry_after = response_headers.get("retry-after")
         if retry_after:
@@ -135,6 +139,9 @@ class ErrorHandler:
                     "invalid_retry_after_header",
                     extra={"retry_after": retry_after, "error": str(e)},
                 )
+            else:
+                return True
+        return False
 
     def should_downgrade_response_format(
         self,

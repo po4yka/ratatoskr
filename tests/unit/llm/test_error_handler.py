@@ -251,7 +251,9 @@ async def test_handle_rate_limit_sleeps_for_retry_after_header(
 
     monkeypatch.setattr("asyncio.sleep", _fake_sleep)
     h = _make_handler()
-    await h.handle_rate_limit({"retry-after": "7"})
+    # The caller uses the return value to decide whether the standard backoff
+    # still has to run, so it is part of the contract, not a detail.
+    assert await h.handle_rate_limit({"retry-after": "7"}) is True
     assert slept == [7]
 
 
@@ -265,16 +267,18 @@ async def test_handle_rate_limit_swallows_invalid_header(
         lambda s: slept.append(s),  # type: ignore[arg-type, unused-ignore]
     )
     h = _make_handler()
-    # Non-numeric retry-after must not crash.
-    await h.handle_rate_limit({"retry-after": "soon"})
+    # Non-numeric retry-after must not crash, and must report that it did not
+    # wait -- otherwise chat_response_handler skips its backoff and retries a
+    # rate-limited provider immediately.
+    assert await h.handle_rate_limit({"retry-after": "soon"}) is False
     assert slept == []  # nothing scheduled
 
 
 @pytest.mark.asyncio
 async def test_handle_rate_limit_no_op_without_header() -> None:
-    """Missing retry-after header must not sleep or raise."""
+    """Missing retry-after header must not sleep or raise, and reports no wait."""
     h = _make_handler()
-    await h.handle_rate_limit({})  # no exception
+    assert await h.handle_rate_limit({}) is False
 
 
 # ---------------------------------------------------------------------------

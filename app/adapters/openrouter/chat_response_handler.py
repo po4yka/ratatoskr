@@ -271,15 +271,23 @@ class ChatResponseHandler:
             )
 
         if self._client.error_handler.should_retry(status_code, attempt):
+            # A 429 skips the standard backoff only when Retry-After actually
+            # made us wait. The header is absent or unparseable often enough
+            # that assuming it slept meant 4 immediate retries per model across
+            # the whole cascade -- a burst of requests at a provider that just
+            # asked us to slow down.
+            waited_for_rate_limit = False
             if status_code == 429:
-                await self._client.error_handler.handle_rate_limit(resp.headers)
+                waited_for_rate_limit = bool(
+                    await self._client.error_handler.handle_rate_limit(resp.headers)
+                )
             return AttemptOutcome(
                 error_text=error_message,
                 error_context=error_context,
                 retry=RetryDirective(
                     rf_mode=payload.rf_mode_current,
                     response_format=payload.response_format_current,
-                    backoff_needed=status_code != 429,
+                    backoff_needed=not waited_for_rate_limit,
                 ),
                 structured_output_state=payload.structured_output_state,
             )
