@@ -92,6 +92,7 @@ The `git_mirrors` table (`app/db/models/git_backup.py`) holds one row per (user,
 | `last_error_category` | varchar(50) | yes | `ErrorCategory.value` string from the last failure |
 | `backoff_until` | timestamptz | yes | When set, the mirror is skipped by `list_due` until this time passes |
 | `excluded_at` | timestamptz | yes | Set when the mirror is tombstoned (`status=excluded`). Null for all other statuses. |
+| `pinned` | boolean | no | True when the user registered this mirror by hand, which exempts it from the unstar reconciliation below. Only ever set, never cleared. |
 | `clone_strategy` | varchar(50) | yes | Clone strategy used for the most recent initial clone: `"full"` (mirror) or `"shallow"` (`--depth=1`). Written by `record_success` / `record_failure`. Null for rows that pre-date the shallow-clone feature or for update (non-clone) operations. |
 | `created_at` | timestamptz | no | Row insertion time |
 | `updated_at` | timestamptz | no | Last modification time |
@@ -113,10 +114,13 @@ The conservative detection function `is_permanently_gone` (`app/adapters/git_bac
 
 A tombstoned mirror can be revived by the user re-adding the same URL via `/mirror` or the `POST /v1/git-mirrors` API endpoint. `GitMirrorRepository.upsert_target` detects the `excluded` status on the existing row and resets it to `pending`, clearing `excluded_at`, `consecutive_failures`, `backoff_until`, and `last_error` so the next sync cycle retries from a clean state.
 
-The second tombstoning trigger is unstarring. A mirror auto-enrolled from the star listing would otherwise stay in rotation forever — fetched every run, holding disk and a Qdrant point — because a repo that is merely unstarred is still perfectly alive upstream. `_release_unstarred_mirrors` (`app/tasks/git_backup_sync.py`) runs right after the repo enumeration and requires two independent signals before touching a row:
+The second tombstoning trigger is unstarring. A mirror auto-enrolled from the star listing would otherwise stay in rotation forever — fetched every run, holding disk and a Qdrant point — because a repo that is merely unstarred is still perfectly alive upstream. `_release_unstarred_mirrors` (`app/tasks/git_backup_sync.py`) runs right after the repo enumeration and requires three independent signals before touching a row:
 
 1. `repository_id` is set. Mirrors added by hand carry no FK, and the Telegram `/mirror` handler stores `source=github` for any github.com URL, so the source column alone cannot separate an auto-enrolled mirror from a hand-added one.
 2. The linked `repositories` row is `source=starred` with `is_starred=false`, **and** the clone URL was absent from this run's enumeration. The second half keeps a repo that is still owned or watched — and therefore still legitimately mirrored — out of the sweep.
+3. The row is not `pinned`. Signals 1 and 2 both hold for a repository the user asked to back up explicitly and *later* starred and then unstarred on GitHub: the star sync promotes such a row to `source=starred`, after which inference alone cannot tell it from an auto-enrolled mirror. `pinned` is the only record that the backup was requested by name, and dropping it would discard data the user asked for.
+
+`pinned` is set by `POST /v1/git-mirrors` and by the per-repository enrollment behind `POST /v1/repositories` with `mode=track` or `mode=star` (`GitMirrorEnrollmentAdapter`). It is only ever set, never cleared: the nightly bulk enumeration calls `upsert_target` with `pinned=False` for every starred repo, and that must not undo an explicit request.
 
 Turning `GIT_BACKUP_MIRROR_STARRED` off therefore cannot trigger a purge: candidates must also be unstarred, and the row stays revivable. Actual deletion still only happens through `GIT_BACKUP_PRUNE_EXCLUDED_DAYS`. A repo the GitHub metadata sync has never ingested has no `repository_id` and is left alone; accuracy also depends on `is_starred` being truthful, which is what the periodic full snapshot (`GITHUB_FULL_SYNC_INTERVAL_DAYS`) guarantees.
 
