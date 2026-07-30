@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import types
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
 
@@ -158,6 +158,46 @@ async def test_reconcile_counts_network_use_after_local_normalization(
     assert summary.reextracted == 1
     assert summary.skipped == 1
     assert service.backfill.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_reconcile_uses_internal_path_for_ownerless_legacy_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_task(monkeypatch)
+    monkeypatch.setattr(
+        module,
+        "_fetch_missing_source_rows",
+        AsyncMock(
+            return_value=[
+                {
+                    "summary_id": 1,
+                    "request_id": 11,
+                    "user_id": None,
+                    "has_local_source": True,
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "_get_missing_source_stats",
+        AsyncMock(return_value=(0, 0)),
+    )
+    service = SimpleNamespace(
+        backfill=AsyncMock(),
+        backfill_for_reconciliation=AsyncMock(return_value=SimpleNamespace(reextracted=False)),
+    )
+
+    summary = await module._reconcile_body(_cfg(), MagicMock(), service=service)
+
+    assert summary.local_repaired == 1
+    service.backfill.assert_not_awaited()
+    service.backfill_for_reconciliation.assert_awaited_once_with(
+        summary_id=1,
+        operation_correlation_id=ANY,
+        allow_reextract=False,
+    )
 
 
 @pytest.mark.asyncio

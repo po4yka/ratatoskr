@@ -12,7 +12,10 @@ from app.domain.models.summary import Summary as DomainSummary
 from app.infrastructure.persistence.repositories.summary_repository import (
     SummaryRepositoryAdapter,
     _aggregation_item_to_dict,
+    _build_tsquery,
+    _sanitize_fts_term,
     _status_value,
+    _summary_matches_topic,
 )
 
 
@@ -219,15 +222,15 @@ def test_summary_repository_domain_and_search_helpers() -> None:
         "insights_json": {"facts": []},
     }
 
-    assert repo._build_tsquery("AI, tools!") == "ai:* & tools:*"
-    assert repo._build_tsquery("!!!") is None
-    assert repo._sanitize_fts_term("hello, world") == "hello & world"
-    assert repo._summary_matches_topic(
+    assert _build_tsquery("AI, tools!") == "ai:* & tools:*"
+    assert _build_tsquery("!!!") is None
+    assert _sanitize_fts_term("hello, world") == "hello & world"
+    assert _summary_matches_topic(
         {"topic_tags": ["AI"], "nested": {"title": "Tools"}},
         {"input_url": "https://example.test"},
         "ai tools",
     )
-    assert not repo._summary_matches_topic({}, {}, "ai")
+    assert not _summary_matches_topic({}, {}, "ai")
     assert _status_value(RequestStatus.COMPLETED) == "ok"
     assert _status_value("custom") == "custom"
     assert _aggregation_item_to_dict(None) is None

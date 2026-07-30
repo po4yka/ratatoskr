@@ -26,7 +26,6 @@ from app.api.exceptions import (
     ValidationError,
 )
 from app.api.models.digest import SendEmailRequest
-from app.api.models.responses.digest import EmailDeliverySuccessResponse
 from app.api.models.requests import (
     SaveReadingPositionRequest,
     SubmitFeedbackRequest,
@@ -68,6 +67,7 @@ from app.api.models.responses import (
     UpdateSummarySuccessResponse,
     success_response,
 )
+from app.api.models.responses.digest import EmailDeliverySuccessResponse
 from app.api.routers.auth import get_current_user
 from app.api.search_helpers import isotime
 from app.application.dto.vector_search import VectorSearchHitDTO

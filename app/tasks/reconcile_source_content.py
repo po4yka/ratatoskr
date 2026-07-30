@@ -131,12 +131,23 @@ async def _reconcile_body(
         allow_reextract = not row["has_local_source"] and network_attempts < network_budget
         if allow_reextract:
             network_attempts += 1
+        if row["user_id"] is None:
+            backfill = service.backfill_for_reconciliation
+            backfill_kwargs = {
+                "summary_id": int(row["summary_id"]),
+                "operation_correlation_id": cid,
+            }
+        else:
+            backfill = service.backfill
+            backfill_kwargs = {
+                "user_id": int(row["user_id"]),
+                "summary_id": int(row["summary_id"]),
+                "operation_correlation_id": cid,
+            }
         while True:
             try:
-                result = await service.backfill(
-                    user_id=int(row["user_id"]),
-                    summary_id=int(row["summary_id"]),
-                    operation_correlation_id=cid,
+                result = await backfill(
+                    **backfill_kwargs,
                     allow_reextract=allow_reextract,
                 )
             except SourceContentBackfillUnavailableError:
@@ -241,7 +252,6 @@ def _missing_source_filters() -> tuple[Any, ...]:
         Request.status.in_(_COMPLETED_STATUSES),
         Request.is_deleted.is_(False),
         Summary.is_deleted.is_(False),
-        Request.user_id.is_not(None),
         missing_content,
     )
 

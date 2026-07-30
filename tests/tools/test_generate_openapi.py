@@ -19,6 +19,7 @@ _INTENTIONAL_NON_JSON_SUCCESS_OPERATIONS = {
     ("GET", "/metrics"),
     ("GET", "/v1/articles/{summary_id}/audio"),
     ("GET", "/v1/articles/{summary_id}/export"),
+    ("GET", "/v1/ai-backups/{service}/reauth/{flow_id}/frame"),
     ("GET", "/v1/backups/{backup_id}/download"),
     ("GET", "/v1/digest/runs/{run_id}/stream"),
     ("GET", "/v1/export"),

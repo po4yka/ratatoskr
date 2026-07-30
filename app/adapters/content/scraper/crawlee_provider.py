@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from datetime import timedelta
+from tempfile import TemporaryDirectory
 from typing import Any
 
 from app.adapters.content.scraper.runtime_tuning import tuned_provider_timeout
@@ -178,6 +179,7 @@ class CrawleeProvider:
 
     async def _extract_with_beautifulsoup(self, url: str, *, timeout_sec: float) -> str | None:
         try:
+            from crawlee.configuration import Configuration
             from crawlee.crawlers import BeautifulSoupCrawler, BeautifulSoupCrawlingContext
         except ImportError as exc:
             msg = (
@@ -187,18 +189,20 @@ class CrawleeProvider:
             raise ImportError(msg) from exc
 
         extracted_html: str | None = None
-        crawler = BeautifulSoupCrawler(
-            max_request_retries=self._max_retries,
-            request_handler_timeout=timedelta(seconds=timeout_sec),
-            max_requests_per_crawl=1,
-        )
+        with TemporaryDirectory(prefix="ratatoskr-crawlee-bs-") as storage_dir:
+            crawler = BeautifulSoupCrawler(
+                configuration=Configuration(storage_dir=storage_dir),
+                max_request_retries=self._max_retries,
+                request_handler_timeout=timedelta(seconds=timeout_sec),
+                max_requests_per_crawl=1,
+            )
 
-        @crawler.router.default_handler
-        async def request_handler(context: BeautifulSoupCrawlingContext) -> None:
-            nonlocal extracted_html
-            extracted_html = str(context.soup) if context.soup is not None else None
+            @crawler.router.default_handler
+            async def request_handler(context: BeautifulSoupCrawlingContext) -> None:
+                nonlocal extracted_html
+                extracted_html = str(context.soup) if context.soup is not None else None
 
-        await crawler.run([url])
+            await crawler.run([url])
         return extracted_html
 
     async def _extract_with_playwright(
@@ -210,6 +214,7 @@ class CrawleeProvider:
     ) -> str | None:
         del mobile  # Crawlee controls browser context; provider keeps API symmetry.
         try:
+            from crawlee.configuration import Configuration
             from crawlee.crawlers import PlaywrightCrawler, PlaywrightCrawlingContext
         except ImportError as exc:
             msg = (
@@ -239,27 +244,29 @@ class CrawleeProvider:
             _new_context_opts = {}
 
         extracted_html: str | None = None
-        crawler = PlaywrightCrawler(
-            headless=self._headless,
-            max_request_retries=self._max_retries,
-            request_handler_timeout=timedelta(seconds=timeout_sec),
-            max_requests_per_crawl=1,
-            browser_new_context_options=_new_context_opts or None,
-        )
+        with TemporaryDirectory(prefix="ratatoskr-crawlee-pw-") as storage_dir:
+            crawler = PlaywrightCrawler(
+                configuration=Configuration(storage_dir=storage_dir),
+                headless=self._headless,
+                max_request_retries=self._max_retries,
+                request_handler_timeout=timedelta(seconds=timeout_sec),
+                max_requests_per_crawl=1,
+                browser_new_context_options=_new_context_opts or None,
+            )
 
-        # Re-validate every browser-initiated request (redirects + subresources
-        # such as images/scripts/XHR) against the SSRF blocklist, not just the
-        # initial navigation URL. Mirrors PlaywrightProvider._block_ssrf_route so
-        # a compromised or attacker-controlled page cannot pivot the browser to
-        # an internal address (cloud metadata, other compose services, loopback).
-        crawler.pre_navigation_hook(self._install_ssrf_guard)
+            # Re-validate every browser-initiated request (redirects + subresources
+            # such as images/scripts/XHR) against the SSRF blocklist, not just the
+            # initial navigation URL. Mirrors PlaywrightProvider._block_ssrf_route so
+            # a compromised or attacker-controlled page cannot pivot the browser to
+            # an internal address (cloud metadata, other compose services, loopback).
+            crawler.pre_navigation_hook(self._install_ssrf_guard)
 
-        @crawler.router.default_handler
-        async def request_handler(context: PlaywrightCrawlingContext) -> None:
-            nonlocal extracted_html
-            extracted_html = await context.page.content()
+            @crawler.router.default_handler
+            async def request_handler(context: PlaywrightCrawlingContext) -> None:
+                nonlocal extracted_html
+                extracted_html = await context.page.content()
 
-        await crawler.run([url])
+            await crawler.run([url])
         return extracted_html
 
     async def _install_ssrf_guard(self, context: Any) -> None:

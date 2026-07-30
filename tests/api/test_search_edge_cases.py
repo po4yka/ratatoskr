@@ -259,11 +259,13 @@ def test_search_insights_success(client, search_data, search_token):
     )
     assert response.status_code == 200
     data = response.json()["data"]
-    assert "topic_trends" in data
-    assert "rising_entities" in data
-    assert "source_diversity" in data
-    assert "language_mix" in data
-    assert "coverage_gaps" in data
+    # SearchInsightsResponse declares serialization_alias on every field, so the
+    # wire shape is camelCase — see the published SearchInsightsResponse schema.
+    assert "topicTrends" in data
+    assert "risingEntities" in data
+    assert "sourceDiversity" in data
+    assert "languageMix" in data
+    assert "coverageGaps" in data
 
 
 def test_search_insights_payload_preserves_windowed_counts():

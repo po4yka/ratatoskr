@@ -5,5 +5,5 @@
     "app/infrastructure/vector/qdrant_store.py::QdrantVectorStore": 1044,
     "app/adapters/content/graph_url_processor.py::GraphURLProcessor": 1102,
     "app/infrastructure/persistence/digest_store.py::DigestStore": 1122,
-    "app/infrastructure/persistence/repositories/summary_repository.py::SummaryRepositoryAdapter": 1169
+    "app/infrastructure/persistence/repositories/summary_repository.py::SummaryRepositoryAdapter": 1101
 }

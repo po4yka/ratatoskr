@@ -9,6 +9,7 @@ holds a strong reference until the write finishes.
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 import pytest
@@ -93,3 +94,14 @@ async def test_audit_sink_coerces_non_dict_details(monkeypatch: pytest.MonkeyPat
     assert repo.calls == [
         {"log_level": "info", "event_type": "evt", "details": {"details": "not-a-dict"}}
     ]
+
+
+def test_default_audit_accepts_uppercase_info_level(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.INFO, logger=shared.__name__):
+        shared._default_audit("INFO", "scraper_success", {"provider": "test"})
+
+    record = next(record for record in caplog.records if record.message == "scraper_success")
+    assert record.levelno == logging.INFO
+    assert record.provider == "test"
