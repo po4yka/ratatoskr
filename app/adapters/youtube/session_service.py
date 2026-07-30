@@ -83,7 +83,11 @@ class YouTubeDownloadSessionService:
         self._video_source_extractor = MetadataDrivenVideoSourceExtractor()
 
     async def check_storage_limits(self) -> None:
-        current_usage = self.calculate_storage_usage()
+        # Recursive rglob + a stat() per file. On the Pi's SD card with a few
+        # thousand cached files that is hundreds of milliseconds to seconds, and
+        # it runs on every YouTube request -- twice when cleanup fires. The
+        # auto_cleanup_storage call between them was already offloaded.
+        current_usage = await asyncio.to_thread(self.calculate_storage_usage)
         max_storage = self._cfg.youtube.max_storage_gb * 1024 * 1024 * 1024
         threshold = max_storage * 0.9
 
@@ -93,7 +97,7 @@ class YouTubeDownloadSessionService:
                 current_usage,
                 max_storage,
             )
-            current_usage = self.calculate_storage_usage()
+            current_usage = await asyncio.to_thread(self.calculate_storage_usage)
             logger.info(
                 "youtube_storage_cleanup_attempted",
                 extra={

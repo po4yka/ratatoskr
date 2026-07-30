@@ -247,7 +247,13 @@ class AttachmentContentService:
             await status_updater("🖼 <b>Processing image...</b>")
 
         try:
-            image_content = ImageExtractor.extract(
+            # Image.open + LANCZOS resize + JPEG encode is CPU-bound and can run
+            # for seconds on a large photo. The PDF and markitdown branches of
+            # this same class already offload; this one did not, so a 100-megapixel
+            # upload blocked the loop thread outright -- Telethon stops answering,
+            # progress edits do not fire, and every in-flight summarize stalls.
+            image_content = await asyncio.to_thread(
+                ImageExtractor.extract,
                 file_path,
                 max_dimension=attachment_cfg.image_max_dimension,
             )
@@ -304,8 +310,13 @@ class AttachmentContentService:
         image_contents = []
         for file_path in file_paths:
             try:
+                # Sequential rather than gathered: an album is up to ten images
+                # and firing ten threads at once would only crowd the shared
+                # default executor on a Pi. Awaiting each one still yields
+                # between images, which is what the loop needs.
                 image_contents.append(
-                    ImageExtractor.extract(
+                    await asyncio.to_thread(
+                        ImageExtractor.extract,
                         file_path,
                         max_dimension=attachment_cfg.image_max_dimension,
                     )

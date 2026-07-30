@@ -156,7 +156,7 @@ class ClaudeClient:
             if self._incremental and _should_skip(conv.get("updated_at"), self._since):
                 self.skipped += 1
                 continue
-            saved = self._writer.load_saved_conversation(uuid)
+            saved = await asyncio.to_thread(self._writer.load_saved_conversation, uuid)
             listed_update = conv.get("updated_at")
             if (
                 saved is not None
