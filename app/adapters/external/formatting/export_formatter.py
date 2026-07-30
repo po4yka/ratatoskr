@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import html
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -56,13 +57,16 @@ class ExportFormatter:
             )
             return None, None
 
-        # Generate based on format
+        # Generate based on format. The three generators render HTML, run
+        # WeasyPrint and write the temp file synchronously, so they are offloaded
+        # here rather than at each call site -- this is the only choke point both
+        # the Telegram callback and GET /v1/summaries/{id}/export pass through.
         if export_format == "pdf":
-            return self._export_pdf(summary_data, correlation_id)
+            return await asyncio.to_thread(self._export_pdf, summary_data, correlation_id)
         if export_format == "md":
-            return self._export_markdown(summary_data, correlation_id)
+            return await asyncio.to_thread(self._export_markdown, summary_data, correlation_id)
         if export_format == "html":
-            return self._export_html(summary_data, correlation_id)
+            return await asyncio.to_thread(self._export_html, summary_data, correlation_id)
 
         logger.warning(
             "export_unknown_format",

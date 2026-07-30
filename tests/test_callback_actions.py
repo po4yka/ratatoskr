@@ -397,7 +397,10 @@ class TestExport:
         message = SimpleNamespace(reply_document=AsyncMock())
         service, formatter = _make_service()
 
-        def _fake_export_summary(
+        # Must stay `async def`: ExportFormatter.export_summary is a coroutine
+        # function, and a sync fake here hid the fact that the handler used to
+        # wrap it in to_thread() (which never awaited it).
+        async def _fake_export_summary(
             self: Any,
             summary_id: str,
             export_format: str,

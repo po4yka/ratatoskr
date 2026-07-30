@@ -172,9 +172,13 @@ class CallbackActionIOHandlers:
                 t("cb_export_generating", self._lang).format(fmt=export_format.upper()),
             )
 
+            # export_summary is a coroutine function -- awaiting it directly is
+            # required. Wrapping it in to_thread() handed wait_for an un-awaited
+            # coroutine object, so this unpack raised TypeError and every
+            # PDF/MD/HTML button answered "export failed". The blocking render
+            # is offloaded inside ExportFormatter.export_summary itself.
             file_path, filename = await self._asyncio.wait_for(
-                self._asyncio.to_thread(
-                    exporter.export_summary,
+                exporter.export_summary(
                     summary_id=summary_id,
                     export_format=export_format,
                     correlation_id=correlation_id,
