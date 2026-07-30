@@ -84,6 +84,27 @@ class ManageStarListsUseCase:
             summaries = await gateway.fetch_star_list_summaries()
         return [_describe(entry) for entry in summaries]
 
+    async def star_repository(self, *, user_id: int, owner: str, name: str) -> None:
+        """Star ``owner/name`` for the user.
+
+        Needs only the ``repo`` scope the integration is already connected with,
+        unlike every list operation here, which needs ``user``. Idempotent, so a
+        caller does not have to check the current state first.
+        """
+        token = await self._token_for(user_id)
+        with use_case_span("star_lists.star_repository"):
+            async with self._gateway_factory(token) as gateway:
+                await gateway.add_star(owner=owner, name=name)
+        logger.info("repository_starred", extra={"full_name": f"{owner}/{name}"})
+
+    async def unstar_repository(self, *, user_id: int, owner: str, name: str) -> None:
+        """Remove the user's star from ``owner/name``. Idempotent."""
+        token = await self._token_for(user_id)
+        with use_case_span("star_lists.unstar_repository"):
+            async with self._gateway_factory(token) as gateway:
+                await gateway.remove_star(owner=owner, name=name)
+        logger.info("repository_unstarred", extra={"full_name": f"{owner}/{name}"})
+
     async def create_list(
         self,
         user_id: int,

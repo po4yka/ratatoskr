@@ -1,4 +1,4 @@
-"""Tests for GitHubGraphQLClient — star list reads over GraphQL."""
+"""Tests for GitHubGraphQLClient — star and star-list operations over GraphQL."""
 
 from __future__ import annotations
 
@@ -376,3 +376,95 @@ async def test_fetch_star_list_summaries_skips_item_paging():
     # One request, and no itemPageSize variable — items were never selected.
     assert len(calls) == 1
     assert "itemPageSize" not in calls[0]
+
+
+def _star_responder(node_id: str = "R_kg1"):
+    """Answer the node-ID query, then any star mutation."""
+
+    def body_for(body):
+        if "owner" in body["variables"]:
+            return httpx.Response(200, json={"data": {"repository": {"id": node_id}}})
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "addStar": {"starrable": {"databaseId": 1001, "viewerHasStarred": True}},
+                    "removeStar": {"starrable": {"databaseId": 1001, "viewerHasStarred": False}},
+                }
+            },
+        )
+
+    return body_for
+
+
+@pytest.mark.asyncio
+async def test_add_star_resolves_the_node_id_then_stars():
+    client, calls = _captured(_star_responder())
+
+    async with client:
+        await client.add_star(owner="square", name="metro")
+
+    assert calls[0] == {"owner": "square", "name": "metro"}
+    assert calls[1] == {"starrableId": "R_kg1"}
+
+
+@pytest.mark.asyncio
+async def test_remove_star_uses_the_same_resolution_path():
+    client, calls = _captured(_star_responder("R_kg2"))
+
+    async with client:
+        await client.remove_star(owner="square", name="metro")
+
+    assert calls[1] == {"starrableId": "R_kg2"}
+
+
+@pytest.mark.asyncio
+async def test_add_star_raises_when_the_repository_is_unknown():
+    """A typo'd slug must not silently succeed as a no-op."""
+    from app.adapters.github.exceptions import GitHubNotFoundError
+
+    client, calls = _captured(lambda body: httpx.Response(200, json={"data": {"repository": None}}))
+
+    async with client:
+        with pytest.raises(GitHubNotFoundError):
+            await client.add_star(owner="nobody", name="nothing")
+
+    # Resolution failed, so the mutation was never sent.
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_add_star_surfaces_a_graphql_errors_array_as_an_auth_error():
+    def body_for(body):
+        if "owner" in body["variables"]:
+            return httpx.Response(200, json={"data": {"repository": {"id": "R_kg1"}}})
+        return httpx.Response(
+            200,
+            json={
+                "data": None,
+                "errors": [{"type": "FORBIDDEN", "message": "Resource not accessible by token"}],
+            },
+        )
+
+    client, _calls = _captured(body_for)
+
+    async with client:
+        with pytest.raises(GitHubAuthError):
+            await client.add_star(owner="square", name="metro")
+
+
+@pytest.mark.asyncio
+async def test_add_star_surfaces_rate_limiting():
+    def body_for(body):
+        if "owner" in body["variables"]:
+            return httpx.Response(200, json={"data": {"repository": {"id": "R_kg1"}}})
+        return httpx.Response(
+            200,
+            json={"data": None, "errors": [{"type": "RATE_LIMITED", "message": "slow down"}]},
+        )
+
+    client, _calls = _captured(body_for)
+
+    async with client:
+        with pytest.raises(GitHubRateLimitError):
+            await client.add_star(owner="square", name="metro")

@@ -87,6 +87,14 @@ class StarListGateway(Protocol):
         """Replace the lists a repository belongs to; return the resulting names."""
         ...
 
+    async def add_star(self, *, owner: str, name: str) -> None:
+        """Star a repository. Idempotent — an already-starred repo is accepted."""
+        ...
+
+    async def remove_star(self, *, owner: str, name: str) -> None:
+        """Unstar a repository. Idempotent, like :meth:`add_star`."""
+        ...
+
 
 # Injected by the composition site so the application module never imports the
 # concrete adapter.

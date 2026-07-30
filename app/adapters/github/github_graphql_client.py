@@ -1,9 +1,11 @@
-"""GitHub GraphQL client for star lists.
+"""GitHub GraphQL client for stars and star lists.
 
 Star lists (the user-curated buckets shown on ``github.com/<user>?tab=stars``)
-are absent from REST v3 — ``viewer.lists`` in GraphQL is the only source. This
-client covers exactly that read; everything else about repositories keeps going
-through :class:`~app.adapters.github.github_api_client.GitHubAPIClient`.
+are absent from REST v3 — ``viewer.lists`` in GraphQL is the only source. Star
+mutations do exist in REST, but they are kept here so a single client owns
+"change what the user has starred and how it is filed"; everything else about
+repositories keeps going through
+:class:`~app.adapters.github.github_api_client.GitHubAPIClient`.
 
 Pagination is two-dimensional: lists are a connection, and each list's items are
 their own connection. GraphQL cannot resume a nested connection directly, so a
@@ -145,6 +147,25 @@ mutation($itemId: ID!, $listIds: [ID!]!) {
 }
 """
 
+# Starring is documented, and unlike the list mutations it is satisfied by the
+# `repo` / `public_repo` scope the integration already holds. Both mutations are
+# idempotent server-side: starring an already-starred repository succeeds.
+_ADD_STAR_MUTATION = """
+mutation($starrableId: ID!) {
+  addStar(input: {starrableId: $starrableId}) {
+    starrable { ... on Repository { databaseId viewerHasStarred } }
+  }
+}
+"""
+
+_REMOVE_STAR_MUTATION = """
+mutation($starrableId: ID!) {
+  removeStar(input: {starrableId: $starrableId}) {
+    starrable { ... on Repository { databaseId viewerHasStarred } }
+  }
+}
+"""
+
 
 class GitHubGraphQLClient:
     """Async GitHub GraphQL v4 client, scoped to star lists.
@@ -276,7 +297,7 @@ class GitHubGraphQLClient:
             # to the same grace period the REST client uses for a missing reset.
             raise GitHubRateLimitError(reset_epoch=int(time.time()) + _RATE_LIMIT_FALLBACK_SEC)
         if types & {"FORBIDDEN", "INSUFFICIENT_SCOPES", "UNAUTHORIZED"}:
-            raise GitHubAuthError(f"GitHub GraphQL denied the star-list query: {messages}")
+            raise GitHubAuthError(f"GitHub GraphQL denied the request: {messages}")
         raise GitHubServerError(f"GitHub GraphQL returned errors: {messages}")
 
     # ------------------------------------------------------------------
@@ -425,17 +446,41 @@ class GitHubGraphQLClient:
         every list. Callers that mean "also add to X" must read the current
         membership first.
         """
-        repo_data = await self._execute(_REPO_NODE_ID_QUERY, {"owner": owner, "name": name})
-        item_id = self._dig(repo_data, "repository", "id")
-        if not item_id:
-            raise GitHubNotFoundError(f"GitHub has no repository {owner}/{name}")
-
+        item_id = await self._repository_node_id(owner=owner, name=name)
         data = await self._execute(
             _SET_ITEM_LISTS_MUTATION,
             {"itemId": item_id, "listIds": list_ids},
         )
         lists = self._dig(data, "updateUserListsForItem", "lists") or []
         return [entry.get("name") or "" for entry in lists if isinstance(entry, dict)]
+
+    async def add_star(self, *, owner: str, name: str) -> None:
+        """Star a repository on behalf of the authenticated user.
+
+        Idempotent: GitHub accepts the mutation for an already-starred
+        repository, so a caller does not have to read the current state first.
+        Unlike the list mutations this needs no extra scope beyond the ``repo``
+        the integration is already connected with.
+        """
+        starrable_id = await self._repository_node_id(owner=owner, name=name)
+        await self._execute(_ADD_STAR_MUTATION, {"starrableId": starrable_id})
+
+    async def remove_star(self, *, owner: str, name: str) -> None:
+        """Unstar a repository. Idempotent, like :meth:`add_star`."""
+        starrable_id = await self._repository_node_id(owner=owner, name=name)
+        await self._execute(_REMOVE_STAR_MUTATION, {"starrableId": starrable_id})
+
+    async def _repository_node_id(self, *, owner: str, name: str) -> str:
+        """Resolve a repository's GraphQL node ID.
+
+        ``repositories.github_id`` stores the REST ``databaseId``, which none of
+        the mutations accept.
+        """
+        data = await self._execute(_REPO_NODE_ID_QUERY, {"owner": owner, "name": name})
+        node_id = self._dig(data, "repository", "id")
+        if not node_id:
+            raise GitHubNotFoundError(f"GitHub has no repository {owner}/{name}")
+        return str(node_id)
 
     @staticmethod
     def _list_dto(node: Any) -> StarListDTO:
