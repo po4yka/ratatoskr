@@ -108,8 +108,10 @@ async def test_search_preserves_sync_timestamp_when_repository_was_never_pushed(
 
     assert resp.status_code == 200
     result = resp.json()["data"]["results"][0]
-    assert result["pushedAt"] is None
-    assert result["lastSyncedAt"] == "2024-02-01T00:00:00Z"
+    # Unlike the insights/discovery models, the repository response models declare
+    # no serialization_alias, so this endpoint stays snake_case on the wire.
+    assert result["pushed_at"] is None
+    assert result["last_synced_at"] == "2024-02-01T00:00:00Z"
 
 
 # ---------------------------------------------------------------------------

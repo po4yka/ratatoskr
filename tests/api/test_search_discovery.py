@@ -16,16 +16,28 @@ from app.db.models import Request, Summary, User
 # ==================== Trending Topics Tests ====================
 
 
-@patch("app.api.routers.search.get_trending_payload")
+def _trending_payload(tags: list[dict] | None = None) -> dict:
+    """The shape `_compute_trending` actually returns.
+
+    `TrendingTopicsResponse` requires `tags` and `time_range`; a mock that
+    invents its own keys makes the endpoint fail response validation instead of
+    exercising it.
+    """
+    return {
+        "tags": tags if tags is not None else [],
+        "time_range": {"start": "2026-06-30T00:00:00Z", "end": "2026-07-30T00:00:00Z"},
+    }
+
+
+@patch("app.api.routers.content.search.get_trending_payload")
 def test_get_trending_topics_success(mock_trending, client, search_token):
     """Test successful trending topics retrieval."""
-    mock_trending.return_value = {
-        "topics": [
-            {"tag": "#ai", "count": 10, "trend_score": 1.5},
-            {"tag": "#blockchain", "count": 8, "trend_score": 1.2},
-        ],
-        "total": 2,
-    }
+    mock_trending.return_value = _trending_payload(
+        [
+            {"tag": "#ai", "count": 10, "trend": "up", "percentage_change": 50.0},
+            {"tag": "#blockchain", "count": 8, "trend": "stable", "percentage_change": 2.0},
+        ]
+    )
 
     response = client.get(
         "/v1/topics/trending",
@@ -35,15 +47,17 @@ def test_get_trending_topics_success(mock_trending, client, search_token):
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert "topics" in data
-    assert len(data["topics"]) == 2
-    assert data["topics"][0]["tag"] == "#ai"
+    assert len(data["tags"]) == 2
+    assert data["tags"][0]["tag"] == "#ai"
+    # Serialized through serialization_alias, per the published contract.
+    assert data["tags"][0]["percentageChange"] == 50.0
+    assert "timeRange" in data
 
 
-@patch("app.api.routers.search.get_trending_payload")
+@patch("app.api.routers.content.search.get_trending_payload")
 def test_get_trending_topics_with_custom_params(mock_trending, client, search_token):
     """Test trending topics with custom limit and days."""
-    mock_trending.return_value = {"topics": [], "total": 0}
+    mock_trending.return_value = _trending_payload()
 
     response = client.get(
         "/v1/topics/trending",
@@ -218,9 +232,10 @@ def test_check_duplicate_not_duplicate(client, search_user, search_token):
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["is_duplicate"] is False
-    assert "normalized_url" in data
-    assert "dedupe_hash" in data
+    # The service speaks snake_case; the response model serializes camelCase.
+    assert data["isDuplicate"] is False
+    assert "normalizedUrl" in data
+    assert "dedupeHash" in data
 
 
 def test_check_duplicate_is_duplicate(
@@ -252,10 +267,10 @@ def test_check_duplicate_is_duplicate(
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["is_duplicate"] is True
-    assert "request_id" in data
-    assert "summary_id" in data
-    assert "summarized_at" in data
+    assert data["isDuplicate"] is True
+    assert "requestId" in data
+    assert "summaryId" in data
+    assert "summarizedAt" in data
 
 
 def test_check_duplicate_with_summary(
@@ -292,7 +307,7 @@ def test_check_duplicate_with_summary(
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["is_duplicate"] is True
+    assert data["isDuplicate"] is True
     assert "summary" in data
     assert "title" in data["summary"]
     assert "tldr" in data["summary"]
@@ -398,4 +413,4 @@ async def test_check_duplicate_different_user(client, search_data, search_user, 
     assert response.status_code == 200
     data = response.json()["data"]
     # Should not be duplicate for different user
-    assert data["is_duplicate"] is False
+    assert data["isDuplicate"] is False

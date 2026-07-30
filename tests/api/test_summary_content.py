@@ -140,10 +140,38 @@ async def test_backfill_ownerless_summary_remains_inaccessible_to_authenticated_
         request_id = req.id
 
     token = create_access_token(user.telegram_user_id, client_id="test")
-    response = client.post(
-        f"/v1/summaries/{summary_id}/content/backfill",
-        headers={"Authorization": f"Bearer {token}"},
+    # The endpoint resolves this service from the API runtime, which these tests
+    # do not build. Wire the real ownership guard (the read model) to the test DB
+    # and give it collaborators that fail loudly: an ownerless summary must be
+    # rejected before anything is extracted or written.
+    from app.api.main import app
+    from app.api.routers.content.summaries import (
+        _get_source_content_backfill_service,
+        _get_summary_use_case,
     )
+    from app.application.services.source_content_backfill_service import (
+        SourceContentBackfillService,
+    )
+
+    class _MustNotRun:
+        def __getattr__(self, name):
+            raise AssertionError(f"ownership guard was bypassed: {name} was called")
+
+    app.dependency_overrides[_get_source_content_backfill_service] = lambda: (
+        SourceContentBackfillService(
+            summary_reader=_get_summary_use_case(),
+            source_extractor=_MustNotRun(),
+            source_writer=_MustNotRun(),
+            persist_source_content=True,
+        )
+    )
+    try:
+        response = client.post(
+            f"/v1/summaries/{summary_id}/content/backfill",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        app.dependency_overrides.pop(_get_source_content_backfill_service, None)
 
     assert response.status_code == 404
     async with db.session() as session:
