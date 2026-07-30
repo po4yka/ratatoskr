@@ -24,6 +24,7 @@ class RepositoryReadRepositoryPort(Protocol):
         is_starred: bool | None,
         language: str | None,
         topic: str | None,
+        list_name: str | None,
         source: Literal["manual", "starred"] | None,
         pending_analysis: bool | None,
         sort: Any,
@@ -40,6 +41,16 @@ class RepositoryReadRepositoryPort(Protocol):
         user_id: int,
     ) -> RepositoryDetailDTO | None:
         """Return repository detail only when the row is owned by user_id."""
+        ...
+
+    async def set_repository_list_names(
+        self,
+        *,
+        repository_id: int,
+        user_id: int,
+        list_names: list[str],
+    ) -> None:
+        """Overwrite the cached star-list membership of an owned repository."""
         ...
 
     async def delete_owned_repository(

@@ -118,8 +118,21 @@ class _FakeFetcher:
 def _patch_browser_layer(monkeypatch, client) -> None:
     @asynccontextmanager
     async def _fake_ctx(
-        domain, storage_state, *, endpoint_url, mobile=False, proxy="", refreshed_out=None
+        domain,
+        storage_state,
+        *,
+        endpoint_url,
+        mobile=False,
+        proxy="",
+        refreshed_out=None,
+        fingerprint_seed=None,
+        timezone=None,
+        locale=None,
     ):
+        assert proxy == "http://proxy.example:8080"
+        assert fingerprint_seed
+        assert timezone == "Asia/Tbilisi"
+        assert locale == "en-US"
         if refreshed_out is not None:
             refreshed_out.append({"cookies": [{"name": "refreshed"}]})
         yield ("page", "ctx")
@@ -132,7 +145,10 @@ def _patch_browser_layer(monkeypatch, client) -> None:
 def _cfg(tmp_path) -> SimpleNamespace:
     return SimpleNamespace(
         ai_backup=AiBackupConfig(data_path=str(tmp_path)),
-        scraper=SimpleNamespace(cloakbrowser_url="http://cloakbrowser:9222"),
+        scraper=SimpleNamespace(
+            cloakbrowser_url="http://cloakbrowser:9222",
+            cloakbrowser_proxy="http://proxy.example:8080",
+        ),
     )
 
 

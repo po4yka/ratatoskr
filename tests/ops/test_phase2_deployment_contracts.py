@@ -494,6 +494,78 @@ def test_pi_deploy_keeps_previous_image_and_does_not_apply_migrations_on_restart
     assert "run_remote_migrations" not in restart_branch
 
 
+def test_pi_deploy_registers_dbus_clients_before_testing_bridge_policy() -> None:
+    script = _pi_deploy_script()
+
+    assert "--bus=unix:path=/run/ratatoskr-dbus/system_bus_socket" in script
+    assert "--address=unix:path=/run/ratatoskr-dbus/system_bus_socket" not in script
+
+
+def test_pi_deploy_uses_one_reauth_provider_metadata_source() -> None:
+    script = _pi_deploy_script()
+
+    assert "REAUTH_PROVIDER_METADATA=(" in script
+    assert '"chatgpt deadbeef0001"' in script
+    assert '"claude deadbeef0002"' in script
+    assert "reauth_service_metadata()" in script
+    for provider in ("chatgpt", "claude"):
+        assert f"cloakbrowser-reauth-{provider})" not in script
+        assert f"ai-backup-webauthn-bridge-{provider})" not in script
+
+
+def test_pi_deploy_requires_the_filtered_bus_policy_denial() -> None:
+    script = _pi_deploy_script()
+    bridge_runtime = script.split("verify_webauthn_bridge_runtime() {", maxsplit=1)[1].split(
+        "verify_headed_browser_runtime() {", maxsplit=1
+    )[0]
+
+    assert "--bus=unix:path=/run/host-dbus/system_bus_socket" in bridge_runtime
+    assert "DENIED_OUTPUT=" in bridge_runtime
+    assert "Error org.freedesktop.DBus.Error.ServiceUnknown:" in bridge_runtime
+    assert "unexpected D-Bus policy response" in bridge_runtime
+
+
+def test_pi_deploy_probes_bluez_from_the_reauth_browser_container() -> None:
+    script = _pi_deploy_script()
+    browser_runtime = script.split("verify_headed_browser_runtime() {", maxsplit=1)[1].split(
+        "retire_legacy_qdrant_container() {", maxsplit=1
+    )[0]
+
+    browser_probe = r"docker exec \"\$CID\" dbus-send"
+    assert browser_probe in browser_runtime
+    assert "org.freedesktop.DBus.ObjectManager.GetManagedObjects" in browser_runtime
+    assert browser_runtime.index(browser_probe) < browser_runtime.index("pkill -TERM")
+
+
+def test_pi_deploy_smokes_reauth_browsers_in_the_production_timezone() -> None:
+    script = _pi_deploy_script()
+    browser_runtime = script.split("verify_headed_browser_runtime() {", maxsplit=1)[1].split(
+        "retire_legacy_qdrant_container() {", maxsplit=1
+    )[0]
+
+    assert "timezone=Asia%2FTbilisi&locale=en-US" in browser_runtime
+    assert "timezone=UTC" not in browser_runtime
+
+
+def test_reauth_live_validation_runbook_uses_the_production_timezone() -> None:
+    runbook = (ROOT / "docs/runbooks/ai-backup-live-validation.md").read_text(encoding="utf-8")
+
+    assert "timezone=Asia%2FTbilisi&locale=en-US" in runbook
+    assert "timezone=UTC" not in runbook
+
+
+def test_pi_deploy_restores_each_reauth_browser_control_and_egress_network() -> None:
+    script = _pi_deploy_script()
+
+    assert "ensure_reauth_browser_networks" in script
+    assert "${COMPOSE_PROJECT}_ai_backup_control_${provider}" in script
+    assert "${COMPOSE_PROJECT}_ai_backup_browser_egress_${provider}" in script
+    assert "docker network connect --alias '${svc}' '${network}'" in script
+    assert script.index('ensure_reauth_browser_networks "$svc"') < script.index(
+        'wait_for_service_health "$svc"'
+    )
+
+
 def test_pi_deploy_ships_and_starts_postgres_backup_without_remote_build() -> None:
     script = _pi_deploy_script()
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
@@ -504,7 +576,12 @@ def test_pi_deploy_ships_and_starts_postgres_backup_without_remote_build() -> No
     assert 'build_and_ship "$BACKUP_DOCKERFILE" -- "${BACKUP_TO_BUILD[@]}"' in script
     assert "up -d --no-build --no-deps --force-recreate ${svc}" in script
     assert "--entrypoint sh -v ${COMPOSE_PROJECT}_pg_backup_metrics:/textfile" in script
-    assert '--services "ratatoskr worker scheduler mobile-api pg-backup"' in makefile
+    assert (
+        '--services "ai-backup-display-chatgpt ai-backup-display-claude '
+        "ai-backup-webauthn-bridge-chatgpt ai-backup-webauthn-bridge-claude "
+        "cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude ratatoskr worker scheduler "
+        'mobile-api pg-backup"' in makefile
+    )
     assert "BACKUP_RUN_ON_START=${BACKUP_RUN_ON_START:-true}" in pi_overlay
 
 

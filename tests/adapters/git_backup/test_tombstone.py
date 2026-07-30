@@ -388,6 +388,78 @@ class TestUpsertTargetRevivesExcluded:
         assert result.last_error == "timeout"
 
 
+class TestUpsertTargetPinned:
+    """``pinned`` records an explicit user request and is set, never cleared."""
+
+    async def test_pinned_defaults_to_false_on_a_new_row(self) -> None:
+        from app.adapters.git_backup.repository import GitMirrorRepository
+
+        db = FakeDBForUpsert(None)
+        repo = GitMirrorRepository(db, _make_config())  # type: ignore[arg-type]
+
+        result = await repo.upsert_target(
+            user_id=100,
+            source=GitMirrorSource.GITHUB,
+            clone_url=_URL,
+            name=_NAME,
+        )
+
+        assert result.pinned is False
+
+    async def test_pinned_is_stored_on_a_new_row(self) -> None:
+        from app.adapters.git_backup.repository import GitMirrorRepository
+
+        db = FakeDBForUpsert(None)
+        repo = GitMirrorRepository(db, _make_config())  # type: ignore[arg-type]
+
+        result = await repo.upsert_target(
+            user_id=100,
+            source=GitMirrorSource.GITHUB,
+            clone_url=_URL,
+            name=_NAME,
+            pinned=True,
+        )
+
+        assert result.pinned is True
+
+    async def test_pinning_an_existing_row_promotes_it(self) -> None:
+        from app.adapters.git_backup.repository import GitMirrorRepository
+
+        existing = _make_mirror(mirror_id=1)
+        existing.pinned = False
+        db = FakeDBForUpsert(existing)
+        repo = GitMirrorRepository(db, _make_config())  # type: ignore[arg-type]
+
+        result = await repo.upsert_target(
+            user_id=100,
+            source=GitMirrorSource.GITHUB,
+            clone_url=_URL,
+            name=_NAME,
+            pinned=True,
+        )
+
+        assert result.pinned is True
+
+    async def test_a_pinned_row_is_never_demoted(self) -> None:
+        """The nightly bulk enumeration passes pinned=False for every starred repo."""
+        from app.adapters.git_backup.repository import GitMirrorRepository
+
+        existing = _make_mirror(mirror_id=1)
+        existing.pinned = True
+        db = FakeDBForUpsert(existing)
+        repo = GitMirrorRepository(db, _make_config())  # type: ignore[arg-type]
+
+        result = await repo.upsert_target(
+            user_id=100,
+            source=GitMirrorSource.GITHUB,
+            clone_url=_URL,
+            name=_NAME,
+            pinned=False,
+        )
+
+        assert result.pinned is True
+
+
 # ---------------------------------------------------------------------------
 # GitMirrorService: service-level tombstone integration test
 # ---------------------------------------------------------------------------

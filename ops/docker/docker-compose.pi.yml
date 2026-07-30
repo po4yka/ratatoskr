@@ -124,6 +124,19 @@ services:
     environment:
       - QDRANT_URL=http://host-gateway:6333
       - MALLOC_ARENA_MAX=2
+      # torch reads nproc (4 on the Pi), not the cgroup quota, so sentence-
+      # transformers spawned 4 compute threads inside a 0.75-CPU container.
+      # They burn the CFS quota in a fraction of each period and the kernel
+      # then freezes the WHOLE container -- event loop included -- until the
+      # next one. Measured 2026-07-29 before this cap: 98.7s throttled against
+      # 109.1s of CPU actually used, 10.1% of periods throttled, and multi-
+      # second `event_loop_stalled` warnings that timed out the taskiq broker
+      # read. Four threads do no more work than one under a 0.75 quota; they
+      # only contend for it. Must be env, not torch.set_num_threads(): torch
+      # reads these at import and the import is lazy (see EmbeddingService).
+      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
+      - MKL_NUM_THREADS=${MKL_NUM_THREADS:-1}
+      - OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-1}
       - TEXTACY_ENABLED=${TEXTACY_ENABLED:-0}
       - MAX_CONCURRENT_CALLS=${MAX_CONCURRENT_CALLS:-2}
       - TASKIQ_WORKER_PROCESSES=${TASKIQ_WORKER_PROCESSES:-1}
@@ -158,6 +171,11 @@ services:
     environment:
       - QDRANT_URL=http://host-gateway:6333
       - MALLOC_ARENA_MAX=2
+      # Same torch-vs-cgroup oversubscription as the worker (see above): this
+      # process embeds summaries too, and measured 8.2% of periods throttled.
+      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
+      - MKL_NUM_THREADS=${MKL_NUM_THREADS:-1}
+      - OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-1}
       - TEXTACY_ENABLED=${TEXTACY_ENABLED:-0}
       - API_WORKERS=${API_WORKERS:-1}
       - PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus-api

@@ -111,3 +111,22 @@ class AuthenticatedUserDTO(BaseModel):
     name: str | None = None
     email: str | None = None
     type: str = "User"
+
+
+class StarListDTO(BaseModel):
+    """One star list from GraphQL ``viewer.lists`` with the repos it holds.
+
+    ``repo_github_ids`` carries GraphQL ``databaseId`` values, which are the
+    same integers as the REST ``repo.id`` stored in ``repositories.github_id``.
+    """
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    # GraphQL node ID (``UserList.id``). Required by every list mutation; empty
+    # only for DTOs built by tests or by a query that did not select it.
+    id: str = ""
+    name: str
+    slug: str
+    description: str = ""
+    is_private: bool = False
+    repo_github_ids: list[int] = Field(default_factory=list)
