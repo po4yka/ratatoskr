@@ -40,7 +40,7 @@ distlib==0.4.0
     # via virtualenv
 execnet==2.1.2
     # via pytest-xdist
-fakeredis==2.36.2
+fakeredis==2.37.0
 filelock==3.29.0
     # via
     #   python-discovery
@@ -57,7 +57,7 @@ httpcore==1.0.9
     # via httpx
 httpx==0.28.1
     # via respx
-hypothesis==6.156.6
+hypothesis==6.163.1
 identify==2.6.19
     # via pre-commit
 idna==3.15
@@ -118,7 +118,7 @@ pluggy==1.6.0
     # via
     #   pytest
     #   pytest-cov
-pre-commit==4.6.0
+pre-commit==4.6.1
 propcache==0.4.1
     # via
     #   aiohttp
