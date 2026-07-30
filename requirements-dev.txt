@@ -185,7 +185,7 @@ rpds-py==2026.6.3
     # via
     #   jsonschema
     #   referencing
-ruff==0.16.0
+ruff==0.15.22
 six==1.17.0
     # via
     #   mando
