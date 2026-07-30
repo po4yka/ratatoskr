@@ -293,9 +293,38 @@ class MessageCoalescer:
             return
         await self._dispatch_bundle(messages, uid=uid, chat_id=chat_id)
 
+    async def _reject_for_concurrency(
+        self,
+        buffered: _BufferedMessage,
+        uid: int,
+        *,
+        correlation_id: str | None = None,
+    ) -> None:
+        """Tell the user the concurrency limit refused this work, and record it.
+
+        Mirrors the inline path in ``message_router.route_message``.
+        """
+        await self._rate_limit_coordinator.handle_concurrent_limit_rejection(
+            message=buffered.message,
+            uid=uid,
+            interaction_type=buffered.prepared.interaction_type,
+            correlation_id=correlation_id or buffered.correlation_id,
+            interaction_id=buffered.interaction_id,
+            start_time=buffered.start_time,
+        )
+
     async def _dispatch_single(self, buffered: _BufferedMessage, uid: int) -> None:
         limiter = await self._rate_limit_coordinator.get_active_limiter()
         slot_acquired = await self._rate_limit_coordinator.acquire_concurrent_slot(limiter, uid)
+        if not slot_acquired:
+            # This slot is the only thing enforcing RATE_LIMIT_MAX_CONCURRENT on
+            # the coalesced path, which is the default route for every
+            # non-command message: message_router returns as soon as try_buffer
+            # accepts, before reaching its own inline slot check. Routing anyway
+            # on a refusal let an unbounded number of scraper+LLM flows run at
+            # once, with no reply to the user and no `concurrent_limited` record.
+            await self._reject_for_concurrency(buffered, uid)
+            return
         try:
             await self._content_router.route(
                 buffered.prepared,
@@ -348,6 +377,9 @@ class MessageCoalescer:
 
         limiter = await self._rate_limit_coordinator.get_active_limiter()
         slot_acquired = await self._rate_limit_coordinator.acquire_concurrent_slot(limiter, uid)
+        if not slot_acquired:
+            await self._reject_for_concurrency(first, uid, correlation_id=bundle_cid)
+            return
         try:
             await self._aggregation_handler.run_with_submissions(
                 message=first.message,

@@ -38,6 +38,7 @@ def _prepared(
             text=text,
             message_id=message_id,
             correlation_id=f"cid-{message_id}",
+            interaction_type="url",
         ),
     )
 
@@ -69,13 +70,15 @@ def _make_coalescer(
     aggregation_handler: Any | None = None,
     callback_handler: Any | None = None,
     url_handler: Any | None = None,
+    slot_available: bool = True,
 ) -> tuple[MessageCoalescer, dict[str, Any]]:
     """Build a coalescer with mock collaborators. Returns (coalescer, mocks)."""
     content_router = SimpleNamespace(route=AsyncMock())
     rate_limit_coordinator = SimpleNamespace(
         get_active_limiter=AsyncMock(return_value="limiter"),
-        acquire_concurrent_slot=AsyncMock(return_value=True),
+        acquire_concurrent_slot=AsyncMock(return_value=slot_available),
         release_concurrent_slot=AsyncMock(),
+        handle_concurrent_limit_rejection=AsyncMock(),
     )
     response_formatter = SimpleNamespace(send_chat_action=AsyncMock(return_value=True))
     coalescer = MessageCoalescer(
@@ -135,6 +138,38 @@ async def test_single_message_flushes_through_content_router() -> None:
     mocks["content_router"].route.assert_awaited_once_with(prepared, 7, 100.0)
     mocks["rate_limit_coordinator"].acquire_concurrent_slot.assert_awaited_once()
     mocks["rate_limit_coordinator"].release_concurrent_slot.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_refused_concurrency_slot_stops_the_flush() -> None:
+    """A refused slot must abort the dispatch, not route anyway.
+
+    This slot is the only enforcement of RATE_LIMIT_MAX_CONCURRENT on the
+    coalesced path: message_router returns as soon as try_buffer accepts, before
+    reaching its own inline check. The result used to be ignored, so the limit
+    was unenforced for every non-command message and the user got no reply.
+    """
+    coalescer, mocks = _make_coalescer(slot_available=False)
+
+    buffered = await coalescer.try_buffer(
+        prepared=_prepared(),
+        message=_telethon_message(),
+        interaction_id=7,
+        correlation_id="cid-1",
+        start_time=100.0,
+    )
+    assert buffered is True
+
+    await asyncio.sleep(0.15)
+
+    mocks["content_router"].route.assert_not_awaited()
+    mocks["rate_limit_coordinator"].handle_concurrent_limit_rejection.assert_awaited_once()
+    kwargs = mocks["rate_limit_coordinator"].handle_concurrent_limit_rejection.await_args.kwargs
+    assert kwargs["uid"] == 42
+    assert kwargs["interaction_id"] == 7
+    assert kwargs["correlation_id"] == "cid-1"
+    # Nothing was acquired, so nothing may be released.
+    mocks["rate_limit_coordinator"].release_concurrent_slot.assert_not_awaited()
 
 
 @pytest.mark.asyncio
