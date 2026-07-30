@@ -30,6 +30,7 @@ import contextlib
 import logging
 import os
 import re
+import shutil
 import stat
 import tempfile
 import time
@@ -52,6 +53,7 @@ from app.adapters.git_backup.git_exec import resolve_git_executable
 from app.adapters.git_backup.lfs import LfsSupport
 from app.adapters.git_backup.maintenance import Maintenance, RepositoryMaintenance
 from app.adapters.git_backup.retry import RetryContext, RetryPolicy, SyncFailureException
+from app.core.async_utils import raise_if_cancelled
 from app.core.git_url_safety import (
     assert_resolved_public_host,
     assert_safe_git_url,
@@ -502,23 +504,68 @@ class GitMirrorService:
         logger.info("git_mirror_sync_start: tasks=%d workers=%d", len(tasks), cfg.workers)
 
         async def run_one(task: MirrorTask) -> MirrorOutcome:
-            # Fast-path skip if breaker already open.
-            if breaker.is_open():
-                logger.warning("git_mirror_skip circuit_breaker_open name=%s", task.name)
-                return MirrorOutcome(
-                    mirror=task.mirror,
-                    ok=False,
-                    skipped=True,
-                    skip_reason="storage circuit breaker open",
-                )
             async with semaphore:
+                # Checked after acquiring the slot, not before. gather schedules
+                # every run_one at once, so a check placed outside the semaphore
+                # was evaluated by all of them in a single pass -- long before
+                # the first _sync_one could record a failure. Together with the
+                # breaker being rebuilt per run above, that made the documented
+                # "abort the remainder of the sync run" unreachable in
+                # production: a full disk tripped the breaker after three
+                # mirrors while the remaining ones kept cloning into it.
+                if breaker.is_open():
+                    logger.warning("git_mirror_skip circuit_breaker_open name=%s", task.name)
+                    return MirrorOutcome(
+                        mirror=task.mirror,
+                        ok=False,
+                        skipped=True,
+                        skip_reason="storage circuit breaker open",
+                    )
                 return await self._sync_one(task, breaker, large_semaphore)
 
-        outcomes = list(await asyncio.gather(*(run_one(t) for t in tasks)))
+        # return_exceptions: an unexpected error from one mirror -- a ValueError
+        # out of _mirror_destination after GIT_BACKUP_DATA_PATH changed, ENOSPC
+        # from the destination mkdir in _sync_one -- used to propagate straight
+        # out of gather and skip the persist loop below entirely. Mirrors that
+        # had already cloned never got record_success or last_synced_at, failed
+        # ones never incremented consecutive_failures so their cooldown never
+        # engaged, and the sibling coroutines kept cloning after the Redis lock
+        # was released.
+        results = await asyncio.gather(*(run_one(t) for t in tasks), return_exceptions=True)
+        outcomes: list[MirrorOutcome] = []
+        for task, result in zip(tasks, results, strict=True):
+            if isinstance(result, BaseException):
+                raise_if_cancelled(result)
+                message = _redact_url(str(result))
+                logger.error(
+                    "git_mirror_unexpected_error name=%s error=%s",
+                    task.name,
+                    message,
+                    exc_info=result,
+                )
+                outcomes.append(
+                    MirrorOutcome(
+                        mirror=task.mirror,
+                        ok=False,
+                        error=message,
+                        error_category=classify(message),
+                    )
+                )
+            else:
+                outcomes.append(result)
 
-        # Persist outcomes.
+        # Persist outcomes. One failing write must not strand the rest: this loop
+        # is the only place consecutive_failures and last_synced_at are recorded.
         for outcome in outcomes:
-            await self._persist_outcome(outcome, tasks)
+            try:
+                await self._persist_outcome(outcome, tasks)
+            except Exception as exc:
+                raise_if_cancelled(exc)
+                logger.warning(
+                    "git_mirror_persist_outcome_failed name=%s error=%s",
+                    outcome.mirror.name,
+                    _redact_url(str(exc)),
+                )
 
         summary = SyncSummary(outcomes=outcomes)
         for o in outcomes:
@@ -582,8 +629,22 @@ class GitMirrorService:
                     _redact_url(mirror.clone_url),
                 )
                 continue
-            effective_url, credentials_token = await self._resolve_url(mirror)
-            dest = self._mirror_destination(data_path, mirror)
+            # One unusable row must not abandon the whole run before it starts:
+            # _mirror_destination raises ValueError when a stored mirror_path
+            # resolves outside data_path, which is exactly what happens to every
+            # pre-existing row after GIT_BACKUP_DATA_PATH is changed, and
+            # _resolve_url can fail on an undecryptable token.
+            try:
+                effective_url, credentials_token = await self._resolve_url(mirror)
+                dest = self._mirror_destination(data_path, mirror)
+            except Exception as exc:
+                raise_if_cancelled(exc)
+                logger.warning(
+                    "git_mirror_task_skipped name=%s error=%s",
+                    _redact_url(name),
+                    _redact_url(str(exc)),
+                )
+                continue
             is_large = bool(mirror.size_kb and mirror.size_kb >= threshold_kb)
             tasks.append(
                 MirrorTask(
@@ -800,11 +861,6 @@ class GitMirrorService:
         dest = task.destination
         is_clone = not dest.exists()
 
-        # Choose the working directory: parent dir for clone, dest itself for update.
-        cwd = dest.parent if is_clone else dest
-        if is_clone:
-            cwd.mkdir(parents=True, exist_ok=True)
-
         # Timeout: per-task override (from a matching PriorityRule) takes precedence
         # over the global setting; large repos still get the multiplier applied on top.
         base_timeout = float(
@@ -888,11 +944,29 @@ class GitMirrorService:
                     task.effective_url,
                     task.credentials_token,
                 )
+            # Recomputed per attempt rather than captured from the enclosing
+            # scope. A clone that was killed or timed out leaves `dest` present
+            # but without a HEAD, so every later attempt kept building a *clone*
+            # command and git refused with "destination path already exists" --
+            # burning the whole retry budget (~100 s of backoff) and recording
+            # error_category=UNKNOWN in place of the real TIMEOUT. Presence of
+            # HEAD is the same bare-repo marker maintenance.py uses; a leftover
+            # without one carries nothing worth keeping, so it is removed and
+            # this attempt clones cleanly.
+            attempt_is_clone = not (dest / "HEAD").exists()
+            if attempt_is_clone and dest.exists():
+                self._assert_inside_data_path(Path(cfg.data_path), dest, "partial clone")
+                logger.warning("git_mirror_partial_clone_reset name=%s", task.name)
+                await asyncio.to_thread(shutil.rmtree, dest, ignore_errors=True)
+            attempt_cwd = dest.parent if attempt_is_clone else dest
+            if attempt_is_clone:
+                await asyncio.to_thread(attempt_cwd.mkdir, parents=True, exist_ok=True)
+
             try:
                 argv = build_git_command(
-                    repo_exists=not is_clone,
-                    url=task.effective_url if is_clone else None,
-                    repo_name=dest.name if is_clone else None,
+                    repo_exists=not attempt_is_clone,
+                    url=task.effective_url if attempt_is_clone else None,
+                    repo_name=dest.name if attempt_is_clone else None,
                     git_executable=resolve_git_executable(),
                     verify_certificates=cfg.verify_certificates,
                     ssl_ca_info=cfg.ssl_ca_info,
@@ -907,7 +981,7 @@ class GitMirrorService:
                     show_progress=task.is_large_repo or context.is_retry,
                     disable_redirects=True,
                 )
-                code, output = await self._git_runner(argv, cwd, timeout)
+                code, output = await self._git_runner(argv, attempt_cwd, timeout)
                 if code != 0:
                     raise RuntimeError(
                         _redact_url(output) if output else f"git exited with code {code}"
