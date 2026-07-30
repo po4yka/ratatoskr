@@ -12,7 +12,12 @@ from typing import Any, cast
 from app.adapters.telegram.compat_entities import _peer_to_id, _translate_entities
 from app.adapters.telegram.compat_keyboards import _filter_send_kwargs, to_telethon_buttons
 from app.adapters.telegram.compat_telethon import types
-from app.adapters.telegram.compat_types import _Entity, _Object, normalize_parse_mode
+from app.adapters.telegram.compat_types import (
+    _Entity,
+    _Object,
+    _WebAppData,
+    normalize_parse_mode,
+)
 
 
 class TelethonMessageAdapter:
@@ -37,10 +42,37 @@ class TelethonMessageAdapter:
         return getattr(self._message, "chat", None) or _Object(id=chat_id)
 
     @property
+    def web_app_data(self) -> Any:
+        """Mini App ``sendData()`` payload, or None for an ordinary message.
+
+        Telegram delivers it as a *service* message whose action is
+        ``MessageActionWebViewDataSentMe``. ``events.NewMessage`` discards
+        service messages outright (see ``NewMessage.build``), so this is only
+        ever populated for a message routed through the raw-update handler that
+        ``TelethonBotClient.add_message_handler`` installs alongside it.
+        """
+        action = getattr(self._message, "action", None)
+        if action is None:
+            return None
+        if types is not None and not isinstance(action, types.MessageActionWebViewDataSentMe):
+            return None
+        data = getattr(action, "data", None)
+        if data is None:
+            return None
+        return _WebAppData(data=str(data), button_text=getattr(action, "text", None))
+
+    @property
     def from_user(self) -> Any:
         sender = getattr(self._message, "sender", None) or getattr(self._event, "sender", None)
         if sender is None:
-            return None
+            # A raw (unbound) update carries no resolved `sender` object --
+            # Telethon only fills that in for messages it fetched itself -- but
+            # `sender_id` is computed from `from_id` and is available. The id
+            # alone is what access control and session lookup need.
+            sender_id = getattr(self._message, "sender_id", None)
+            if sender_id is None:
+                return None
+            return _Object(id=int(sender_id))
         return _Object(
             id=getattr(sender, "id", None),
             first_name=getattr(sender, "first_name", None),
@@ -236,6 +268,16 @@ class TelethonReactionAdapter:
             return int(raw) if raw is not None else None
         except (TypeError, ValueError):
             return None
+
+    @property
+    def actor_id(self) -> int | None:
+        """Who reacted, or None when the peer cannot be resolved.
+
+        ``UpdateBotMessageReaction.actor`` is the only way to tell the owner
+        apart from a stranger reacting to a bot message in their own DM, so a
+        handler that records feedback must consult it and fail closed on None.
+        """
+        return _peer_to_id(getattr(self._update, "actor", None))
 
     @property
     def emoji(self) -> str | None:

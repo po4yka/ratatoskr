@@ -77,6 +77,28 @@ class TelethonBotClient:
         async def _on_message(event: Any) -> None:
             await handler(TelethonMessageAdapter(event, self))
 
+        if types is None:
+            return
+
+        # A Mini App `sendData()` arrives as a *service* message whose action is
+        # MessageActionWebViewDataSentMe, and NewMessage.build drops every
+        # MessageService ("We don't care about MessageService's here"). Without
+        # this second subscription the /init_session OTP and 2FA steps are
+        # unreachable: the state sits at waiting_otp until its TTL expires, and
+        # there is no text fallback. The raw update exposes `.message`, which is
+        # exactly what TelethonMessageAdapter reads, so the same handler and the
+        # same access-control path serve both.
+        @self._client.on(  # type: ignore[untyped-decorator, unused-ignore]
+            events.Raw(types=[types.UpdateNewMessage, types.UpdateNewChannelMessage])
+        )
+        async def _on_web_app_data(update: Any) -> None:
+            message = getattr(update, "message", None)
+            if not isinstance(
+                getattr(message, "action", None), types.MessageActionWebViewDataSentMe
+            ):
+                return
+            await handler(TelethonMessageAdapter(update, self))
+
     def add_callback_query_handler(self, handler: Any) -> None:
         if events is None:
             return

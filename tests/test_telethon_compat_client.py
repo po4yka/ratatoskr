@@ -78,12 +78,109 @@ def test_reaction_adapter_extracts_fields() -> None:
     update = SimpleNamespace(
         peer=types.PeerUser(user_id=555),
         msg_id=42,
+        actor=types.PeerUser(user_id=777),
         new_reactions=[types.ReactionEmoji(emoticon="👍")],
     )
     adapter = TelethonReactionAdapter(update)
     assert adapter.message_id == 42
     assert adapter.emoji == "👍"
     assert adapter.chat_id == 555
+    # ReactionFeedbackHandler compares actor_id against the owner, so the
+    # adapter must surface it -- and must yield None (fail closed) when the
+    # update carries no actor.
+    assert adapter.actor_id == 777
+    assert TelethonReactionAdapter(SimpleNamespace(peer=None, msg_id=1)).actor_id is None
+
+
+def _web_view_service_update(data: str = '{"mode":"otp","value":"12345"}'):
+    """A real Mini App sendData() update: a MessageService, not a Message."""
+    import datetime
+
+    from telethon.tl import types
+
+    return types.UpdateNewMessage(
+        message=types.MessageService(
+            id=1234,
+            peer_id=types.PeerUser(user_id=555),
+            date=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+            action=types.MessageActionWebViewDataSentMe(text="Send", data=data),
+            from_id=types.PeerUser(user_id=555),
+        ),
+        pts=1,
+        pts_count=1,
+    )
+
+
+def test_message_adapter_exposes_web_app_data_from_a_service_message() -> None:
+    from app.adapters.telethon_compat import TelethonMessageAdapter
+
+    adapter = TelethonMessageAdapter(_web_view_service_update(), bot=None)
+
+    assert adapter.web_app_data is not None
+    assert adapter.web_app_data.data == '{"mode":"otp","value":"12345"}'
+    assert adapter.web_app_data.button_text == "Send"
+    # init_session_handler.handle_web_app_data needs both of these.
+    assert adapter.from_user.id == 555
+    assert adapter.id == 1234
+
+
+def test_message_adapter_web_app_data_is_none_for_an_ordinary_message() -> None:
+    from types import SimpleNamespace
+
+    from app.adapters.telethon_compat import TelethonMessageAdapter
+
+    event = SimpleNamespace(message=SimpleNamespace(id=1, action=None), sender=None)
+    assert TelethonMessageAdapter(event, bot=None).web_app_data is None
+
+
+async def test_add_message_handler_also_subscribes_to_web_app_service_messages() -> None:
+    """events.NewMessage drops MessageService, so sendData() needs a raw handler.
+
+    Without the second subscription the /init_session OTP and 2FA steps never
+    fire: the session sits at waiting_otp until its 300 s TTL expires, and the
+    flow has no text fallback.
+    """
+    from telethon.tl import types
+
+    from app.adapters.telethon_compat import TelethonBotClient
+
+    registered: list[object] = []
+
+    class _FakeTelethonClient:
+        def on(self, event_spec: object):
+            def _register(fn):
+                registered.append((event_spec, fn))
+                return fn
+
+            return _register
+
+    client = object.__new__(TelethonBotClient)
+    client._client = _FakeTelethonClient()
+
+    seen: list[object] = []
+
+    async def _handler(message: object) -> None:
+        seen.append(message)
+
+    client.add_message_handler(_handler)
+
+    assert len(registered) == 2, "expected a NewMessage and a raw-update subscription"
+    raw_callback = registered[1][1]
+
+    await raw_callback(_web_view_service_update())
+    assert len(seen) == 1
+    assert seen[0].web_app_data.data == '{"mode":"otp","value":"12345"}'
+
+    # An ordinary message on the raw stream must not be double-delivered: the
+    # NewMessage subscription already owns it.
+    await raw_callback(
+        types.UpdateNewMessage(
+            message=types.Message(id=2, peer_id=types.PeerUser(user_id=555), message="hi"),
+            pts=2,
+            pts_count=1,
+        )
+    )
+    assert len(seen) == 1
 
 
 def test_filter_send_kwargs_translates_disable_web_page_preview() -> None:

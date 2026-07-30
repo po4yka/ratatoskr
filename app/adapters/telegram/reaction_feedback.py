@@ -47,6 +47,20 @@ class ReactionFeedbackHandler:
         rating = _EMOJI_RATING.get(reaction.emoji or "")
         if rating is None or reaction.message_id is None:
             return
+        # This handler is registered on the raw update stream, outside
+        # MessageRouter, so it is the one entrypoint AccessController never
+        # sees: whoever reacted, the row was written as the owner's. A
+        # non-allowlisted user receives an "access denied" reply, and message
+        # ids are per-chat, so a thumbs on that reply could collide with a
+        # bot_reply_message_id of the owner's and rate the owner's summary.
+        # Fail closed when the actor cannot be resolved.
+        actor_id = getattr(reaction, "actor_id", None)
+        if actor_id != self._owner:
+            logger.debug(
+                "reaction_feedback_actor_rejected",
+                extra={"message_id": reaction.message_id},
+            )
+            return
         try:
             summary_id = await self._repo.async_get_summary_id_by_bot_reply(
                 self._owner, reaction.message_id

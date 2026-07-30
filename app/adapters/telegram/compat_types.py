@@ -78,6 +78,14 @@ class _Object:
 
 
 @dataclass(slots=True)
+class _WebAppData:
+    """aiogram-shaped ``message.web_app_data`` for a Mini App ``sendData()``."""
+
+    data: str
+    button_text: str | None = None
+
+
+@dataclass(slots=True)
 class _Entity:
     """aiogram-shaped message entity translated from a raw Telethon entity."""
 
