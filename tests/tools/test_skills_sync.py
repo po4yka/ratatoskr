@@ -10,9 +10,9 @@ from tools.scripts.check_skills_sync import (
 )
 
 
-def test_host_paths_and_command_prefixes_normalize_to_same_content() -> None:
-    claude = "Run `.claude/skills/example.py` with `/ponytail-review`."
-    codex = "Run `.codex/skills/example.py` with `@ponytail-review`."
+def test_host_paths_normalize_to_same_content() -> None:
+    claude = "Run `.claude/skills/example.py` to inspect the database."
+    codex = "Run `.codex/skills/example.py` to inspect the database."
 
     assert _normalize_host_text(claude) == _normalize_host_text(codex)
 

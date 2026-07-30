@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import filecmp
-import re
 import sys
 from pathlib import Path
 
@@ -29,8 +28,7 @@ def _relative_files(root: Path) -> set[Path]:
 
 def _normalize_host_text(text: str) -> str:
     normalized = text.replace(".claude/skills/", ".host/skills/")
-    normalized = normalized.replace(".codex/skills/", ".host/skills/")
-    return re.sub(r"(?<!\w)[/@](ponytail(?:-[a-z-]+)?)", r"<command>\1", normalized)
+    return normalized.replace(".codex/skills/", ".host/skills/")
 
 
 def _normalized_file(path: Path) -> str | bytes:
@@ -78,8 +76,7 @@ def _check_semantic_claude_codex_mirror() -> bool:
         for relative_path in changed:
             print(f"  - {relative_path}", file=sys.stderr)
     print(
-        "\nHost skill paths and ponytail command prefixes are normalized; "
-        "all other shared content must match.",
+        "\nHost skill paths are normalized; all other shared content must match.",
         file=sys.stderr,
     )
     return False
@@ -156,13 +153,8 @@ def main() -> int:
     if not AGENTS_SKILLS.is_dir():
         print(f"Missing directory: {AGENTS_SKILLS}", file=sys.stderr)
         return 1
-    if not CLAUDE_COMMANDS.is_dir():
-        print(f"Missing directory: {CLAUDE_COMMANDS}", file=sys.stderr)
-        return 1
-    if not CODEX_COMMANDS.is_dir():
-        print(f"Missing directory: {CODEX_COMMANDS}", file=sys.stderr)
-        return 1
-
+    # The command mirrors are optional: _markdown_stems treats an absent directory
+    # as "no commands", so both being gone is a consistent state.
     semantic_mirror_matches = _check_semantic_claude_codex_mirror()
     mirror_matches = _check_exact_codex_agents_mirror()
     commands_match = _check_command_aliases()
