@@ -214,6 +214,7 @@ See [YouTube](../guides/configure-youtube-download.md) and
 | `METRICS_BEARER_TOKEN` | Dedicated 32+ character bearer token shared by mobile-api and Prometheus for `/internal/metrics`; required when the monitoring profile is enabled. |
 | `API_RATE_LIMIT_DEFAULT` | Default API rate-limit policy. |
 | `API_RATE_LIMIT_AUTH` | Authentication endpoint limit. |
+| `API_RATE_LIMIT_AI_BACKUP_REAUTH` | Owner-only interactive AI backup re-authorization REST limit. The RFB stream uses its own one-use viewer ticket and WebSocket. |
 
 See [Mobile API](mobile-api.md#authentication) and
 [Secret Rotation](../runbooks/secret-rotation.md).
@@ -282,6 +283,28 @@ groups include `DIGEST_*`, `EMAIL_*`/`SMTP_*`/`RESEND_*`, `ELEVENLABS_*`,
 Do not enable a group by copying every variable. Start from its subsystem guide
 and set only the feature gate, required credentials, and intended overrides.
 
+For AI account backup, interactive login and background collection share a
+stable operator browser profile. It defaults to `AI_BACKUP_BROWSER_LOCALE=en-US`
+and `AI_BACKUP_BROWSER_TIMEZONE=Asia/Tbilisi`; set both when moving the deployment
+to an operator with different local browser settings.
+
+Interactive re-authorization uses provider-isolated browser and VNC targets.
+The defaults are Docker-internal and normally need no override:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `AI_BACKUP_REAUTH_CHATGPT_BROWSER_URL` | `http://cloakbrowser-reauth-chatgpt:9222` | Dedicated ChatGPT CDP endpoint. |
+| `AI_BACKUP_REAUTH_CLAUDE_BROWSER_URL` | `http://cloakbrowser-reauth-claude:9222` | Dedicated Claude CDP endpoint. |
+| `AI_BACKUP_REAUTH_CHATGPT_VNC_HOST` / `AI_BACKUP_REAUTH_CHATGPT_VNC_PORT` | `ai-backup-display-chatgpt` / `5900` | Internal ChatGPT RFB target. |
+| `AI_BACKUP_REAUTH_CLAUDE_VNC_HOST` / `AI_BACKUP_REAUTH_CLAUDE_VNC_PORT` | `ai-backup-display-claude` / `5900` | Internal Claude RFB target. |
+| `AI_BACKUP_REAUTH_VIEWER_TICKET_TTL_SECONDS` | `60` | Lifetime of a one-use viewer cookie. Must be positive. |
+| `AI_BACKUP_REAUTH_VNC_CONNECT_TIMEOUT_SECONDS` | `5` | Backend TCP connection timeout. Must be positive. |
+
+Each provider's CDP and VNC targets must remain on its own internal
+`ai_backup_control_<provider>` network; do not use host addresses or publish
+ports `9222`/`5900`. Each browser uses only its matching
+`ai_backup_browser_egress_<provider>` network for provider navigation.
+
 ## Compose-only deployment variables
 
 Some values are consumed by Compose or sidecars rather than `Settings`:
@@ -300,7 +323,7 @@ Some values are consumed by Compose or sidecars rather than `Settings`:
 | `ALERT_PAGERDUTY_ROUTING_KEY` | PagerDuty Events API v2 integration routing key rendered into the active Alertmanager receiver. |
 | `RATATOSKR_DOCKER_NETWORK` | Existing core network joined by the standalone monitoring Compose file; defaults to `docker_default`. |
 | `RATATOSKR_PG_BACKUP_METRICS_VOLUME` | Existing core backup textfile volume mounted by standalone node-exporter; defaults to `docker_pg_backup_metrics`. |
-| `COMPOSE_PROFILES` | Optional scraper, monitoring, MCP, and related service groups. |
+| `COMPOSE_PROFILES` | Optional scraper, monitoring, MCP, and related service groups. AI re-auth support uses `ai-backup-reauth`; the Pi deploy script activates it automatically. |
 
 When `RATATOSKR_ENV=production`, Alertmanager fails startup unless at least one
 of the four receiver variables is valid. Multiple configured variables fan out

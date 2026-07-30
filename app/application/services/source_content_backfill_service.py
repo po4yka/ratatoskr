@@ -18,6 +18,11 @@ class SummaryContextReader(Protocol):
         summary_id: int,
     ) -> dict[str, Any] | None: ...
 
+    async def get_summary_context_for_reconciliation(
+        self,
+        summary_id: int,
+    ) -> dict[str, Any] | None: ...
+
 
 class SourceContentExtractor(Protocol):
     async def extract_content_pure(
@@ -88,6 +93,37 @@ class SourceContentBackfillService:
         allow_reextract: bool = True,
     ) -> SourceContentBackfillResult:
         context = await self._summary_reader.get_summary_context_for_user(user_id, summary_id)
+        return await self._backfill_context(
+            context,
+            summary_id=summary_id,
+            operation_correlation_id=operation_correlation_id,
+            allow_reextract=allow_reextract,
+        )
+
+    async def backfill_for_reconciliation(
+        self,
+        *,
+        summary_id: int,
+        operation_correlation_id: str | None = None,
+        allow_reextract: bool = True,
+    ) -> SourceContentBackfillResult:
+        """Backfill one system-selected row without changing API ownership checks."""
+        context = await self._summary_reader.get_summary_context_for_reconciliation(summary_id)
+        return await self._backfill_context(
+            context,
+            summary_id=summary_id,
+            operation_correlation_id=operation_correlation_id,
+            allow_reextract=allow_reextract,
+        )
+
+    async def _backfill_context(
+        self,
+        context: dict[str, Any] | None,
+        *,
+        summary_id: int,
+        operation_correlation_id: str | None,
+        allow_reextract: bool,
+    ) -> SourceContentBackfillResult:
         if not context:
             raise SourceContentBackfillNotFoundError(summary_id)
 

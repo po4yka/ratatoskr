@@ -8,6 +8,7 @@ calls without Postgres or HTTP.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any, NamedTuple
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -168,7 +169,7 @@ async def test_enumerate_owned_repos_upserts_one_row_per_repo() -> None:
         patch("app.adapters.github.github_api_client.GitHubAPIClient", _FakeClient),
         patch("app.security.secret_crypto.decrypt_secret", return_value="ghp_fake"),
     ):
-        total = await _enumerate_and_upsert_github_repos(cfg, db)
+        total, _seen = await _enumerate_and_upsert_github_repos(cfg, db)
 
     assert total == 2
     clone_urls = {u["clone_url"] for u in upserted}
@@ -243,7 +244,7 @@ async def test_enumerate_watched_repos_upserts_with_size_kb() -> None:
         patch("app.adapters.github.github_api_client.GitHubAPIClient", _FakeClient),
         patch("app.security.secret_crypto.decrypt_secret", return_value="ghp_fake"),
     ):
-        total = await _enumerate_and_upsert_github_repos(cfg, db)
+        total, _seen = await _enumerate_and_upsert_github_repos(cfg, db)
 
     assert total == 1
     assert upserted[0]["clone_url"] == "https://github.com/org/upstream-project.git"
@@ -311,7 +312,7 @@ async def test_enumerate_deduplicates_across_starred_and_owned() -> None:
         patch("app.adapters.github.github_api_client.GitHubAPIClient", _FakeClient),
         patch("app.security.secret_crypto.decrypt_secret", return_value="ghp_fake"),
     ):
-        total = await _enumerate_and_upsert_github_repos(cfg, db)
+        total, _seen = await _enumerate_and_upsert_github_repos(cfg, db)
 
     # The same repo in starred + owned must produce exactly one upsert.
     assert total == 1
@@ -379,7 +380,7 @@ async def test_enumerate_links_repository_id_when_row_exists() -> None:
         patch("app.adapters.github.github_api_client.GitHubAPIClient", _FakeClient),
         patch("app.security.secret_crypto.decrypt_secret", return_value="ghp_fake"),
     ):
-        total = await _enumerate_and_upsert_github_repos(cfg, db)
+        total, _seen = await _enumerate_and_upsert_github_repos(cfg, db)
 
     assert total == 1
     assert upserted[0]["repository_id"] == 77
@@ -476,7 +477,7 @@ async def test_enumerate_skips_user_on_api_error() -> None:
         patch("app.adapters.github.github_api_client.GitHubAPIClient", _FakeClient),
         patch("app.security.secret_crypto.decrypt_secret", side_effect=lambda b: tokens[b]),
     ):
-        total = await _enumerate_and_upsert_github_repos(cfg, db)
+        total, _seen = await _enumerate_and_upsert_github_repos(cfg, db)
 
     # Only user 2 contributes.
     assert total == 1
@@ -547,3 +548,173 @@ async def test_enumerate_stores_none_when_size_is_zero() -> None:
 
     # size=0 is falsy so size_kb passed as None to preserve DB semantics.
     assert upserted[0]["size_kb"] is None
+
+
+# ---------------------------------------------------------------------------
+# Releasing mirrors of repositories that are no longer starred
+# ---------------------------------------------------------------------------
+
+
+class _CandidateRow(NamedTuple):
+    """Stands in for a SQLAlchemy Row: attribute access plus tuple unpacking."""
+
+    id: int
+    clone_url: str
+
+
+def _release_db(rows: list[tuple[int, str]], statements: list[Any] | None = None) -> MagicMock:
+    """Fake db whose session returns *rows* as (mirror_id, clone_url) candidates.
+
+    The fake cannot honour a WHERE clause, so *statements* collects each executed
+    statement for tests that need to assert on the query itself.
+    """
+
+    class _Session:
+        async def execute(self, stmt):
+            if statements is not None:
+                statements.append(stmt)
+            result = MagicMock()
+            result.all.return_value = [_CandidateRow(mid, url) for mid, url in rows]
+            return result
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+    db = MagicMock()
+    db.session = MagicMock(side_effect=_Session)
+    return db
+
+
+@pytest.mark.asyncio
+async def test_release_excludes_only_mirrors_absent_from_this_run() -> None:
+    """A candidate still present in the enumeration is kept; the missing one is tombstoned."""
+    from app.tasks.git_backup_sync import _release_unstarred_mirrors
+
+    db = _release_db(
+        [
+            (11, "https://github.com/alice/still-there.git"),
+            (12, "https://github.com/alice/unstarred.git"),
+        ]
+    )
+    excluded: list[tuple[int, int, str]] = []
+
+    fake_repo = MagicMock()
+    fake_repo.record_excluded = AsyncMock(
+        side_effect=lambda mid, uid, reason: excluded.append((mid, uid, reason))
+    )
+
+    cfg = MagicMock()
+    with patch(
+        "app.adapters.git_backup.repository.GitMirrorRepository",
+        return_value=fake_repo,
+    ):
+        released = await _release_unstarred_mirrors(
+            cfg,
+            db,
+            {7: {"https://github.com/alice/still-there.git"}},
+        )
+
+    assert released == 1
+    assert [mid for mid, _, _ in excluded] == [12]
+    assert excluded[0][1] == 7
+    assert "no longer starred" in excluded[0][2]
+
+
+@pytest.mark.asyncio
+async def test_release_is_a_noop_without_a_completed_enumeration() -> None:
+    """No user enumerated successfully -> nothing is touched."""
+    from app.tasks.git_backup_sync import _release_unstarred_mirrors
+
+    db = MagicMock()
+    db.session = MagicMock(side_effect=AssertionError("must not query without an enumeration"))
+
+    released = await _release_unstarred_mirrors(MagicMock(), db, {})
+
+    assert released == 0
+
+
+@pytest.mark.asyncio
+async def test_release_query_exempts_pinned_mirrors() -> None:
+    """A hand-registered backup must survive a star-then-unstar on GitHub.
+
+    Signals 1 and 2 (a repository_id FK, plus source=starred and is_starred=false)
+    both hold for such a row once the star sync promotes it, so the pinned column
+    is the only thing keeping the sweep off it.
+    """
+    from app.tasks.git_backup_sync import _release_unstarred_mirrors
+
+    statements: list[Any] = []
+    db = _release_db([], statements)
+
+    with patch(
+        "app.adapters.git_backup.repository.GitMirrorRepository",
+        return_value=MagicMock(),
+    ):
+        await _release_unstarred_mirrors(MagicMock(), db, {7: set()})
+
+    assert len(statements) == 1
+    compiled = str(statements[0].compile(compile_kwargs={"literal_binds": True}))
+    assert "git_mirrors.pinned = false" in compiled.lower()
+
+
+@pytest.mark.asyncio
+async def test_bulk_enumeration_does_not_pin_what_it_enrolls() -> None:
+    """Only an explicit user request pins; auto-enrolled rows stay sweepable."""
+    from app.tasks.git_backup_sync import _enumerate_and_upsert_github_repos
+
+    seen_pinned: list[bool] = []
+
+    async def fake_upsert(
+        user_id, source, clone_url, name, *, size_kb=None, repository_id=None, pinned=False
+    ):
+        seen_pinned.append(pinned)
+        return _make_mirror(len(seen_pinned), clone_url, name=name)
+
+    fake_mirror_repo = MagicMock()
+    fake_mirror_repo.upsert_target = fake_upsert
+
+    class _FakeClient:
+        def __init__(self, token: str) -> None:
+            pass
+
+        async def list_owned_repos(self):
+            return [_make_repo_dto(4001, "alice/tool", size=64)]
+
+        async def list_starred(self):
+            async def _empty():
+                return
+                yield  # make it an async generator
+
+            return _empty()
+
+        async def list_watched_repos(self):
+            return []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+    cfg = MagicMock()
+    cfg.git_backup = MagicMock()
+    cfg.git_backup.mirror_starred = False
+    cfg.git_backup.mirror_owned = True
+    cfg.git_backup.mirror_watched = False
+
+    db = _build_db_stub([MagicMock(user_id=7, encrypted_token=b"tok")])
+
+    with (
+        patch(
+            "app.adapters.git_backup.repository.GitMirrorRepository",
+            return_value=fake_mirror_repo,
+        ),
+        patch("app.adapters.github.github_api_client.GitHubAPIClient", _FakeClient),
+        patch("app.security.secret_crypto.decrypt_secret", return_value="ghp_fake"),
+    ):
+        await _enumerate_and_upsert_github_repos(cfg, db)
+
+    assert seen_pinned == [False]

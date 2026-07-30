@@ -1277,6 +1277,23 @@ jobs:
             pyproject.toml
             uv.lock
 
+      - name: Install PostgreSQL client (matching service major version)
+        # The runner image preinstalls several PGDG client majors and its
+        # `pg_dump` on PATH stays pinned to an older one (16) even after we
+        # install postgresql-client-17, so `pg_dump` refuses to dump the
+        # postgres:17 service ("aborting because of server version
+        # mismatch"). Installing 17 isn't enough — prepend its bin dir on
+        # PATH so it wins over whatever update-alternatives left in place.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+
+      - name: Verify pg_dump matches the service major version
+        run: pg_dump --version | grep -q '(PostgreSQL) 17\.' || { pg_dump --version; exit 1; }
+
       - name: Install dependencies (all extras for DB-backed tests)
         run: |
           uv sync --frozen --no-default-groups \

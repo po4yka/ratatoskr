@@ -98,3 +98,73 @@ class GitHubConfig(BaseModel):
         validation_alias="GITHUB_SYNC_BATCH_SIZE",
         description="Number of repo upserts to batch in a single transaction during stars sync",
     )
+    sync_star_lists: bool = Field(
+        default=True,
+        validation_alias="GITHUB_SYNC_STAR_LISTS",
+        description=(
+            "Mirror GitHub star lists into repositories.list_names via GraphQL. "
+            "Costs roughly one request per 100 list items per sync run; a failure "
+            "is logged and never fails the star sync itself."
+        ),
+    )
+    full_sync_interval_days: int = Field(
+        default=7,
+        ge=0,
+        le=365,
+        validation_alias="GITHUB_FULL_SYNC_INTERVAL_DAYS",
+        description=(
+            "Days between full star snapshots. Incremental runs only add and update; "
+            "soft-unstar (is_starred=false for repos no longer starred) needs the full "
+            "listing, so it can only run on a snapshot. 0 disables periodic snapshots, "
+            "leaving the first sync as the only full one."
+        ),
+    )
+
+    # Star-list suggestion for newly added repositories
+    star_list_suggest_k: int = Field(
+        default=15,
+        ge=1,
+        le=100,
+        validation_alias="GITHUB_STAR_LIST_SUGGEST_K",
+        description=(
+            "How many already-filed repositories to consult when suggesting a star "
+            "list for a new one. The vote is weighted by similarity, so a larger k "
+            "mostly adds weak votes rather than changing the winner."
+        ),
+    )
+    star_list_suggest_min_similarity: float = Field(
+        default=0.35,
+        ge=0.0,
+        le=1.0,
+        validation_alias="GITHUB_STAR_LIST_SUGGEST_MIN_SIMILARITY",
+        description="Cosine-similarity floor below which a neighbour is not counted at all.",
+    )
+    star_list_suggest_min_score: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=100.0,
+        validation_alias="GITHUB_STAR_LIST_SUGGEST_MIN_SCORE",
+        description=(
+            "Summed-similarity a list must reach before it is applied without asking. "
+            "Roughly two or three agreeing neighbours at the default similarity floor."
+        ),
+    )
+    star_list_suggest_dominance_ratio: float = Field(
+        default=1.5,
+        ge=1.0,
+        le=10.0,
+        validation_alias="GITHUB_STAR_LIST_SUGGEST_DOMINANCE_RATIO",
+        description=(
+            "How far ahead of the runner-up the winning list must be. A near-tie is "
+            "treated as inconclusive and handed to the LLM fallback instead."
+        ),
+    )
+    star_list_suggest_llm_fallback: bool = Field(
+        default=True,
+        validation_alias="GITHUB_STAR_LIST_SUGGEST_LLM_FALLBACK",
+        description=(
+            "Ask an LLM to pick a list when the neighbour vote is inconclusive. "
+            "Costs one structured call per added repository in that case. When "
+            "disabled, an inconclusive vote leaves the repository unfiled."
+        ),
+    )

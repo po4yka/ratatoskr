@@ -99,7 +99,7 @@ async def test_direct_html_provider_blocks_redirect_to_private_ip() -> None:
 @pytest.mark.asyncio
 async def test_defuddle_provider_blocks_redirect_to_private_ip() -> None:
     client = _DefuddleClient()
-    provider = DefuddleProvider(api_base_url="https://defuddle.example", min_content_length=1)
+    provider = DefuddleProvider(api_base_url="http://defuddle-api:3003", min_content_length=1)
 
     with (
         patch(
@@ -109,15 +109,15 @@ async def test_defuddle_provider_blocks_redirect_to_private_ip() -> None:
         patch(
             "app.adapters.content.scraper.defuddle_provider.is_url_safe_async",
             new_callable=AsyncMock,
-            # 1st call: target-URL input guard; 2nd: initial defuddle_url;
-            # 3rd: the redirect target (private IP) which is blocked.
-            side_effect=[_SAFE_URL, _SAFE_URL, _PRIVATE_REDIRECT],
+            # The configured same-origin sidecar is trusted; the caller target
+            # and any redirect outside that origin remain public-URL checked.
+            side_effect=[_SAFE_URL, _PRIVATE_REDIRECT],
         ),
     ):
         with pytest.raises(ValueError, match="SSRF blocked redirect target"):
             await provider._fetch_raw("https://example.com/article")
 
-    assert client.urls == ["https://defuddle.example/https%3A%2F%2Fexample.com%2Farticle"]
+    assert client.urls == ["http://defuddle-api:3003/https%3A%2F%2Fexample.com%2Farticle"]
 
 
 @pytest.mark.asyncio

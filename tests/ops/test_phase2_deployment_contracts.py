@@ -56,6 +56,39 @@ def test_default_compose_stack_contains_core_services_without_profiles() -> None
     assert services["mobile-api"]["ports"] == ["127.0.0.1:18000:8000"]
 
 
+def test_application_services_default_to_production_and_dev_overlay_opts_out() -> None:
+    services = _compose()["services"]
+    dev_services = _dev_compose()["services"]
+    app_services = (
+        "migrate",
+        "ratatoskr",
+        "worker",
+        "scheduler",
+        "mobile-api",
+        "mcp",
+        "mcp-write",
+        "mcp-public",
+    )
+
+    for name in app_services:
+        env = _env_map(services[name])
+        assert env["APP_ENV"] == "${APP_ENV:-production}"
+        assert env["REDIS_REQUIRED"] == "${REDIS_REQUIRED:-true}"
+        assert env["ALLOWED_CLIENT_IDS"] == (
+            "${ALLOWED_CLIENT_IDS:-browser-extension,ratatoskr-android-v1.0,"
+            "ratatoskr-ios-v1.0,web-v1}"
+        )
+    for name in ("migrate", "ratatoskr", "worker", "scheduler", "mobile-api"):
+        env = _env_map(dev_services[name])
+        assert env["APP_ENV"] == "development"
+        assert env["REDIS_REQUIRED"] == "false"
+        assert env["ALLOWED_CLIENT_IDS"] == ""
+        assert env["AUTH_ALLOW_ANY_CLIENT_ID"] == "true"
+
+    yaml_config = yaml.safe_load((ROOT / "config/ratatoskr.yaml").read_text(encoding="utf-8"))
+    assert yaml_config.get("redis") in (None, {})
+
+
 def test_mobile_api_healthcheck_uses_real_readiness_route() -> None:
     healthcheck = _compose()["services"]["mobile-api"]["healthcheck"]
     command = " ".join(healthcheck["test"])
@@ -461,6 +494,78 @@ def test_pi_deploy_keeps_previous_image_and_does_not_apply_migrations_on_restart
     assert "run_remote_migrations" not in restart_branch
 
 
+def test_pi_deploy_registers_dbus_clients_before_testing_bridge_policy() -> None:
+    script = _pi_deploy_script()
+
+    assert "--bus=unix:path=/run/ratatoskr-dbus/system_bus_socket" in script
+    assert "--address=unix:path=/run/ratatoskr-dbus/system_bus_socket" not in script
+
+
+def test_pi_deploy_uses_one_reauth_provider_metadata_source() -> None:
+    script = _pi_deploy_script()
+
+    assert "REAUTH_PROVIDER_METADATA=(" in script
+    assert '"chatgpt deadbeef0001"' in script
+    assert '"claude deadbeef0002"' in script
+    assert "reauth_service_metadata()" in script
+    for provider in ("chatgpt", "claude"):
+        assert f"cloakbrowser-reauth-{provider})" not in script
+        assert f"ai-backup-webauthn-bridge-{provider})" not in script
+
+
+def test_pi_deploy_requires_the_filtered_bus_policy_denial() -> None:
+    script = _pi_deploy_script()
+    bridge_runtime = script.split("verify_webauthn_bridge_runtime() {", maxsplit=1)[1].split(
+        "verify_headed_browser_runtime() {", maxsplit=1
+    )[0]
+
+    assert "--bus=unix:path=/run/host-dbus/system_bus_socket" in bridge_runtime
+    assert "DENIED_OUTPUT=" in bridge_runtime
+    assert "Error org.freedesktop.DBus.Error.ServiceUnknown:" in bridge_runtime
+    assert "unexpected D-Bus policy response" in bridge_runtime
+
+
+def test_pi_deploy_probes_bluez_from_the_reauth_browser_container() -> None:
+    script = _pi_deploy_script()
+    browser_runtime = script.split("verify_headed_browser_runtime() {", maxsplit=1)[1].split(
+        "retire_legacy_qdrant_container() {", maxsplit=1
+    )[0]
+
+    browser_probe = r"docker exec \"\$CID\" dbus-send"
+    assert browser_probe in browser_runtime
+    assert "org.freedesktop.DBus.ObjectManager.GetManagedObjects" in browser_runtime
+    assert browser_runtime.index(browser_probe) < browser_runtime.index("pkill -TERM")
+
+
+def test_pi_deploy_smokes_reauth_browsers_in_the_production_timezone() -> None:
+    script = _pi_deploy_script()
+    browser_runtime = script.split("verify_headed_browser_runtime() {", maxsplit=1)[1].split(
+        "retire_legacy_qdrant_container() {", maxsplit=1
+    )[0]
+
+    assert "timezone=Asia%2FTbilisi&locale=en-US" in browser_runtime
+    assert "timezone=UTC" not in browser_runtime
+
+
+def test_reauth_live_validation_runbook_uses_the_production_timezone() -> None:
+    runbook = (ROOT / "docs/runbooks/ai-backup-live-validation.md").read_text(encoding="utf-8")
+
+    assert "timezone=Asia%2FTbilisi&locale=en-US" in runbook
+    assert "timezone=UTC" not in runbook
+
+
+def test_pi_deploy_restores_each_reauth_browser_control_and_egress_network() -> None:
+    script = _pi_deploy_script()
+
+    assert "ensure_reauth_browser_networks" in script
+    assert "${COMPOSE_PROJECT}_ai_backup_control_${provider}" in script
+    assert "${COMPOSE_PROJECT}_ai_backup_browser_egress_${provider}" in script
+    assert "docker network connect --alias '${svc}' '${network}'" in script
+    assert script.index('ensure_reauth_browser_networks "$svc"') < script.index(
+        'wait_for_service_health "$svc"'
+    )
+
+
 def test_pi_deploy_ships_and_starts_postgres_backup_without_remote_build() -> None:
     script = _pi_deploy_script()
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
@@ -471,7 +576,12 @@ def test_pi_deploy_ships_and_starts_postgres_backup_without_remote_build() -> No
     assert 'build_and_ship "$BACKUP_DOCKERFILE" -- "${BACKUP_TO_BUILD[@]}"' in script
     assert "up -d --no-build --no-deps --force-recreate ${svc}" in script
     assert "--entrypoint sh -v ${COMPOSE_PROJECT}_pg_backup_metrics:/textfile" in script
-    assert '--services "ratatoskr worker scheduler mobile-api pg-backup"' in makefile
+    assert (
+        '--services "ai-backup-display-chatgpt ai-backup-display-claude '
+        "ai-backup-webauthn-bridge-chatgpt ai-backup-webauthn-bridge-claude "
+        "cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude ratatoskr worker scheduler "
+        'mobile-api pg-backup"' in makefile
+    )
     assert "BACKUP_RUN_ON_START=${BACKUP_RUN_ON_START:-true}" in pi_overlay
 
 
@@ -568,6 +678,9 @@ def test_pi_deploy_gates_reader_services_and_verifies_release_metadata() -> None
     assert "git status --porcelain --untracked-files=normal" in script
     assert '"APP_BUILD=${GIT_SHA}"' in script
     assert "verify_reader_release_metadata" in script
+    assert "WITH_PLAYWRIGHT=${WITH_PLAYWRIGHT:-1}" in script
+    assert "verify_scraper_runtime" in script
+    assert "ratatoskr-mobile-api python -c 'import fitz" in script
     assert "http://127.0.0.1:18000/v1/meta" in script
     assert '"summaries.content-backfill.v1"' in script
     assert 'data.get("backendRevision")' in script

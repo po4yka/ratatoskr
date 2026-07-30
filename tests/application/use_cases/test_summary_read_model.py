@@ -86,3 +86,47 @@ async def test_get_summary_context_for_user_does_not_fetch_bundle_for_other_user
 
     assert await use_case.get_summary_context_for_user(user_id=3, summary_id=7) is None
     summary_repo.get_aggregation_source_bundle_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_get_summary_context_for_reconciliation_accepts_active_ownerless_summary() -> None:
+    summary_repo = _OptimizedSummaryRepository(
+        {
+            "summary": {"id": 7, "request_id": 70, "user_id": None, "is_deleted": False},
+            "request": {"id": 70, "user_id": None, "status": "ok", "is_deleted": False},
+            "crawl_result": {"request_id": 70, "content_markdown": "# Article"},
+            "transcription_artifact": None,
+        }
+    )
+    use_case = SummaryReadModelUseCase(
+        summary_repository=cast("Any", summary_repo),
+        request_repository=AsyncMock(),
+        crawl_result_repository=AsyncMock(),
+        llm_repository=AsyncMock(),
+    )
+
+    context = await use_case.get_summary_context_for_reconciliation(summary_id=7)
+
+    assert context is not None
+    assert context["request_id"] == 70
+    assert context["request"]["user_id"] is None
+    summary_repo.get_aggregation_source_bundle_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_get_summary_context_for_reconciliation_rejects_deleted_rows() -> None:
+    summary_repo = _OptimizedSummaryRepository(
+        {
+            "summary": {"id": 7, "request_id": 70, "is_deleted": False},
+            "request": {"id": 70, "is_deleted": True},
+            "crawl_result": None,
+        }
+    )
+    use_case = SummaryReadModelUseCase(
+        summary_repository=cast("Any", summary_repo),
+        request_repository=AsyncMock(),
+        crawl_result_repository=AsyncMock(),
+        llm_repository=AsyncMock(),
+    )
+
+    assert await use_case.get_summary_context_for_reconciliation(summary_id=7) is None

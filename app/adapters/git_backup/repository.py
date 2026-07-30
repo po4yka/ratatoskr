@@ -131,6 +131,7 @@ class GitMirrorRepository:
         *,
         repository_id: int | None = None,
         size_kb: int | None = None,
+        pinned: bool = False,
     ) -> GitMirror:
         """Create a new mirror row or return the existing one (matched by user+url).
 
@@ -143,6 +144,9 @@ class GitMirrorRepository:
           row has no real post-clone size yet (size_kb IS NULL).  This preserves
           the authoritative on-disk size recorded by record_success while
           allowing the GitHub-reported estimate to be stored on the first upsert.
+        - ``pinned`` is only ever set, never cleared: the nightly bulk
+          enumeration calls this with ``pinned=False`` for every starred repo, and
+          that must not undo an explicit request from the user.
         """
         async with self._db.transaction() as session:
             existing = await session.scalar(
@@ -173,6 +177,8 @@ class GitMirrorRepository:
                 # been given an authoritative post-clone measurement yet.
                 if size_kb is not None and existing.size_kb is None:
                     existing.size_kb = size_kb
+                if pinned and not existing.pinned:
+                    existing.pinned = True
                 await session.flush()
                 await session.refresh(existing)
                 return existing
@@ -184,6 +190,7 @@ class GitMirrorRepository:
                 name=name,
                 repository_id=repository_id,
                 size_kb=size_kb,
+                pinned=pinned,
                 status=GitMirrorStatus.PENDING,
                 consecutive_failures=0,
             )

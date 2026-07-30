@@ -218,7 +218,7 @@ def test_user_id_filter_processes_only_one_integration(
     sync_all_calls: list[tuple] = []
 
     async def _fake_sync_all(
-        integrations, *, cfg, db, bot=None, correlation_id=None, dry_run=False
+        integrations, *, cfg, db, bot=None, correlation_id=None, dry_run=False, force_full=False
     ):
         sync_all_calls.append((integrations, dry_run))
         from app.tasks.github_sync import SyncSummary
@@ -264,7 +264,7 @@ def test_dry_run_no_db_writes(
     dry_run_received: list[bool] = []
 
     async def _fake_sync_all(
-        integrations, *, cfg, db, bot=None, correlation_id=None, dry_run=False
+        integrations, *, cfg, db, bot=None, correlation_id=None, dry_run=False, force_full=False
     ):
         dry_run_received.append(dry_run)
         from app.tasks.github_sync import SyncSummary
@@ -293,6 +293,47 @@ def test_dry_run_no_db_writes(
     )
 
 
+def test_full_flag_forces_snapshot(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--full passes force_full=True to _sync_all; without it the run stays incremental."""
+    _stub_taskiq(monkeypatch)
+    _evict_task_modules()
+
+    mock_cfg = _build_cfg()
+    monkeypatch.setattr(sync_cli, "_prepare_config", lambda _: mock_cfg)
+    monkeypatch.setattr(sync_cli, "setup_json_logging", lambda _: None)
+    monkeypatch.setattr(
+        sync_cli,
+        "build_runtime_database",
+        lambda *a, **kw: _make_db_with_integrations([_make_integration(user_id=42)]),
+    )
+
+    force_full_received: list[bool] = []
+
+    async def _fake_sync_all(
+        integrations, *, cfg, db, bot=None, correlation_id=None, dry_run=False, force_full=False
+    ):
+        force_full_received.append(force_full)
+        from app.tasks.github_sync import SyncSummary
+
+        return SyncSummary(
+            users_processed=1,
+            repos_imported=0,
+            repos_updated=0,
+            repos_unstarred=3,
+            llm_calls_made=0,
+            llm_calls_deferred=0,
+        )
+
+    with patch("app.cli.sync_github_stars._sync_all", _fake_sync_all):
+        assert sync_cli.main(["--full"]) == 0
+        assert sync_cli.main([]) == 0
+
+    assert force_full_received == [True, False]
+    capsys.readouterr()
+
+
 def test_summary_printed_to_stdout(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -314,7 +355,7 @@ def test_summary_printed_to_stdout(
     )
 
     async def _fake_sync_all(
-        integrations, *, cfg, db, bot=None, correlation_id=None, dry_run=False
+        integrations, *, cfg, db, bot=None, correlation_id=None, dry_run=False, force_full=False
     ):
         from app.tasks.github_sync import SyncSummary
 
@@ -369,6 +410,7 @@ def test_parse_args_defaults() -> None:
     args = sync_cli.parse_args([])
     assert args.user_id is None
     assert args.dry_run is False
+    assert args.full is False
     assert args.log_level == "INFO"
     assert args.env_file is None
 
@@ -377,10 +419,20 @@ def test_parse_args_all_flags() -> None:
     from pathlib import Path
 
     args = sync_cli.parse_args(
-        ["--user-id", "99", "--dry-run", "--log-level", "DEBUG", "--env-file", "/tmp/.env"]
+        [
+            "--user-id",
+            "99",
+            "--dry-run",
+            "--full",
+            "--log-level",
+            "DEBUG",
+            "--env-file",
+            "/tmp/.env",
+        ]
     )
     assert args.user_id == 99
     assert args.dry_run is True
+    assert args.full is True
     assert args.log_level == "DEBUG"
     assert args.env_file == Path("/tmp/.env")
 

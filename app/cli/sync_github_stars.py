@@ -41,6 +41,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Log would-be writes without committing to DB or Qdrant.",
     )
     parser.add_argument(
+        "--full",
+        action="store_true",
+        default=False,
+        help=(
+            "Force a full star snapshot instead of an incremental run: page the whole "
+            "/user/starred listing and soft-unstar repos that are no longer starred. "
+            "Combine with --dry-run to see what would be unstarred."
+        ),
+    )
+    parser.add_argument(
         "--log-level",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         default="INFO",
@@ -90,6 +100,7 @@ async def run_sync_cli(args: argparse.Namespace) -> None:
         cfg=cfg,
         db=db,
         dry_run=args.dry_run,
+        force_full=args.full,
     )
 
     try:

@@ -38,6 +38,50 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Postgres-specific aggregates for async_get_user_stats_aggregates. Kept at module
+# level so the method reads as "three round trips, then assemble" rather than
+# burying its shape under fifty lines of SQL. Both carry the user_id predicate —
+# the defence-in-depth IDOR guard that Operating Rule 12 forbids dropping.
+
+# jsonb_array_elements_text expands the topic_tags array into one row per tag so
+# it can be grouped; non-array and non-string entries are filtered out.
+_TOP_TOPIC_TAGS_SQL = text(
+    "SELECT lower(tags.value #>> '{}') AS tag, count(*) AS cnt "
+    "FROM summaries s "
+    "JOIN requests r ON r.id = s.request_id "
+    "CROSS JOIN LATERAL jsonb_array_elements("
+    "  CASE WHEN jsonb_typeof(s.topic_tags) = 'array' "
+    "       THEN s.topic_tags ELSE '[]'::jsonb END"
+    ") AS tags(value) "
+    "WHERE r.user_id = :user_id "
+    "  AND s.is_deleted = false "
+    "  AND jsonb_typeof(tags.value) = 'string' "
+    "  AND btrim(tags.value #>> '{}') <> '' "
+    "GROUP BY lower(tags.value #>> '{}') "
+    "ORDER BY cnt DESC "
+    "LIMIT 10"
+)
+
+# Host extraction happens in Postgres so URL strings never reach Python.
+# normalized_url falls back to input_url when it has not been computed.
+_TOP_DOMAINS_SQL = text(
+    "SELECT "
+    "  regexp_replace("
+    "    coalesce(r.normalized_url, r.input_url), "
+    "    '^(?:[a-z][a-z0-9+\\-.]*://)?([^/?#]*).*$', "
+    "    '\\1', 'i'"
+    "  ) AS domain, "
+    "  count(*) AS cnt "
+    "FROM summaries s "
+    "JOIN requests r ON r.id = s.request_id "
+    "WHERE r.user_id = :user_id "
+    "  AND s.is_deleted = false "
+    "  AND coalesce(r.normalized_url, r.input_url) IS NOT NULL "
+    "GROUP BY domain "
+    "ORDER BY cnt DESC "
+    "LIMIT 10"
+)
+
 
 class SummaryRepositoryAdapter:
     """Adapter for summary persistence using SQLAlchemy."""
@@ -93,8 +137,7 @@ class SummaryRepositoryAdapter:
                     select(CrawlResult.id).where(
                         CrawlResult.request_id == request_id,
                         CrawlResult.is_deleted.is_(False),
-                        func.length(func.btrim(func.coalesce(CrawlResult.content_text, "")))
-                        > 0,
+                        func.length(func.btrim(func.coalesce(CrawlResult.content_text, ""))) > 0,
                     )
                 )
                 request_update = request_update.where(
@@ -105,9 +148,7 @@ class SummaryRepositoryAdapter:
             )
             if not getattr(update_result, "rowcount", 0):
                 if status_value == RequestStatus.COMPLETED.value:
-                    record_source_artifact_invariant_violation(
-                        stage="legacy_summary_finalize"
-                    )
+                    record_source_artifact_invariant_violation(stage="legacy_summary_finalize")
                 msg = (
                     "Refusing summary finalization without an eligible request "
                     f"for request_id={request_id}"
@@ -430,9 +471,7 @@ class SummaryRepositoryAdapter:
             for summary, request in await session.execute(stmt):
                 payload = ensure_mapping(summary.json_payload)
                 request_data = model_to_dict(request) or {}
-                if topic_query and not self._summary_matches_topic(
-                    payload, request_data, topic_query
-                ):
+                if topic_query and not _summary_matches_topic(payload, request_data, topic_query):
                     continue
 
                 data = model_to_dict(summary) or {}
@@ -853,8 +892,8 @@ class SummaryRepositoryAdapter:
         three targeted SQL round-trips:
 
         1. Scalar aggregates (counts, sums, max timestamp) via a single SELECT.
-        2. Top-10 topic-tag counts via jsonb_array_elements_text unnesting.
-        3. Top-10 domain counts via host extraction from normalized_url.
+        2. Top-10 topic-tag counts (``_TOP_TOPIC_TAGS_SQL``).
+        3. Top-10 domain counts (``_TOP_DOMAINS_SQL``).
 
         All queries include the ``user_id`` predicate (defense-in-depth IDOR guard).
         """
@@ -889,57 +928,11 @@ class SummaryRepositoryAdapter:
             last_summary_at: Any = scalar_row.last_summary_at
 
             # --- round-trip 2: top-10 topic tags (unnest JSON array) ---
-            # jsonb_array_elements_text is Postgres-specific; it expands the
-            # topic_tags JSON array into one row per tag so we can GROUP BY tag.
-            topic_rows = (
-                await session.execute(
-                    text(
-                        "SELECT lower(tags.value #>> '{}') AS tag, count(*) AS cnt "
-                        "FROM summaries s "
-                        "JOIN requests r ON r.id = s.request_id "
-                        "CROSS JOIN LATERAL jsonb_array_elements("
-                        "  CASE WHEN jsonb_typeof(s.topic_tags) = 'array' "
-                        "       THEN s.topic_tags ELSE '[]'::jsonb END"
-                        ") AS tags(value) "
-                        "WHERE r.user_id = :user_id "
-                        "  AND s.is_deleted = false "
-                        "  AND jsonb_typeof(tags.value) = 'string' "
-                        "  AND btrim(tags.value #>> '{}') <> '' "
-                        "GROUP BY lower(tags.value #>> '{}') "
-                        "ORDER BY cnt DESC "
-                        "LIMIT 10"
-                    ),
-                    {"user_id": user_id},
-                )
-            ).all()
+            topic_rows = (await session.execute(_TOP_TOPIC_TAGS_SQL, {"user_id": user_id})).all()
             favorite_topics = [{"topic": row.tag, "count": int(row.cnt)} for row in topic_rows]
 
             # --- round-trip 3: top-10 domains ---
-            # Extract host from normalized_url using Postgres regexp_replace so we
-            # avoid loading URL strings into Python.  Falls back to input_url when
-            # normalized_url is NULL.
-            domain_rows = (
-                await session.execute(
-                    text(
-                        "SELECT "
-                        "  regexp_replace("
-                        "    coalesce(r.normalized_url, r.input_url), "
-                        "    '^(?:[a-z][a-z0-9+\\-.]*://)?([^/?#]*).*$', "
-                        "    '\\1', 'i'"
-                        "  ) AS domain, "
-                        "  count(*) AS cnt "
-                        "FROM summaries s "
-                        "JOIN requests r ON r.id = s.request_id "
-                        "WHERE r.user_id = :user_id "
-                        "  AND s.is_deleted = false "
-                        "  AND coalesce(r.normalized_url, r.input_url) IS NOT NULL "
-                        "GROUP BY domain "
-                        "ORDER BY cnt DESC "
-                        "LIMIT 10"
-                    ),
-                    {"user_id": user_id},
-                )
-            ).all()
+            domain_rows = (await session.execute(_TOP_DOMAINS_SQL, {"user_id": user_id})).all()
             favorite_domains = [
                 {"domain": row.domain, "count": int(row.cnt)} for row in domain_rows if row.domain
             ]
@@ -1171,7 +1164,7 @@ class SummaryRepositoryAdapter:
     async def _find_topic_search_request_ids(
         self, topic: str, *, candidate_limit: int
     ) -> list[int] | None:
-        fts_query = self._build_tsquery(topic)
+        fts_query = _build_tsquery(topic)
         if not fts_query:
             return None
         sql = text(
@@ -1188,48 +1181,50 @@ class SummaryRepositoryAdapter:
             logger.warning("topic_search_query_failed", extra={"query": fts_query}, exc_info=True)
             return None
 
-    def _build_tsquery(self, topic: str) -> str | None:
-        terms = tokenize(topic)
-        if not terms:
-            sanitized = self._sanitize_fts_term(topic.casefold())
-            return f"{sanitized}:*" if sanitized else None
 
-        sanitized_terms = [self._sanitize_fts_term(term) for term in terms]
-        sanitized_terms = [term for term in sanitized_terms if term]
-        if not sanitized_terms:
-            return None
-        return " & ".join(f"{term}:*" for term in sanitized_terms)
+def _build_tsquery(topic: str) -> str | None:
+    """Turn a user topic into a prefix-matching ``to_tsquery`` expression."""
+    terms = tokenize(topic)
+    if not terms:
+        sanitized = _sanitize_fts_term(topic.casefold())
+        return f"{sanitized}:*" if sanitized else None
 
-    @staticmethod
-    def _sanitize_fts_term(term: str) -> str:
-        sanitized = re.sub(r"[^\w-]+", " ", term)
-        return re.sub(r"\s+", " ", sanitized).strip().replace(" ", " & ")
+    sanitized_terms = [_sanitize_fts_term(term) for term in terms]
+    sanitized_terms = [term for term in sanitized_terms if term]
+    if not sanitized_terms:
+        return None
+    return " & ".join(f"{term}:*" for term in sanitized_terms)
 
-    @staticmethod
-    def _summary_matches_topic(
-        summary_payload: dict[str, Any], request_data: dict[str, Any], topic: str
-    ) -> bool:
-        """Check if summary/request matches topic after FTS candidate selection."""
-        terms = tokenize(topic)
-        if not terms:
-            return False
 
-        def _yield_fragments(value: Any) -> Any:
-            if isinstance(value, str):
-                yield value.casefold()
-            elif isinstance(value, list):
-                for item in value:
-                    yield from _yield_fragments(item)
-            elif isinstance(value, dict):
-                for key, nested in value.items():
-                    yield from _yield_fragments(key)
-                    yield from _yield_fragments(nested)
+def _sanitize_fts_term(term: str) -> str:
+    sanitized = re.sub(r"[^\w-]+", " ", term)
+    return re.sub(r"\s+", " ", sanitized).strip().replace(" ", " & ")
 
-        fragments: list[str] = []
-        fragments.extend(_yield_fragments(summary_payload))
-        fragments.extend(_yield_fragments(request_data))
-        combined = " ".join(fragments)
-        return all(term in combined for term in terms)
+
+def _summary_matches_topic(
+    summary_payload: dict[str, Any], request_data: dict[str, Any], topic: str
+) -> bool:
+    """Check if summary/request matches topic after FTS candidate selection."""
+    terms = tokenize(topic)
+    if not terms:
+        return False
+
+    def _yield_fragments(value: Any) -> Any:
+        if isinstance(value, str):
+            yield value.casefold()
+        elif isinstance(value, list):
+            for item in value:
+                yield from _yield_fragments(item)
+        elif isinstance(value, dict):
+            for key, nested in value.items():
+                yield from _yield_fragments(key)
+                yield from _yield_fragments(nested)
+
+    fragments: list[str] = []
+    fragments.extend(_yield_fragments(summary_payload))
+    fragments.extend(_yield_fragments(request_data))
+    combined = " ".join(fragments)
+    return all(term in combined for term in terms)
 
 
 def _extract_summary_metadata(payload: dict[str, Any]) -> dict[str, Any]:
