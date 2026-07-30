@@ -141,8 +141,17 @@ async def test_concurrent_same_domain_cancel_on_timeout():
         "https://habr.com/article/4",
     ]
 
+    started = 0
+    cancelled = 0
+
     async def _slow_handler(*args, **kwargs):
-        await asyncio.sleep(999)
+        nonlocal started, cancelled
+        started += 1
+        try:
+            await asyncio.sleep(999)
+        except asyncio.CancelledError:
+            cancelled += 1
+            raise
 
     cast("Any", handler).handle_single_url = AsyncMock(side_effect=_slow_handler)
     handler._batch_policy = URLBatchPolicyService(
@@ -157,11 +166,20 @@ async def test_concurrent_same_domain_cancel_on_timeout():
 
     wall_elapsed = time.monotonic() - wall_start
 
-    # Without the fix: 4 URLs x 2s = 8s minimum.
-    # With the fix: ~2s for first timeout + near-instant sibling cancellation.
-    # Allow 2.5x tolerance for CI slowness.
-    assert wall_elapsed < test_timeout * 2.5, (
-        f"Expected wall-clock < {test_timeout * 2.5}s but got {wall_elapsed:.1f}s. "
+    # The property under test is that the siblings were cancelled, so assert
+    # that directly. The wall-clock form alone flaked on loaded CI runners
+    # (5.2s against a 5.0s bound) because it measures scheduler latency as much
+    # as it measures fail-fast.
+    assert started == len(urls), f"expected all {len(urls)} URLs to start, got {started}"
+    assert cancelled >= len(urls) - 1, (
+        f"expected the in-flight siblings to be cancelled, only {cancelled} were. "
+        "Domain fail-fast did not cancel them."
+    )
+    # Loose upper bound as a backstop: without fail-fast this serialises to
+    # 4 x 2s = 8s, so anything under 3.5x still separates the two behaviours
+    # while absorbing runner slowness.
+    assert wall_elapsed < test_timeout * 3.5, (
+        f"Expected wall-clock < {test_timeout * 3.5}s but got {wall_elapsed:.1f}s. "
         "Domain fail-fast did not cancel in-flight siblings."
     )
 
