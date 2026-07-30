@@ -46,6 +46,7 @@ def _fake_search_result(count: int = 3) -> Any:
             description=f"Description {i}",
             primary_language="Python",
             topics=["ml"],
+            list_names=[],
             stars=10 * (i + 1),
             is_starred=False,
             pushed_at=datetime(2024, 1, i + 1, tzinfo=timezone.utc),
