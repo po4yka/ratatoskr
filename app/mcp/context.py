@@ -33,7 +33,7 @@ class McpServerContext:
         self._runtime: Any = None
         self._api_runtime: Any = None
         self._user_id = user_id
-        self._request_identity: contextvars.ContextVar[McpRequestIdentity | None | object] = (
+        self._request_identity: contextvars.ContextVar[McpRequestIdentity | object | None] = (
             contextvars.ContextVar(
                 "mcp_request_identity",
                 default=_NO_REQUEST_USER_SCOPE,

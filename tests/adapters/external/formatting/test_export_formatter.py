@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -127,3 +128,30 @@ async def test_export_formatter_routes_summary_export_from_loaded_data(monkeypat
 
     monkeypatch.setattr(formatter, "_load_summary", _load_missing)
     assert await formatter.export_summary("missing", "md") == (None, None)
+
+
+async def test_export_summary_offloads_blocking_render_off_the_event_loop(monkeypatch) -> None:
+    """The generators render HTML, run WeasyPrint and write a temp file.
+
+    Both consumers -- the Telegram export button and
+    ``GET /v1/summaries/{id}/export`` -- funnel through ``export_summary``, so the
+    offload belongs here rather than at each call site.  Running it inline froze
+    the whole process for seconds per PDF on a Pi.
+    """
+    formatter = _formatter()
+
+    async def _load_ok(summary_id):
+        return _summary_data()
+
+    monkeypatch.setattr(formatter, "_load_summary", _load_ok)
+
+    render_thread: dict[str, int] = {}
+
+    def _render(data, cid=None):
+        render_thread["id"] = threading.get_ident()
+        return "p", "f.pdf"
+
+    monkeypatch.setattr(formatter, "_export_pdf", _render)
+
+    assert await formatter.export_summary("1", "pdf") == ("p", "f.pdf")
+    assert render_thread["id"] != threading.get_ident()

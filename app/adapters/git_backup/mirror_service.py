@@ -389,7 +389,7 @@ class GitMirrorService:
         # LFS support is resolved lazily on first async use to avoid blocking
         # subprocess.run (is_lfs_available) on the event loop at __init__ time.
         # When an explicit lfs instance is injected (tests), use it directly.
-        self._lfs: LfsSupport | None | _Unset = lfs if lfs is not None else _UNSET
+        self._lfs: LfsSupport | _Unset | None = lfs if lfs is not None else _UNSET
         self._git_runner: GitRunner = git_runner or _default_git_runner
 
     # ------------------------------------------------------------------

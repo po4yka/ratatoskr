@@ -45,10 +45,10 @@ def truncate_at_sentence(text, max_len):
     if len(text) <= max_len:
         return text
     # Find last sentence ending before limit
-    for end in ['. ', '! ', '? ']:
+    for end in [". ", "! ", "? "]:
         pos = text[:max_len].rfind(end)
         if pos > 0:
-            return text[:pos+1]
+            return text[: pos + 1]
     return text[:max_len]
 ```
 
@@ -59,7 +59,7 @@ def truncate_at_sentence(text, max_len):
 **Solution**: Prefix all tags
 
 ```python
-tags = [f"#{tag}" if not tag.startswith('#') else tag for tag in tags]
+tags = [f"#{tag}" if not tag.startswith("#") else tag for tag in tags]
 ```
 
 ### 3. Duplicate Entities
@@ -87,7 +87,7 @@ def dedupe_entities(items):
 
 ```python
 for stat in key_stats:
-    assert 'label' in stat, "Missing label"
-    assert 'value' in stat, "Missing value"
-    assert isinstance(stat['value'], (int, float)), "Value must be numeric"
+    assert "label" in stat, "Missing label"
+    assert "value" in stat, "Missing value"
+    assert isinstance(stat["value"], (int, float)), "Value must be numeric"
 ```

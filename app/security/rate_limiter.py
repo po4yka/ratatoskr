@@ -121,9 +121,11 @@ class UserRateLimiter:
 
                 return (
                     False,
-                    f"🚫 Rate limit exceeded. You can make {self._config.max_requests} requests "
-                    f"per {self._config.window_seconds} seconds. "
-                    f"Cooldown active for {int(cooldown_duration)} seconds.",
+                    (
+                        f"🚫 Rate limit exceeded. You can make {self._config.max_requests} requests "
+                        f"per {self._config.window_seconds} seconds. "
+                        f"Cooldown active for {int(cooldown_duration)} seconds."
+                    ),
                 )
 
             concurrent_count = self._user_concurrent.get(user_id, 0)
@@ -139,8 +141,10 @@ class UserRateLimiter:
                 )
                 return (
                     False,
-                    f"⏸️ Too many concurrent operations ({concurrent_count}). "
-                    f"Maximum: {self._config.max_concurrent}. Please wait for previous requests to complete.",
+                    (
+                        f"⏸️ Too many concurrent operations ({concurrent_count}). "
+                        f"Maximum: {self._config.max_concurrent}. Please wait for previous requests to complete."
+                    ),
                 )
 
             # Record the request(s) based on cost
@@ -333,9 +337,11 @@ class RedisUserRateLimiter:
             self.last_remaining = retry_after
             return (
                 False,
-                f"🚫 Rate limit exceeded. You can make {self._config.max_requests} requests "
-                f"per {self._config.window_seconds} seconds. "
-                f"Cooldown active for {retry_after} seconds.",
+                (
+                    f"🚫 Rate limit exceeded. You can make {self._config.max_requests} requests "
+                    f"per {self._config.window_seconds} seconds. "
+                    f"Cooldown active for {retry_after} seconds."
+                ),
             )
 
         remaining = max(self._config.max_requests - count, 0)
