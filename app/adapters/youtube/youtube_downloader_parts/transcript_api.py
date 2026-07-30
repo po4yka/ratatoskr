@@ -8,7 +8,7 @@ from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:
     import logging
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
 logger = get_logger(__name__)
 
@@ -23,15 +23,21 @@ _TRANSCRIPT_MAX_RETRIES = 3
 
 
 def format_transcript(
-    transcript_data: list[dict[str, Any]],
+    transcript_data: Iterable[Any],
     *,
     max_chars: int,
     log: logging.Logger | None = None,
 ) -> str:
-    """Join transcript segments into a single text block, de-duping whitespace."""
+    """Join transcript segments into a single text block, de-duping whitespace.
+
+    Accepts both segment shapes: 0.6.x returned plain dicts, 1.x returns a
+    ``FetchedTranscript`` of ``FetchedTranscriptSnippet`` dataclasses. Reading
+    only ``entry["text"]`` silently produced an empty transcript on 1.x.
+    """
     lines: list[str] = []
     for entry in transcript_data:
-        text = entry.get("text", "").strip()
+        raw = entry.get("text", "") if isinstance(entry, dict) else getattr(entry, "text", "")
+        text = str(raw).strip()
         if text:
             lines.append(text)
 
@@ -65,10 +71,22 @@ async def extract_transcript_via_api(
 
     for attempt in range(_TRANSCRIPT_MAX_RETRIES):
         try:
+            # youtube-transcript-api 1.x dropped the `list_transcripts`
+            # classmethod for an instance-level `list`. The old call raised
+            # AttributeError, which the generic handler below swallowed into
+            # three retries with backoff -- so this whole tier was dead and every
+            # YouTube request paid ~3 s of pointless sleep before falling through
+            # to yt-dlp VTT or local ASR. The caller passes the class, but an
+            # already-built instance (tests) is accepted too.
+            api = (
+                youtube_transcript_api()
+                if isinstance(youtube_transcript_api, type)
+                else youtube_transcript_api
+            )
             async with asyncio.timeout(30.0):
                 with _get_tracer().start_as_current_span("youtube.transcript_list"):
                     transcript_list = await asyncio.to_thread(
-                        cast("Any", youtube_transcript_api).list_transcripts,
+                        cast("Any", api).list,
                         video_id,
                     )
 

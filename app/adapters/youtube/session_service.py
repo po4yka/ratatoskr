@@ -41,6 +41,10 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# The download pipeline bounds itself at 600 s (download_pipeline.asyncio.timeout),
+# so a row older than this has no live worker behind it.
+_DOWNLOAD_STALE_AFTER_SEC = 900.0
+
 
 @dataclass(slots=True)
 class YouTubeDownloadPreparation:
@@ -169,20 +173,49 @@ class YouTubeDownloadSessionService:
                 )
 
             if existing_download and existing_download.get("status") in {"pending", "downloading"}:
-                logger.info(
-                    "youtube_download_in_progress_reuse",
+                stale_download_id = self._stale_download_id(existing_download)
+                if stale_download_id is None:
+                    logger.info(
+                        "youtube_download_in_progress_reuse",
+                        extra={
+                            "video_id": video_id,
+                            "request_id": req_id,
+                            "download_id": existing_download.get("id"),
+                            "status": existing_download.get("status"),
+                            "cid": request.correlation_id,
+                        },
+                    )
+                    return YouTubeDownloadPreparation(
+                        req_id=req_id,
+                        download_id=existing_download.get("id"),
+                        wait_for_existing_download=True,
+                        cached_result=None,
+                    )
+
+                # No live worker can still be behind this row, so restart it in
+                # place. video_downloads.request_id is unique, so the row is
+                # reset rather than replaced, and download_started_at is cleared
+                # so the next reader does not immediately call it stale again.
+                logger.warning(
+                    "youtube_download_stale_restarted",
                     extra={
                         "video_id": video_id,
                         "request_id": req_id,
-                        "download_id": existing_download.get("id"),
+                        "download_id": stale_download_id,
                         "status": existing_download.get("status"),
                         "cid": request.correlation_id,
                     },
                 )
+                await self.video_repo.async_update_video_download(
+                    stale_download_id,
+                    status="pending",
+                    download_started_at=None,
+                    error_text=None,
+                )
                 return YouTubeDownloadPreparation(
                     req_id=req_id,
-                    download_id=existing_download.get("id"),
-                    wait_for_existing_download=True,
+                    download_id=stale_download_id,
+                    wait_for_existing_download=False,
                     cached_result=None,
                 )
 
@@ -197,6 +230,31 @@ class YouTubeDownloadSessionService:
                 wait_for_existing_download=False,
                 cached_result=None,
             )
+
+    @staticmethod
+    def _stale_download_id(download: Mapping[str, Any]) -> int | None:
+        """Return the row id when no live worker can still be behind it.
+
+        Nothing reaps ``video_downloads``: a container restart or SIGKILL
+        mid-download leaves the row at ``downloading`` for good, and
+        ``download_pipeline`` deliberately skips ``handle_failure`` on
+        cancellation. Every later send of the same URL then reused that request,
+        waited out the full 620 s poll in
+        :meth:`await_existing_download_completion` and failed with TimeoutError
+        -- permanently, until the row was fixed by hand.
+        """
+        raw_id = download.get("id")
+        if raw_id is None:
+            return None
+        started = download.get("download_started_at") or download.get("created_at")
+        if not isinstance(started, datetime):
+            # Nothing says a worker is alive, and the reuse path is the one that
+            # hangs, so prefer restarting over waiting.
+            return int(raw_id)
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=UTC)
+        age_sec = (datetime.now(UTC) - started).total_seconds()
+        return int(raw_id) if age_sec > _DOWNLOAD_STALE_AFTER_SEC else None
 
     async def await_existing_download_completion(
         self,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -12,6 +13,11 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 VALID_QUALITIES = {"240", "360", "480", "720", "1080", "1440", "2160"}
+
+
+# Per-read bound; the wall-clock budget is applied separately in
+# download_video_sync via a progress hook.
+_SOCKET_TIMEOUT_SEC = 30
 
 
 def build_ydl_opts(
@@ -48,7 +54,31 @@ def build_ydl_opts(
         "no_warnings": False,
         "ignoreerrors": False,
         "max_filesize": max_video_size_mb * 1024 * 1024,
+        # Bounds each individual network read. The asyncio.timeout wrapped around
+        # the to_thread call cannot cancel the worker thread -- it only stops
+        # awaiting it -- so without an internal bound a stalled CDN left yt-dlp
+        # running, and its own finally-block cleanup had already deleted the
+        # partial files it was still writing into. The result was a complete
+        # .mp4 on disk that no video_downloads row referenced.
+        "socket_timeout": _SOCKET_TIMEOUT_SEC,
     }
+
+
+def make_deadline_hook(deadline_sec: float) -> Callable[[dict[str, Any]], None]:
+    """A yt-dlp progress hook that aborts the download past a wall-clock budget.
+
+    yt-dlp propagates exceptions raised from a progress hook, which is the only
+    way to stop work already running inside the worker thread: the caller's
+    asyncio.timeout can stop awaiting the thread but cannot cancel it.
+    """
+    deadline = time.monotonic() + deadline_sec
+
+    def _hook(status: dict[str, Any]) -> None:
+        if time.monotonic() > deadline:
+            msg = f"yt-dlp exceeded its {deadline_sec:.0f}s budget"
+            raise TimeoutError(msg)
+
+    return _hook
 
 
 def download_video_sync(
@@ -59,9 +89,14 @@ def download_video_sync(
     correlation_id: str | None,
     extract_youtube_video_id: Callable[[str], str | None],
     yt_dlp_module: Any,
+    deadline_sec: float | None = None,
 ) -> dict[str, Any]:
     """Synchronous download using yt-dlp; designed to run in a thread."""
     video_id = extract_youtube_video_id(url)
+
+    if deadline_sec is not None:
+        hooks = [*ydl_opts.get("progress_hooks", []), make_deadline_hook(deadline_sec)]
+        ydl_opts = {**ydl_opts, "progress_hooks": hooks}
 
     with yt_dlp_module.YoutubeDL(ydl_opts) as ydl:
         try:

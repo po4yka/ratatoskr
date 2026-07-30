@@ -9,6 +9,19 @@ logger = get_logger(__name__)
 
 ELIGIBLE_SUFFIXES = {".mp4", ".info.json", ".vtt", ".jpg", ".png", ".webp"}
 
+
+def _has_eligible_suffix(path: Path, eligible_suffixes: set[str]) -> bool:
+    """Match on the filename tail, not Path.suffix.
+
+    ``Path("v.info.json").suffix`` is ``".json"``, so ``.info.json`` could never
+    match: yt-dlp's metadata sidecars were counted in neither the usage total nor
+    the cleanup candidates, and accumulated on the SD card forever even though
+    metadata_file_path is persisted for them.
+    """
+    name = path.name.lower()
+    return any(name.endswith(suffix) for suffix in eligible_suffixes)
+
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
     from pathlib import Path
@@ -20,7 +33,7 @@ def calculate_storage_usage(
     total = 0
     try:
         for file_path in storage_path.rglob("*"):
-            if file_path.is_file() and file_path.suffix.lower() in eligible_suffixes:
+            if file_path.is_file() and _has_eligible_suffix(file_path, eligible_suffixes):
                 total += file_path.stat().st_size
     except Exception as exc:
         logger.warning("youtube_storage_calculation_failed", extra={"error": str(exc)})
@@ -47,7 +60,7 @@ def auto_cleanup_storage(
     for file_path in storage_path.rglob("*"):
         if not file_path.is_file():
             continue
-        if file_path.suffix.lower() not in eligible_suffixes:
+        if not _has_eligible_suffix(file_path, eligible_suffixes):
             continue
         try:
             stat = file_path.stat()

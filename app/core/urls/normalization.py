@@ -7,6 +7,7 @@ from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunpa
 from app.core.logging_utils import get_logger, redact_url_for_logging
 from app.core.urls.twitter import canonicalize_twitter_url
 from app.core.urls.validation import _ALLOWED_SCHEMES, _DANGEROUS_SCHEMES, validate_url_input
+from app.core.urls.youtube import canonicalize_youtube_url
 
 logger = get_logger(__name__)
 
@@ -153,8 +154,8 @@ def url_hash_sha256(normalized_url: str) -> str:
 def compute_dedupe_hash(url: str) -> str:
     """Compute deduplication hash for a URL."""
     normalized = normalize_url(url)
-    twitter_canonical = canonicalize_twitter_url(normalized)
-    return url_hash_sha256(twitter_canonical or normalized)
+    canonical = canonicalize_twitter_url(normalized) or canonicalize_youtube_url(normalized)
+    return url_hash_sha256(canonical or normalized)
 
 
 __all__ = [

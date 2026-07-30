@@ -45,6 +45,10 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Wall-clock budget for one video download. yt-dlp is given a slightly shorter
+# internal deadline so it aborts and cleans up before the outer timeout fires.
+_DOWNLOAD_BUDGET_SEC = 600.0
+
 
 def _get_tracer() -> Any:
     from app.observability.otel import get_tracer
@@ -110,7 +114,7 @@ class YouTubeDownloadPipeline:
             ydl_opts = self._get_ydl_opts(video_id, output_dir)
             with _get_tracer().start_as_current_span("youtube.download") as _dl_span:
                 _dl_span.set_attribute(SOURCE_URL, request.url_text)
-                async with asyncio.timeout(600.0):
+                async with asyncio.timeout(_DOWNLOAD_BUDGET_SEC):
                     video_metadata = await asyncio.to_thread(
                         self._download_video_sync,
                         request.url_text,
@@ -353,6 +357,10 @@ class YouTubeDownloadPipeline:
             correlation_id=correlation_id,
             extract_youtube_video_id=extract_youtube_video_id,
             yt_dlp_module=yt_dlp,
+            # Slightly ahead of the caller's asyncio.timeout so yt-dlp aborts
+            # itself and cleans up its own partials. The outer timeout stays as a
+            # backstop, but it cannot cancel the thread -- only stop awaiting it.
+            deadline_sec=_DOWNLOAD_BUDGET_SEC - 30.0,
         )
 
     def _should_attempt_local_transcription(self) -> bool:
