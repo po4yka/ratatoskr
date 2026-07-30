@@ -14,9 +14,25 @@ class _MessageStub:
         self.message_id = message_id
 
 
+class _BotClientStub:
+    """Mirrors the surface of the real TelethonBotClient.
+
+    Deliberately has no ``invoke``: that attribute belongs to the Bot-API-era
+    client, and a stub that offers it let ``_send_custom_request`` guard on a
+    name the production wrapper never exposes -- which made draft streaming
+    raise on every send while the tests stayed green.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    async def send_custom_request(self, custom_method: str, params: dict[str, object]) -> None:
+        self.calls.append((custom_method, params))
+
+
 @pytest.mark.asyncio
 async def test_draft_sender_builds_payload_and_respects_thread_id() -> None:
-    telegram_client = SimpleNamespace(client=SimpleNamespace(invoke=AsyncMock()))
+    telegram_client = SimpleNamespace(client=_BotClientStub())
     sender = DraftStreamSender(
         telegram_client=telegram_client,
         settings=DraftStreamSettings(
@@ -42,7 +58,7 @@ async def test_draft_sender_builds_payload_and_respects_thread_id() -> None:
 
 @pytest.mark.asyncio
 async def test_draft_sender_throttles_small_fast_updates() -> None:
-    telegram_client = SimpleNamespace(client=SimpleNamespace(invoke=AsyncMock()))
+    telegram_client = SimpleNamespace(client=_BotClientStub())
     sender = DraftStreamSender(
         telegram_client=telegram_client,
         settings=DraftStreamSettings(
@@ -66,7 +82,7 @@ async def test_draft_sender_throttles_small_fast_updates() -> None:
 @pytest.mark.asyncio
 async def test_draft_sender_cooldown_after_single_failure() -> None:
     """A single failure triggers a 10-second cooldown, not permanent fallback."""
-    telegram_client = SimpleNamespace(client=SimpleNamespace(invoke=AsyncMock()))
+    telegram_client = SimpleNamespace(client=_BotClientStub())
     sender = DraftStreamSender(
         telegram_client=telegram_client,
         settings=DraftStreamSettings(
@@ -96,7 +112,7 @@ async def test_draft_sender_cooldown_after_single_failure() -> None:
 @pytest.mark.asyncio
 async def test_draft_sender_permanent_fallback_after_three_consecutive_failures() -> None:
     """Three consecutive failures trigger permanent fallback for the request."""
-    telegram_client = SimpleNamespace(client=SimpleNamespace(invoke=AsyncMock()))
+    telegram_client = SimpleNamespace(client=_BotClientStub())
     sender = DraftStreamSender(
         telegram_client=telegram_client,
         settings=DraftStreamSettings(
@@ -133,7 +149,7 @@ async def test_circuit_breaker_half_open_after_timeout(monkeypatch: pytest.Monke
 
     monkeypatch.setattr(module.time, "time", lambda: 400.0)
 
-    telegram_client = SimpleNamespace(client=SimpleNamespace(invoke=AsyncMock()))
+    telegram_client = SimpleNamespace(client=_BotClientStub())
     sender = DraftStreamSender(
         telegram_client=telegram_client,
         settings=DraftStreamSettings(
@@ -163,7 +179,7 @@ async def test_circuit_breaker_reopens_on_half_open_failure(
 
     monkeypatch.setattr(module.time, "time", lambda: 400.0)
 
-    telegram_client = SimpleNamespace(client=SimpleNamespace(invoke=AsyncMock()))
+    telegram_client = SimpleNamespace(client=_BotClientStub())
     sender = DraftStreamSender(
         telegram_client=telegram_client,
         settings=DraftStreamSettings(
@@ -184,3 +200,45 @@ async def test_circuit_breaker_reopens_on_half_open_failure(
     assert result.fallback is True
     assert sender._transport_disabled is True
     assert sender._transport_disabled_since == 400.0
+
+
+@pytest.mark.asyncio
+async def test_send_update_reaches_the_real_transport() -> None:
+    """Exercise _send_custom_request itself, not a patched stand-in.
+
+    Every other test in this file patches _send_custom_request away, which is
+    why a guard requiring an attribute the production wrapper never exposes
+    could break draft streaming completely without turning the suite red.
+    """
+    bot_client = _BotClientStub()
+    sender = DraftStreamSender(
+        telegram_client=SimpleNamespace(client=bot_client),
+        settings=DraftStreamSettings(
+            enabled=True, min_interval_ms=0, min_delta_chars=1, max_chars=64
+        ),
+    )
+
+    result = await sender.send_update(_MessageStub(), "live draft", force=True)
+
+    assert result.ok is True
+    assert result.sent is True
+    assert result.fallback is False
+    assert bot_client.calls == [
+        ("sendMessageDraft", {"chat_id": 123, "text": "live draft"}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_send_update_falls_back_when_transport_is_absent() -> None:
+    """A client without send_custom_request degrades to fallback, not a crash."""
+    sender = DraftStreamSender(
+        telegram_client=SimpleNamespace(client=SimpleNamespace()),
+        settings=DraftStreamSettings(
+            enabled=True, min_interval_ms=0, min_delta_chars=1, max_chars=64
+        ),
+    )
+
+    result = await sender.send_update(_MessageStub(), "no transport", force=True)
+
+    assert result.ok is False
+    assert result.fallback is True

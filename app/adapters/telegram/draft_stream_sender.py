@@ -252,16 +252,19 @@ class DraftStreamSender:
         )
 
     async def _send_custom_request(self, params: dict[str, Any]) -> None:
+        # `TelegramClient.client` is the TelethonBotClient wrapper (the raw
+        # Telethon client is `.raw`), and the wrapper's transport method is
+        # `send_custom_request`. It has no `invoke` -- that name belongs to the
+        # Bot-API-era client this guard was written against -- so requiring
+        # `invoke` made this method raise unconditionally and draft streaming
+        # was dead for every send while the feature flag defaulted to on.
+        # Gate on the one attribute actually called.
         client = getattr(self._telegram_client, "client", None)
-        if client is None or not hasattr(client, "invoke"):
-            msg = "telegram_client_invoke_unavailable"
+        if client is None or not hasattr(client, "send_custom_request"):
+            msg = "telegram_client_custom_request_unavailable"
             raise RuntimeError(msg)
 
-        if hasattr(client, "send_custom_request"):
-            await client.send_custom_request("sendMessageDraft", params)
-            return
-        msg = "telegram_client_custom_request_unavailable"
-        raise RuntimeError(msg)
+        await client.send_custom_request("sendMessageDraft", params)
 
     @staticmethod
     def _classify_failure_reason(exc: Exception) -> str:
