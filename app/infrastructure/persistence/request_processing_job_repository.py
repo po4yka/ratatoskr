@@ -450,6 +450,7 @@ class RequestProcessingJobRepository:
         request_id: int,
         correlation_id: str | None,
         max_attempts: int = 3,
+        reset: bool = False,
     ) -> None:
         """Insert/upsert a ``pending`` job row for a bot-enqueued URL request.
 
@@ -460,6 +461,13 @@ class RequestProcessingJobRepository:
         making it visible to ``lease_next(by_id=...)``.  Terminal rows
         (``succeeded``, ``dead_letter``) are left untouched so a duplicate
         bot enqueue cannot reopen a finished job.
+
+        ``reset=True`` is for an *explicit* re-drive of a finished request --
+        /retry, or the owner re-sending a URL whose previous run failed.  Both
+        the terminal-status guard and the carried-over ``attempt_count`` would
+        otherwise leave the job unleasable (a ``dead_letter`` row is never
+        updated; a ``failed`` row at ``attempt_count == max_attempts``
+        dead-letters again on its first failure), so both are dropped.
         """
         now = _utcnow()
         base_values = {
@@ -477,26 +485,32 @@ class RequestProcessingJobRepository:
             "updated_at": now,
             "created_at": now,
         }
+        set_values: dict[str, Any] = {
+            "status": "pending",
+            "lease_owner": None,
+            "lease_expires_at": None,
+            "retry_after": now,
+            "last_error_code": None,
+            "last_error_message": None,
+            "correlation_id": correlation_id,
+            "max_attempts": max_attempts,
+            "updated_at": now,
+        }
+        if reset:
+            set_values["attempt_count"] = 0
         async with self._database.transaction() as session:
-            stmt = (
-                insert(RequestProcessingJob)
-                .values(**base_values)
-                .on_conflict_do_update(
+            stmt = insert(RequestProcessingJob).values(**base_values)
+            if reset:
+                stmt = stmt.on_conflict_do_update(
                     index_elements=[RequestProcessingJob.request_id],
-                    set_={
-                        "status": "pending",
-                        "lease_owner": None,
-                        "lease_expires_at": None,
-                        "retry_after": now,
-                        "last_error_code": None,
-                        "last_error_message": None,
-                        "correlation_id": correlation_id,
-                        "max_attempts": max_attempts,
-                        "updated_at": now,
-                    },
+                    set_=set_values,
+                )
+            else:
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=[RequestProcessingJob.request_id],
+                    set_=set_values,
                     where=RequestProcessingJob.status.notin_(TERMINAL_JOB_STATUSES),
                 )
-            )
             await session.execute(stmt)
 
     async def record_synchronous_start(

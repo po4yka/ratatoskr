@@ -41,6 +41,10 @@ def _stub_taskiq(monkeypatch):
     taskiq_mod.TaskiqDepends = lambda fn, **_kw: None
     taskiq_mod.TaskiqMiddleware = object
     taskiq_mod.InMemoryBroker = MagicMock
+    # app.tasks.url_processing imports TaskiqEvents for its @broker.on_event
+    # decorators. Without it the stub makes every test that imports that module
+    # fail on collection when this file runs on its own.
+    taskiq_mod.TaskiqEvents = MagicMock()
 
     msg_mod = sys.modules["taskiq.message"]
     msg_mod.TaskiqMessage = object
@@ -84,6 +88,7 @@ def _make_request_repo(*, request_id: int = 1):
     repo.async_create_request_once = AsyncMock(return_value=(request_id, True))
     repo.async_update_bot_reply_message_id = AsyncMock()
     repo.async_update_request_error = AsyncMock()
+    repo.async_update_request_status_with_correlation = AsyncMock()
     return repo
 
 
@@ -102,10 +107,12 @@ def _make_url_processor():
     return proc
 
 
-def _make_job_repo():
+def _make_job_repo(*, request_status: str = "pending"):
     repo = MagicMock()
     repo.record_pending_enqueue = AsyncMock()
     repo.pending_count = AsyncMock(return_value=1)
+    # Only consulted on a dedupe conflict, to tell "in flight" from "finished".
+    repo.get_request_status = AsyncMock(return_value=(request_status, None))
     return repo
 
 
@@ -284,8 +291,14 @@ async def test_enqueue_falls_back_to_inline_on_request_create_failure(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_enqueue_suppresses_duplicate_request_race(monkeypatch):
-    """A dedupe conflict should not send a second placeholder or kick a second task."""
+async def test_enqueue_suppresses_duplicate_while_in_flight(monkeypatch):
+    """A dedupe conflict on a row that is still being worked stays quiet.
+
+    Suppression is correct ONLY here: the running worker owns the user-facing
+    reply, so a second placeholder and a second task would double-process the
+    URL.  Any other existing status must not be silenced -- see the two tests
+    below.
+    """
     _stub_taskiq(monkeypatch)
     monkeypatch.setenv("TASKIQ_BROKER", "memory")
 
@@ -293,7 +306,7 @@ async def test_enqueue_suppresses_duplicate_request_race(monkeypatch):
     request_repo.async_create_request_once.return_value = (7, False)
     response_formatter = _make_response_formatter(reply_message_id=55)
     url_processor = _make_url_processor()
-    job_repo = _make_job_repo()
+    job_repo = _make_job_repo(request_status="summarizing")
     kicker = _make_kicker()
 
     handler = URLHandler(
@@ -333,6 +346,123 @@ async def test_enqueue_suppresses_duplicate_request_race(monkeypatch):
     request_repo.async_update_bot_reply_message_id.assert_not_awaited()
     kicker.return_value.kiq.assert_not_awaited()
     url_processor.handle_url_flow.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_serves_cached_summary_for_completed_duplicate(monkeypatch):
+    """A URL the owner already summarized replies from cache instead of silently.
+
+    Regression: the enqueue path treated every dedupe conflict as a race and
+    returned success without sending anything, so re-sending any previously
+    processed URL produced total silence.  ``ux_requests_user_dedupe_hash`` has
+    no age predicate, so that matched every URL ever sent.
+    """
+    _stub_taskiq(monkeypatch)
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    request_repo = _make_request_repo(request_id=7)
+    request_repo.async_create_request_once.return_value = (7, False)
+    response_formatter = _make_response_formatter()
+    url_processor = _make_url_processor()
+    job_repo = _make_job_repo(request_status="ok")
+    kicker = _make_kicker()
+
+    handler = URLHandler(
+        db=MagicMock(),
+        response_formatter=response_formatter,
+        url_processor=url_processor,
+        request_repo=request_repo,
+        cfg=_make_cfg(enqueue_enabled=True),
+    )
+
+    mock_task = MagicMock()
+    mock_task.kicker = kicker
+
+    import app.tasks.url_processing as _url_proc_mod
+
+    monkeypatch.setattr(_url_proc_mod, "process_url_request", mock_task)
+
+    with (
+        patch(
+            "app.api.background.durable_jobs.RequestProcessingJobRepository",
+            new=MagicMock(return_value=job_repo),
+        ),
+        patch("app.observability.metrics.record_url_enqueue"),
+    ):
+        await handler.handle_single_url(
+            message=_make_message(),
+            url="https://example.com",
+            correlation_id="cid-cached",
+            batch_mode=False,
+        )
+
+    # Handed to the inline flow, where CachedSummaryResponder answers from cache.
+    url_processor.handle_url_flow.assert_awaited_once()
+    # No second task, and the finished row is left alone.
+    kicker.return_value.kiq.assert_not_awaited()
+    job_repo.record_pending_enqueue.assert_not_awaited()
+    request_repo.async_update_request_status_with_correlation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_requeues_previously_failed_duplicate(monkeypatch):
+    """A dedupe conflict on a failed row re-drives it -- this is what /retry needs.
+
+    ``/retry <error_id>`` re-sends the same URL under a new correlation id, so it
+    always lands on the existing row.  Suppressing that made the command a no-op.
+    """
+    _stub_taskiq(monkeypatch)
+    monkeypatch.setenv("TASKIQ_BROKER", "memory")
+
+    request_repo = _make_request_repo(request_id=7)
+    request_repo.async_create_request_once.return_value = (7, False)
+    response_formatter = _make_response_formatter(reply_message_id=55)
+    url_processor = _make_url_processor()
+    job_repo = _make_job_repo(request_status="error")
+    kicker = _make_kicker()
+
+    handler = URLHandler(
+        db=MagicMock(),
+        response_formatter=response_formatter,
+        url_processor=url_processor,
+        request_repo=request_repo,
+        cfg=_make_cfg(enqueue_enabled=True),
+    )
+
+    mock_task = MagicMock()
+    mock_task.kicker = kicker
+
+    import app.tasks.url_processing as _url_proc_mod
+
+    monkeypatch.setattr(_url_proc_mod, "process_url_request", mock_task)
+
+    with (
+        patch(
+            "app.api.background.durable_jobs.RequestProcessingJobRepository",
+            new=MagicMock(return_value=job_repo),
+        ),
+        patch("app.observability.metrics.record_url_enqueue"),
+        patch("app.observability.metrics.set_url_processing_queue_depth"),
+    ):
+        result = await handler.handle_single_url(
+            message=_make_message(),
+            url="https://example.com",
+            correlation_id="cid-redrive",
+            batch_mode=False,
+        )
+
+    # The reused row is reset to pending and adopts the new correlation id, so
+    # the Error ID the user is shown resolves back to this request.
+    request_repo.async_update_request_status_with_correlation.assert_awaited_once_with(
+        7, "pending", "cid-redrive"
+    )
+    # reset=True is required: a dead_letter job row is otherwise never updated,
+    # and a carried-over attempt_count dead-letters again on the first failure.
+    assert job_repo.record_pending_enqueue.await_args.kwargs["reset"] is True
+    response_formatter.safe_reply_with_id.assert_awaited_once()
+    kicker.return_value.kiq.assert_awaited_once_with(request_id=7)
+    url_processor.handle_url_flow.assert_not_awaited()
+    assert result.success is True
 
 
 @pytest.mark.asyncio

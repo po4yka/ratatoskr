@@ -22,7 +22,7 @@ from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import get_logger
 from app.core.url_utils import extract_all_urls, normalize_url
 from app.core.verbosity import VerbosityLevel
-from app.domain.models.request import RequestType
+from app.domain.models.request import RequestStatus, RequestType
 from app.security.file_validation import FileValidationError, SecureFileValidator
 
 if TYPE_CHECKING:
@@ -48,6 +48,18 @@ _TEXT_DOCUMENT_SUFFIXES = (".txt", *_MARKDOWN_DOCUMENT_SUFFIXES)
 # mixing prose with links is summarized as an article (preserving the prose)
 # rather than routed to the batch flow (which discards everything but the URLs).
 _URL_LIST_MIN_RATIO = 0.8
+# A dedupe-hash conflict landing on one of these statuses is the owner asking to
+# run a URL again, not a concurrent duplicate: nothing is in flight and no
+# summary exists, so the existing row is re-driven under the new correlation id.
+# The unique index ``ux_requests_user_dedupe_hash`` has no age predicate, so it
+# matches every URL the owner has ever sent -- see ``_handle_single_url_enqueue``.
+_REDRIVABLE_REQUEST_STATUSES = frozenset(
+    {
+        RequestStatus.ERROR.value,
+        RequestStatus.CANCELLED.value,
+        RequestStatus.X_IMPORTED.value,
+    }
+)
 
 
 def _document_file_name(message: Any) -> str:
@@ -641,7 +653,6 @@ class URLHandler:
         from app.adapters.content.url_flow_models import URLProcessingFlowResult
         from app.api.background.durable_jobs import RequestProcessingJobRepository
         from app.core.url_utils import compute_dedupe_hash, normalize_url
-        from app.domain.models.request import RequestStatus
         from app.observability.metrics import record_url_enqueue, set_url_processing_queue_depth
 
         cid = correlation_id
@@ -709,13 +720,68 @@ class URLHandler:
             )
             return await self.url_processor.handle_url_flow(flow_request)
 
+        job_repo = RequestProcessingJobRepository(self.db)
+
+        # ``created_new=False`` only means the dedupe hash already had a row --
+        # it is NOT proof of a concurrent race, because the unique index carries
+        # no age predicate and therefore matches every URL the owner has ever
+        # sent. Returning success here silenced repeat URLs entirely and made
+        # /retry a no-op (it re-drives the same URL under a new cid). Branch on
+        # what the existing row is actually doing instead.
+        requeue_existing = False
         if not created_new:
-            record_url_enqueue(status="duplicate")
-            logger.info(
-                "url_worker_enqueue_duplicate_suppressed",
-                extra={"cid": cid, "request_id": request_id, "chat_id": chat_id},
-            )
-            return URLProcessingFlowResult(success=True, request_id=request_id)
+            existing_status, _ = await job_repo.get_request_status(request_id)
+            if existing_status in _REDRIVABLE_REQUEST_STATUSES:
+                requeue_existing = True
+                await request_repo.async_update_request_status_with_correlation(
+                    request_id, RequestStatus.PENDING.value, cid
+                )
+                logger.info(
+                    "url_worker_enqueue_duplicate_requeued",
+                    extra={
+                        "cid": cid,
+                        "request_id": request_id,
+                        "chat_id": chat_id,
+                        "previous_status": existing_status,
+                    },
+                )
+            elif existing_status == RequestStatus.COMPLETED.value:
+                # Already summarized: hand off to the inline flow so
+                # CachedSummaryResponder replies from cache. It falls through to
+                # a full re-run if the summary row is gone (retention), which is
+                # the correct self-heal for an ``ok`` row with no summary.
+                record_url_enqueue(status="duplicate")
+                logger.info(
+                    "url_worker_enqueue_duplicate_cached",
+                    extra={"cid": cid, "request_id": request_id, "chat_id": chat_id},
+                )
+                from app.adapters.content.url_flow_models import URLFlowRequest
+
+                return await self.url_processor.handle_url_flow(
+                    URLFlowRequest(
+                        message=message,
+                        url_text=url,
+                        correlation_id=cid,
+                        interaction_id=interaction_id,
+                        batch_mode=False,
+                    )
+                )
+            else:
+                # Genuinely in flight (pending/crawling/summarizing): the running
+                # worker owns the user-facing reply, so stay quiet rather than
+                # processing the URL twice. Rows stuck here are recovered by
+                # requeue_expired_leases / reconcile_stuck_processing_requests.
+                record_url_enqueue(status="duplicate")
+                logger.info(
+                    "url_worker_enqueue_duplicate_suppressed",
+                    extra={
+                        "cid": cid,
+                        "request_id": request_id,
+                        "chat_id": chat_id,
+                        "existing_status": existing_status,
+                    },
+                )
+                return URLProcessingFlowResult(success=True, request_id=request_id)
 
         async def mark_enqueue_failed() -> None:
             try:
@@ -744,11 +810,11 @@ class URLHandler:
                 )
 
         # 2. Insert the pending job row.
-        job_repo = RequestProcessingJobRepository(self.db)
         try:
             await job_repo.record_pending_enqueue(
                 request_id=request_id,
                 correlation_id=cid,
+                reset=requeue_existing,
             )
         except Exception as exc:
             logger.warning(
