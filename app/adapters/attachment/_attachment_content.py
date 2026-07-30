@@ -16,6 +16,7 @@ from app.adapters.attachment.vision_messages import (
     build_text_with_images_messages,
     build_vision_messages,
 )
+from app.adapters.telegram_source_helpers import telegram_media_file_name, telegram_media_size
 from app.core.lang import LANG_AUTO, LANG_RU, choose_language, detect_language
 
 if TYPE_CHECKING:
@@ -66,7 +67,9 @@ class AttachmentContentService:
             return None, None, None
 
         mime = getattr(doc, "mime_type", "") or ""
-        fname = getattr(doc, "file_name", None)
+        # Telethon's raw Document has no flat file_name, so this was always None
+        # and attachment_processing.file_name was never populated.
+        fname = telegram_media_file_name(message)
         if mime.startswith("image/"):
             return "image", mime, fname
         if mime == "application/pdf":
@@ -80,13 +83,20 @@ class AttachmentContentService:
     def check_size_limits(self, message: Any, file_type: str) -> str | None:
         """Check the attachment size against configuration limits."""
         attachment_cfg = self._context.cfg.attachment
-        file_size = None
-        if getattr(message, "photo", None):
-            file_size = getattr(message.photo, "file_size", None)
-        elif getattr(message, "document", None):
-            file_size = getattr(message.document, "file_size", None)
+        file_size = telegram_media_size(message)
 
         if file_size is None:
+            # Reading `file_size` alone used to land here for every real
+            # Telethon message -- Document exposes `size`, Photo only `sizes` --
+            # so ATTACHMENT_MAX_*_SIZE_MB was never enforced and a multi-hundred
+            # megabyte upload was downloaded and parsed in-process on the Pi.
+            # Kept permissive rather than fail-closed: with the probe fixed this
+            # is unreachable for real messages, and refusing on an unknown shape
+            # would reject valid uploads. The log makes it diagnosable.
+            self._context.logger.warning(
+                "attachment_size_unknown",
+                extra={"file_type": file_type},
+            )
             return None
 
         if file_type == "image":

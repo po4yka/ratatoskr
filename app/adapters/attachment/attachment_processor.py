@@ -14,6 +14,7 @@ from app.adapters.attachment._attachment_shared import AttachmentProcessorContex
 from app.adapters.attachment.media_group_collector import MediaGroupCollector
 from app.adapters.telegram.multimodal_extractor import build_telegram_summary_context
 from app.application.services.summarization.llm_response_workflow import LLMResponseWorkflow
+from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:
@@ -225,6 +226,12 @@ class AttachmentProcessor:
                     req_id,
                     interaction_id,
                 )
+            else:
+                # `status` is the only discriminator between a finished and a
+                # failed attachment, so a row left at "processing" is
+                # indistinguishable from one still in flight: attachment failure
+                # telemetry did not exist.
+                await self._mark_attachment_failed(req_id, correlation_id)
         except Exception as exc:
             logger.exception(
                 "attachment_flow_error",
@@ -241,6 +248,7 @@ class AttachmentProcessor:
                     "attachment_error_notification_failed",
                     extra={"cid": correlation_id},
                 )
+            await self._mark_attachment_failed(req_id, correlation_id)
         finally:
             await self._complete_progress(
                 progress_tracker,
@@ -257,6 +265,17 @@ class AttachmentProcessor:
                             "attachment_cleanup_failed",
                             extra={"path": path, "error": str(exc)},
                         )
+
+    async def _mark_attachment_failed(self, req_id: int, correlation_id: str | None) -> None:
+        """Record the terminal failure state; never raise from a failure path."""
+        try:
+            await self._persistence.update_attachment_status(req_id, "failed", None)
+        except Exception as exc:
+            raise_if_cancelled(exc)
+            logger.warning(
+                "attachment_status_update_failed",
+                extra={"req_id": req_id, "cid": correlation_id, "error": str(exc)},
+            )
 
     async def _collect_media_group_messages(self, message: Any) -> list[Any] | None:
         media_group_id = getattr(message, "media_group_id", None)

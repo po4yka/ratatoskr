@@ -169,3 +169,40 @@ __all__ = [
     "classify_telegram_messages_source_kind",
     "coerce_telegram_messages",
 ]
+
+
+def telegram_media_file_name(message: Any) -> str | None:
+    """Resolve an attachment's filename across Telethon and adapter shapes.
+
+    Telethon's raw ``Document`` carries no flat ``file_name``: the name lives on
+    the ``File`` helper at ``message.file.name``. The flat lookups are kept for
+    aiogram-shaped adapter and test messages.
+    """
+    for candidate in (
+        getattr(getattr(message, "file", None), "name", None),
+        getattr(message, "file_name", None),
+        getattr(getattr(message, "document", None), "file_name", None),
+    ):
+        if isinstance(candidate, str) and candidate:
+            return candidate
+    return None
+
+
+def telegram_media_size(message: Any) -> int | None:
+    """Resolve an attachment's size in bytes, or None when it cannot be read.
+
+    ``message.file.size`` is the only probe that answers for both media kinds:
+    a raw ``Document`` exposes ``size`` but a raw ``Photo`` exposes only
+    ``sizes`` (a list of PhotoSize), and neither has the flat ``file_size`` that
+    aiogram-shaped messages do. Reading ``file_size`` alone therefore returned
+    None for every real Telethon message.
+    """
+    for candidate in (
+        getattr(getattr(message, "file", None), "size", None),
+        getattr(getattr(message, "document", None), "size", None),
+        getattr(getattr(message, "document", None), "file_size", None),
+        getattr(getattr(message, "photo", None), "file_size", None),
+    ):
+        if isinstance(candidate, int) and candidate > 0:
+            return candidate
+    return None
