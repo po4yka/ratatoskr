@@ -256,6 +256,35 @@ class SummaryReadModelUseCase:
                 "aggregation_source_bundle": aggregation_source_bundle,
             }
 
+    async def get_summary_context_for_reconciliation(
+        self,
+        summary_id: int,
+    ) -> dict[str, Any] | None:
+        """Return active source context for an internally selected summary."""
+        with use_case_span(
+            "summary_read_model.get_summary_context_for_reconciliation",
+            attributes={"ratatoskr.summary.id": summary_id},
+        ):
+            context = await self._summary_repo.async_get_summary_context_by_id(summary_id)
+            if not context:
+                return None
+
+            summary = context.get("summary") or {}
+            request_data = context.get("request") or {}
+            if summary.get("is_deleted") or request_data.get("is_deleted"):
+                return None
+
+            request_id = request_data.get("id") or summary.get("request_id")
+            if request_id is None:
+                return None
+            return {
+                "summary": summary,
+                "request": request_data,
+                "request_id": int(request_id),
+                "crawl_result": context.get("crawl_result"),
+                "transcription_artifact": context.get("transcription_artifact"),
+            }
+
     async def update_summary(
         self,
         user_id: int,

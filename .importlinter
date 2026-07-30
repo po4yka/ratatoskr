@@ -108,8 +108,6 @@ ignore_imports =
     # coupled to the outer tiers -- composition wiring + lazy task/job imports.
     # Scoped to telegram so every OTHER adapter stays strict. Remove each line
     # as the import is removed.
-    app.adapters.telegram.telegram_bot -> app.di.repositories
-    app.adapters.telegram.telegram_bot -> app.di.telegram
     app.adapters.telegram.url_handler -> app.api.background.durable_jobs
     app.adapters.telegram.url_handler -> app.tasks.url_processing
     app.adapters.telegram.command_handlers.admin_handler -> app.api.services.admin_read_service

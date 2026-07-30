@@ -18,6 +18,11 @@
 
 services:
   ratatoskr:
+    environment:
+      APP_ENV: development
+      REDIS_REQUIRED: "false"
+      ALLOWED_CLIENT_IDS: ""
+      AUTH_ALLOW_ANY_CLIENT_ID: "true"
     volumes:
       - ../../app:/app/app:ro
       - ../../bot.py:/app/bot.py:ro
@@ -25,6 +30,11 @@ services:
       - ../../config:/app/config:ro
 
   mobile-api:
+    environment:
+      APP_ENV: development
+      REDIS_REQUIRED: "false"
+      ALLOWED_CLIENT_IDS: ""
+      AUTH_ALLOW_ANY_CLIENT_ID: "true"
     volumes:
       - ../../app:/app/app:ro
       - ../../bot.py:/app/bot.py:ro
@@ -32,6 +42,11 @@ services:
       - ../../config:/app/config:ro
 
   worker:
+    environment:
+      APP_ENV: development
+      REDIS_REQUIRED: "false"
+      ALLOWED_CLIENT_IDS: ""
+      AUTH_ALLOW_ANY_CLIENT_ID: "true"
     volumes:
       - ../../app:/app/app:ro
       - ../../bot.py:/app/bot.py:ro
@@ -39,12 +54,22 @@ services:
       - ../../config:/app/config:ro
 
   scheduler:
+    environment:
+      APP_ENV: development
+      REDIS_REQUIRED: "false"
+      ALLOWED_CLIENT_IDS: ""
+      AUTH_ALLOW_ANY_CLIENT_ID: "true"
     volumes:
       - ../../app:/app/app:ro
       - ../../alembic.ini:/app/alembic.ini:ro
       - ../../config:/app/config:ro
 
   migrate:
+    environment:
+      APP_ENV: development
+      REDIS_REQUIRED: "false"
+      ALLOWED_CLIENT_IDS: ""
+      AUTH_ALLOW_ANY_CLIENT_ID: "true"
     volumes:
       - ../../app:/app/app:ro
       - ../../alembic.ini:/app/alembic.ini:ro

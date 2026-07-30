@@ -10,11 +10,13 @@ This subsystem mirrors the **operator's own** ChatGPT and Claude web accounts to
 
 ### Infrastructure
 
-- **CloakBrowser sidecar** must be running under the `with-scrapers` Docker Compose profile and reachable at `SCRAPER_CLOAKBROWSER_URL` (default `http://cloakbrowser:9222`). Confirm with:
+- **Provider-isolated re-auth stack** must be running under the `ai-backup-reauth` profile. Confirm all six health gates:
 
 ```bash
-docker compose -f ops/docker/docker-compose.yml --profile with-scrapers ps cloakbrowser
-docker compose -f ops/docker/docker-compose.yml --profile with-scrapers logs --tail=50 cloakbrowser
+docker compose -f ops/docker/docker-compose.yml --profile ai-backup-reauth ps \
+  ai-backup-display-chatgpt ai-backup-display-claude \
+  ai-backup-webauthn-bridge-chatgpt ai-backup-webauthn-bridge-claude \
+  cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude
 ```
 
 - **Taskiq worker** running (the sync job is dispatched via the broker):
@@ -90,7 +92,66 @@ attachments against the recorded inventory, then revoking the stored session.
 Until that evidence exists, report provider/project-knowledge compatibility as
 **unverified external blocker**, not as passed based on fixture tests.
 
-## 3. Produce the session blob
+## 3. Re-authorize interactively (primary)
+
+Open **Account Backups → AI Accounts** in Frost and press **Re-authorize ChatGPT** or **Re-authorize Claude**. An expiry notification opens the same page with `?service=<service>&reauth=1`, which starts the matching flow automatically.
+
+The owner-only page opens a full noVNC remote desktop. Mouse movement, hover,
+click, drag, right-click, wheel, normal keyboard shortcuts, touch gestures, and
+clipboard work directly in the Chrome window. **Paste clipboard** sends the
+local clipboard once; **Copy remote clipboard** writes the most recent remote
+clipboard value and immediately clears component memory. Ratatoskr exposes only
+the owner-ticketed WSS relay; CDP and VNC remain inside Docker and RFB payloads
+are neither interpreted nor logged. For passkey-only accounts, choose Chrome's
+phone/tablet option, scan the QR code visible in noVNC, and approve with Face ID
+or Touch ID. The phone must be close to the Raspberry Pi: cross-device WebAuthn
+uses BLE to verify proximity. A passkey bound only to the workstation still
+cannot cross VNC directly.
+
+After the provider accepts the login, the page advances automatically:
+
+```text
+waiting_for_user → verifying → resuming_backup → completed
+```
+
+`completed` means the fresh encrypted session was accepted by a real targeted provider backup (`ratatoskr.ai_backup.sync_one`), not merely that a cookie appeared. The interactive window expires after 15 minutes; start a new flow if needed. An unexpected network disconnect obtains a fresh one-use viewer ticket and reconnects to the same running browser without losing the page.
+
+Before accepting a deploy, verify isolation and that the lightweight root health
+probe answers without requiring a CDP browser launch:
+
+```bash
+docker inspect ratatoskr-ai-backup-display-chatgpt ratatoskr-ai-backup-display-claude \
+  --format '{{json .NetworkSettings.Ports}}'
+docker inspect ratatoskr-cloakbrowser-reauth-chatgpt ratatoskr-cloakbrowser-reauth-claude \
+  --format '{{json .NetworkSettings.Ports}}'
+docker inspect ratatoskr-ai-backup-webauthn-bridge-chatgpt \
+  ratatoskr-ai-backup-webauthn-bridge-claude \
+  --format '{{.HostConfig.NetworkMode}} {{json .HostConfig.CapDrop}}'
+docker exec ratatoskr-ai-backup-webauthn-bridge-chatgpt \
+  /usr/local/bin/ai-backup-webauthn-healthcheck.sh
+docker exec ratatoskr-ai-backup-webauthn-bridge-claude \
+  /usr/local/bin/ai-backup-webauthn-healthcheck.sh
+docker exec ratatoskr-cloakbrowser-reauth-chatgpt python -c \
+  "import urllib.request; print(urllib.request.urlopen('http://localhost:9222/').status)"
+docker exec ratatoskr-cloakbrowser-reauth-chatgpt python -c \
+  "import json,urllib.request; u='http://localhost:9222/json/version?fingerprint=deadbeef0001&timezone=Asia%2FTbilisi&locale=en-US'; assert json.load(urllib.request.urlopen(u, timeout=20))['webSocketDebuggerUrl']"
+docker exec ratatoskr-cloakbrowser-reauth-chatgpt sh -c \
+  "test -S /run/ratatoskr-dbus/system_bus_socket; A=\$(ps -eo args); ! printf '%s\n' \"\$A\" | grep '[c]hrome' | grep -F -- '--headless'; printf '%s\n' \"\$A\" | grep '[c]hrome' | grep -F -- '--ozone-platform=x11'"
+```
+
+The deploy command runs the same one-time `/json/version` and headed-process
+assertion with disposable, non-production seeds for both provider containers
+after their lightweight healthchecks, then terminates each smoke Chrome.
+All browser/display port maps must be empty (`5900`/`9222` are not published),
+and the WebAuthn bridge network mode must be `none`. In each
+viewer, confirm that only its provider Chrome is visible, UI language is
+English, timezone-sensitive output uses `Asia/Tbilisi`, and disconnect/reconnect
+preserves the current page. For hybrid WebAuthn, choose **Use a different phone
+or tablet** (provider/Chrome wording may differ), scan the QR code, keep the
+phone near the Pi, and approve the passkey. Complete login and observe the
+normal terminal flow and a successful targeted backup for both services.
+
+## 4. Manual session blob fallback
 
 The session blob is a Playwright `storage_state` JSON that contains the browser's cookies and localStorage for the service domain. It is the only credential the subsystem stores; no account password is ever persisted.
 
@@ -98,7 +159,7 @@ The session blob is a Playwright `storage_state` JSON that contains the browser'
 
 Both `chatgpt.com` and `claude.ai` set their session cookies with `HttpOnly`, which means JavaScript running in the page context — including a bookmarklet — cannot read `document.cookie`. The blob must be exported from the browser's DevTools storage panel or via the `capture_ai_session.py` helper, which runs Playwright in headful mode and reads `context.storage_state()` after a human completes login.
 
-### Mode A — local browser (primary)
+### Local browser capture
 
 Run the capture script on the operator's workstation (not inside Docker):
 
@@ -118,25 +179,23 @@ The script opens a Chromium window. Log in normally (including 2FA). After the d
 
 **`cf_clearance` fingerprint/IP risk.** Cloudflare binds `cf_clearance` to the TLS/JA3 fingerprint and source IP of the browser that solved the challenge. A blob captured from your laptop carries your laptop's fingerprint and IP. If the sidecar runs on a Raspberry Pi with a different public IP, that `cf_clearance` will be re-challenged on the first internal-API call and the run will fail with a `403 cf-mitigated` error. Mode B is the fix for this.
 
-### Mode B — capture inside the sidecar (preferred when Mode A blobs get 403)
+### Capture on the deployment host (preferred when local blobs get 403)
 
-When the sidecar and the operator's workstation share a public IP (common for a home-lab Pi behind NAT) Mode A works fine. When they differ, capture the session from *inside* the sidecar so the `cf_clearance` fingerprint and IP match the profile that will make the backup requests:
+When the sidecar and the operator's workstation have different public IPs, a
+locally captured `cf_clearance` is likely to fail. Use the primary Frost noVNC
+flow instead: the login runs inside the provider-dedicated CloakBrowser on the
+deployment host, so the saved session and subsequent backup share the same
+fingerprint and egress IP. No CloakBrowser Manager or public CDP endpoint is
+needed. Manual blob ingest remains only a recovery path for environments where
+the interactive viewer cannot be used.
 
-```bash
-python tools/scripts/capture_ai_session.py --service chatgpt \
-    --cdp '<manager-exposed-cdp-websocket-url>' \
-    --out chatgpt.json
-```
-
-This requires a display; the sidecar runs headless by default. [CloakBrowser-Manager](https://github.com/CloakHQ/CloakBrowser-Manager) (early-alpha) provides a noVNC viewer that exposes the sidecar's display over HTTP so the operator can log in interactively from a browser tab. Consult its README for the `docker compose` overlay that enables noVNC. Once the manager is up, open the noVNC URL in a browser, log into the AI service manually inside that session, then pass the manager-exposed CDP WebSocket URL to the capture script via `--cdp`. The compose hostname `cloakbrowser:9222` is internal-only and is intentionally not reachable from the host.
-
-## 4. Ingest the session blob
+## 5. Ingest the session blob
 
 The blob never transits Telegram (the bot surfaces only status commands). There are two ways to store it.
 
-### 4a. CLI ingest (recommended for single-tenant self-host — no JWT)
+### 5a. CLI ingest (recommended for single-tenant self-host — no JWT)
 
-Run inside the container; it validates the provider session cookie, encrypts the blob into `user_browser_sessions` for the owner (first `ALLOWED_USER_IDS`), and marks authorization `unverified` until the next provider check — no Mobile-API JWT needed:
+Run inside the container; it validates the provider session cookie, encrypts the blob into `user_browser_sessions` for the owner (first `ALLOWED_USER_IDS`), and marks authorization `unverified` until the next provider check — no Mobile-API JWT needed. Unlike the REST/Frost fallback, the CLI does not enqueue a Taskiq run, so trigger one explicitly in section 6:
 
 ```bash
 docker compose -f ops/docker/docker-compose.yml exec -T ratatoskr sh -c \
@@ -146,7 +205,7 @@ docker compose -f ops/docker/docker-compose.yml exec -T ratatoskr sh -c \
 
 It prints the cookie names found (never values). Exit code `0` on success, `2` on an unreadable/invalid blob or empty `ALLOWED_USER_IDS`.
 
-### 4b. REST ingest (when posting from a remote host)
+### 5b. REST ingest (when posting from a remote host)
 
 Post the blob over HTTPS with a valid Mobile-API JWT for the owner user:
 
@@ -158,7 +217,7 @@ curl -s -X POST https://<host>/v1/ai-backups/<service>/session \
     -d @chatgpt.json
 ```
 
-- **204** — blob accepted and encrypted into `user_browser_sessions`.
+- **204** — blob accepted and encrypted into `user_browser_sessions`; an immediate targeted verification backup was queued.
 - **400** — malformed blob (missing required cookie or localStorage key for the service).
 - **401** — expired or invalid JWT.
 
@@ -181,7 +240,7 @@ docker compose -f ops/docker/docker-compose.yml exec -T postgres \
   "SELECT id, domain, created_at, updated_at FROM user_browser_sessions WHERE domain IN ('chatgpt.com','claude.ai') ORDER BY updated_at DESC LIMIT 5;"
 ```
 
-## 5. Trigger a run
+## 6. Trigger a run
 
 ### Immediate (synchronous, full log output)
 
@@ -210,7 +269,7 @@ docker compose -f ops/docker/docker-compose.yml exec -T redis \
 
 A result of `1` means a run is already in progress (TTL 1800 s). Wait for it to finish or, if the owning worker is dead, delete the key after confirming the worker PID is gone.
 
-## 6. Inspect output
+## 7. Inspect output
 
 ### On-disk tree
 
@@ -297,7 +356,7 @@ A successful run emits `ai_backup_run_complete` with a `counts` field. Absence o
 
 | Symptom | Likely cause | Resolution |
 |---|---|---|
-| `403 cf-mitigated` in logs or HTML Cloudflare interstitial in conversation JSON | `cf_clearance` captured from a different IP/fingerprint than the sidecar | Recapture the session using Mode B through the manager-exposed CDP URL so the clearance cookie matches the sidecar's fingerprint and IP |
+| `403 cf-mitigated` in logs or HTML Cloudflare interstitial in conversation JSON | `cf_clearance` captured from a different IP/fingerprint than the sidecar | Re-authorize through the Frost noVNC viewer so the clearance cookie is created by the deployment's dedicated CloakBrowser fingerprint and egress IP |
 | `authorization_status=expired` in `ai_account_backups` | Session cookie expired or rotated; the service halted to avoid hammering a login wall | Re-run Mode A or Mode B to capture a fresh blob, then re-ingest via `POST /v1/ai-backups/<service>/session`; it becomes `unverified` and changes to `valid` only after a successful provider run |
 | ChatGPT Projects return 404 (`gizmos/snorlax`) | The `snorlax` internal codename has changed; this endpoint is soft-fail by design | Check OpenAI web traffic for the updated path; update `chatgpt_client.py`; the run continues with conversations only until the path is fixed |
 | HTTP 429 / rate-limit errors during a run | Request cadence too aggressive, or a large account whose full sweep exceeds the provider's per-window quota (ChatGPT is far stricter than Claude) | Increase `AI_BACKUP_REQUEST_DELAY_MS` (default 1500 ms) and optionally lower `AI_BACKUP_MAX_REQUESTS_PER_RUN`. A 429 no longer discards progress: conversations already written stay on disk, a partial manifest is recorded, and the **next run resumes** — it skips conversations already saved for that run date and fetches only what is missing. So a large account converges across successive runs (manual re-run or the daily cron after the backoff window), each making far fewer requests, until one run completes with `status=ok`. |

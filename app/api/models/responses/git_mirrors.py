@@ -22,6 +22,9 @@ class GitMirrorCompact(BaseModel):
     last_mirrored_at: datetime | None
     size_kb: int | None
     repository_id: int | None
+    # True when the user registered this mirror by hand, which exempts it from
+    # the reconciliation that drops mirrors of no-longer-starred repositories.
+    pinned: bool = False
 
 
 class GitMirrorDetail(GitMirrorCompact):

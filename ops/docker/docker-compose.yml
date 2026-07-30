@@ -1,3 +1,45 @@
+x-ai-backup-logging: &ai_backup_logging
+  driver: "json-file"
+  options: {max-size: "10m", max-file: "3"}
+x-ai-backup-security: &ai_backup_security ["no-new-privileges:true"]
+x-ai-backup-display-healthcheck: &ai_backup_display_healthcheck
+  test: ["CMD", "/usr/local/bin/ai-backup-display-healthcheck.sh"]
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 15s
+x-ai-backup-display-resources: &ai_backup_display_resources
+  limits: {memory: 256M, cpus: "0.50"}
+  reservations: {memory: 64M}
+x-ai-backup-browser-healthcheck: &ai_backup_browser_healthcheck
+  test:
+    [
+      "CMD-SHELL",
+      "test -S /tmp/.X11-unix/X99 && python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9222/', timeout=3).status==200 else 1)\"",
+    ]
+  interval: 15s
+  timeout: 5s
+  retries: 5
+  start_period: 30s
+x-ai-backup-browser-resources: &ai_backup_browser_resources
+  limits: {memory: 768M, cpus: "0.75"}
+  reservations: {memory: 256M}
+x-ai-backup-webauthn-bridge: &ai_backup_webauthn_bridge
+  profiles: [ai-backup-reauth]
+  build: {context: ../.., dockerfile: ops/docker/ai-backup-webauthn-bridge/Dockerfile}
+  network_mode: none
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: *ai_backup_security
+  restart: unless-stopped
+  healthcheck: {test: ["CMD", "/usr/local/bin/ai-backup-webauthn-healthcheck.sh"], interval: 10s, timeout: 5s, retries: 5, start_period: 10s}
+  deploy:
+    resources:
+      limits: {memory: 64M, cpus: "0.10"}
+      reservations: {memory: 16M}
+  logging: *ai_backup_logging
+
 services:
   migrate:
     build:
@@ -7,6 +49,9 @@ services:
     init: true
     command: ["python", "-m", "app.cli.migrate_db"]
     environment:
+      - APP_ENV=${APP_ENV:-production}
+      - REDIS_REQUIRED=${REDIS_REQUIRED:-true}
+      - ALLOWED_CLIENT_IDS=${ALLOWED_CLIENT_IDS:-browser-extension,ratatoskr-android-v1.0,ratatoskr-ios-v1.0,web-v1}
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://ratatoskr_app:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/ratatoskr}
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
@@ -48,6 +93,9 @@ services:
     tmpfs:
       - /tmp
     environment:
+      - APP_ENV=${APP_ENV:-production}
+      - REDIS_REQUIRED=${REDIS_REQUIRED:-true}
+      - ALLOWED_CLIENT_IDS=${ALLOWED_CLIENT_IDS:-browser-extension,ratatoskr-android-v1.0,ratatoskr-ios-v1.0,web-v1}
       - TEXTACY_ENABLED=1
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://ratatoskr_app:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/ratatoskr}
       - QDRANT_URL=http://qdrant:6333
@@ -154,6 +202,9 @@ services:
       - path: ../../.env
         required: false
     environment:
+      - APP_ENV=${APP_ENV:-production}
+      - REDIS_REQUIRED=${REDIS_REQUIRED:-true}
+      - ALLOWED_CLIENT_IDS=${ALLOWED_CLIENT_IDS:-browser-extension,ratatoskr-android-v1.0,ratatoskr-ios-v1.0,web-v1}
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://ratatoskr_app:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/ratatoskr}
       - QDRANT_URL=http://qdrant:6333
       - REDIS_ENABLED=1
@@ -249,6 +300,9 @@ services:
       - path: ../../.env
         required: false
     environment:
+      - APP_ENV=${APP_ENV:-production}
+      - REDIS_REQUIRED=${REDIS_REQUIRED:-true}
+      - ALLOWED_CLIENT_IDS=${ALLOWED_CLIENT_IDS:-browser-extension,ratatoskr-android-v1.0,ratatoskr-ios-v1.0,web-v1}
       # DATABASE_URL intentionally absent: scheduler only enqueues to Redis; workers own DB access.
       - REDIS_ENABLED=1
       - REDIS_HOST=redis
@@ -314,6 +368,9 @@ services:
       - path: ../../.env
         required: false
     environment:
+      - APP_ENV=${APP_ENV:-production}
+      - REDIS_REQUIRED=${REDIS_REQUIRED:-true}
+      - ALLOWED_CLIENT_IDS=${ALLOWED_CLIENT_IDS:-browser-extension,ratatoskr-android-v1.0,ratatoskr-ios-v1.0,web-v1}
       - API_HOST=0.0.0.0
       - API_PORT=8000
       - API_WORKERS=${API_WORKERS:-1}
@@ -321,6 +378,9 @@ services:
       # Prometheus reaches the API through its Compose DNS name. Keep the
       # internal host in the allowlist without weakening Host-header checks.
       - TRUSTED_HOSTS=${TRUSTED_HOSTS:-localhost,127.0.0.1,testserver,mobile-api,ratatoskr.po4yka.com,ratatoskr-api.po4yka.com,staging-ratatoskrapi.po4yka.com}
+      # CSP 'self' handling for WebSockets differs across browser generations;
+      # name the production WSS origin explicitly without opening arbitrary WSS.
+      - CSP_CONNECT_SRC_EXTRA=${CSP_CONNECT_SRC_EXTRA:-wss://ratatoskr.po4yka.com}
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://ratatoskr_app:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/ratatoskr}
       - QDRANT_URL=http://qdrant:6333
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -347,6 +407,14 @@ services:
       - SCRAPER_CLOAKBROWSER_URL=${SCRAPER_CLOAKBROWSER_URL:-http://cloakbrowser:9222}
       - SCRAPER_CLOAKBROWSER_HUMANIZE=${SCRAPER_CLOAKBROWSER_HUMANIZE:-true}
       - SCRAPER_CLOAKBROWSER_PROXY=${SCRAPER_CLOAKBROWSER_PROXY:-}
+      - AI_BACKUP_REAUTH_CHATGPT_BROWSER_URL=${AI_BACKUP_REAUTH_CHATGPT_BROWSER_URL:-http://cloakbrowser-reauth-chatgpt:9222}
+      - AI_BACKUP_REAUTH_CLAUDE_BROWSER_URL=${AI_BACKUP_REAUTH_CLAUDE_BROWSER_URL:-http://cloakbrowser-reauth-claude:9222}
+      - AI_BACKUP_REAUTH_CHATGPT_VNC_HOST=${AI_BACKUP_REAUTH_CHATGPT_VNC_HOST:-ai-backup-display-chatgpt}
+      - AI_BACKUP_REAUTH_CHATGPT_VNC_PORT=${AI_BACKUP_REAUTH_CHATGPT_VNC_PORT:-5900}
+      - AI_BACKUP_REAUTH_CLAUDE_VNC_HOST=${AI_BACKUP_REAUTH_CLAUDE_VNC_HOST:-ai-backup-display-claude}
+      - AI_BACKUP_REAUTH_CLAUDE_VNC_PORT=${AI_BACKUP_REAUTH_CLAUDE_VNC_PORT:-5900}
+      - AI_BACKUP_REAUTH_VIEWER_TICKET_TTL_SECONDS=${AI_BACKUP_REAUTH_VIEWER_TICKET_TTL_SECONDS:-60}
+      - AI_BACKUP_REAUTH_VNC_CONNECT_TIMEOUT_SECONDS=${AI_BACKUP_REAUTH_VNC_CONNECT_TIMEOUT_SECONDS:-5}
       # Auth token forwarded to defuddle sidecar — empty by default (auth is opt-in)
       - SCRAPER_DEFUDDLE_TOKEN=${DEFUDDLE_AUTH_TOKEN:-}
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
@@ -362,6 +430,10 @@ services:
       # note on the ratatoskr service above.
       - ../../data:/data
       - /etc/localtime:/etc/localtime:ro
+    networks:
+      - default
+      - ai_backup_control_chatgpt
+      - ai_backup_control_claude
     ports:
       - "127.0.0.1:18000:8000"
     depends_on:
@@ -418,6 +490,9 @@ services:
       - path: ../../.env
         required: false
     environment:
+      - APP_ENV=${APP_ENV:-production}
+      - REDIS_REQUIRED=${REDIS_REQUIRED:-true}
+      - ALLOWED_CLIENT_IDS=${ALLOWED_CLIENT_IDS:-browser-extension,ratatoskr-android-v1.0,ratatoskr-ios-v1.0,web-v1}
       - MCP_ENABLED=true
       - MCP_TRANSPORT=sse
       - MCP_HOST=0.0.0.0
@@ -476,6 +551,9 @@ services:
       - path: ../../.env
         required: false
     environment:
+      - APP_ENV=${APP_ENV:-production}
+      - REDIS_REQUIRED=${REDIS_REQUIRED:-true}
+      - ALLOWED_CLIENT_IDS=${ALLOWED_CLIENT_IDS:-browser-extension,ratatoskr-android-v1.0,ratatoskr-ios-v1.0,web-v1}
       - MCP_ENABLED=true
       - MCP_TRANSPORT=sse
       - MCP_HOST=0.0.0.0
@@ -531,6 +609,9 @@ services:
       - path: ../../.env
         required: false
     environment:
+      - APP_ENV=${APP_ENV:-production}
+      - REDIS_REQUIRED=${REDIS_REQUIRED:-true}
+      - ALLOWED_CLIENT_IDS=${ALLOWED_CLIENT_IDS:-browser-extension,ratatoskr-android-v1.0,ratatoskr-ios-v1.0,web-v1}
       - MCP_ENABLED=true
       - MCP_TRANSPORT=sse
       - MCP_HOST=0.0.0.0
@@ -959,6 +1040,110 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  ai-backup-webauthn-bridge-chatgpt:
+    <<: *ai_backup_webauthn_bridge
+    container_name: ratatoskr-ai-backup-webauthn-bridge-chatgpt
+    volumes:
+      - /run/dbus/system_bus_socket:/run/host-dbus/system_bus_socket:ro
+      - ai-backup-webauthn-dbus-chatgpt:/run/ratatoskr-dbus
+
+  ai-backup-webauthn-bridge-claude:
+    <<: *ai_backup_webauthn_bridge
+    container_name: ratatoskr-ai-backup-webauthn-bridge-claude
+    volumes:
+      - /run/dbus/system_bus_socket:/run/host-dbus/system_bus_socket:ro
+      - ai-backup-webauthn-dbus-claude:/run/ratatoskr-dbus
+
+  ai-backup-display-chatgpt:
+    profiles: [ai-backup-reauth]
+    build:
+      context: ../..
+      dockerfile: ops/docker/ai-backup-display/Dockerfile
+    container_name: ratatoskr-ai-backup-display-chatgpt
+    volumes:
+      - ai-backup-display-chatgpt:/tmp/.X11-unix
+    networks: [ai_backup_control_chatgpt]
+    restart: unless-stopped
+    healthcheck: *ai_backup_display_healthcheck
+    deploy:
+      resources: *ai_backup_display_resources
+    logging: *ai_backup_logging
+    security_opt: *ai_backup_security
+
+  ai-backup-display-claude:
+    profiles: [ai-backup-reauth]
+    build:
+      context: ../..
+      dockerfile: ops/docker/ai-backup-display/Dockerfile
+    container_name: ratatoskr-ai-backup-display-claude
+    volumes:
+      - ai-backup-display-claude:/tmp/.X11-unix
+    networks: [ai_backup_control_claude]
+    restart: unless-stopped
+    healthcheck: *ai_backup_display_healthcheck
+    deploy:
+      resources: *ai_backup_display_resources
+    logging: *ai_backup_logging
+    security_opt: *ai_backup_security
+
+  cloakbrowser-reauth-chatgpt:
+    profiles: [ai-backup-reauth]
+    image: ${CLOAKBROWSER_IMAGE:-cloakhq/cloakbrowser@sha256:a333b754fe9da1fd16851f2bb69f258601d4c7fa36e8b26c15f1e031241076c1}
+    container_name: ratatoskr-cloakbrowser-reauth-chatgpt
+    init: true
+    shm_size: "1gb"
+    entrypoint: ["sh", "/usr/local/bin/ratatoskr-cloakserve-headed"]
+    command: ["--port=9222", "--headless=false"]
+    environment:
+      - CLOAKBROWSER_AUTO_UPDATE=false
+      - DISPLAY=:99
+      - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/ratatoskr-dbus/system_bus_socket
+    volumes:
+      - ai-backup-display-chatgpt:/tmp/.X11-unix
+      - ai-backup-webauthn-dbus-chatgpt:/run/ratatoskr-dbus:ro
+      - ./cloakbrowser-reauth/entrypoint.sh:/usr/local/bin/ratatoskr-cloakserve-headed:ro
+    networks: [ai_backup_control_chatgpt, ai_backup_browser_egress_chatgpt]
+    depends_on:
+      ai-backup-display-chatgpt:
+        condition: service_healthy
+      ai-backup-webauthn-bridge-chatgpt:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck: *ai_backup_browser_healthcheck
+    deploy:
+      resources: *ai_backup_browser_resources
+    logging: *ai_backup_logging
+    security_opt: *ai_backup_security
+
+  cloakbrowser-reauth-claude:
+    profiles: [ai-backup-reauth]
+    image: ${CLOAKBROWSER_IMAGE:-cloakhq/cloakbrowser@sha256:a333b754fe9da1fd16851f2bb69f258601d4c7fa36e8b26c15f1e031241076c1}
+    container_name: ratatoskr-cloakbrowser-reauth-claude
+    init: true
+    shm_size: "1gb"
+    entrypoint: ["sh", "/usr/local/bin/ratatoskr-cloakserve-headed"]
+    command: ["--port=9222", "--headless=false"]
+    environment:
+      - CLOAKBROWSER_AUTO_UPDATE=false
+      - DISPLAY=:99
+      - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/ratatoskr-dbus/system_bus_socket
+    volumes:
+      - ai-backup-display-claude:/tmp/.X11-unix
+      - ai-backup-webauthn-dbus-claude:/run/ratatoskr-dbus:ro
+      - ./cloakbrowser-reauth/entrypoint.sh:/usr/local/bin/ratatoskr-cloakserve-headed:ro
+    networks: [ai_backup_control_claude, ai_backup_browser_egress_claude]
+    depends_on:
+      ai-backup-display-claude:
+        condition: service_healthy
+      ai-backup-webauthn-bridge-claude:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck: *ai_backup_browser_healthcheck
+    deploy:
+      resources: *ai_backup_browser_resources
+    logging: *ai_backup_logging
+    security_opt: *ai_backup_security
+
   prometheus:
     profiles:
       - with-monitoring
@@ -1366,6 +1551,19 @@ volumes:
   grafana_data:
   loki_data:
   git_mirrors_data:
+  ai-backup-display-chatgpt:
+  ai-backup-display-claude:
+  ai-backup-webauthn-dbus-chatgpt:
+  ai-backup-webauthn-dbus-claude:
+networks:
+  ai_backup_control_chatgpt:
+    internal: true
+  ai_backup_control_claude:
+    internal: true
+  ai_backup_browser_egress_chatgpt:
+    driver: bridge
+  ai_backup_browser_egress_claude:
+    driver: bridge
 secrets:
   metrics_bearer_token:
     environment: METRICS_BEARER_TOKEN

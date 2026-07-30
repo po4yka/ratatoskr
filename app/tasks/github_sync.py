@@ -20,6 +20,7 @@ from app.adapters.content.streaming.operation_streams import (
 )
 from app.adapters.github.exceptions import GitHubAuthError, GitHubRateLimitError
 from app.adapters.github.github_api_client import GitHubAPIClient
+from app.adapters.github.github_graphql_client import GitHubGraphQLClient
 from app.application.events.repository_watch import RepositoryWatchTriggered
 from app.application.use_cases.analyze_repository import _compute_content_hash
 from app.config import AppConfig  # noqa: TC001 — taskiq resolves type hints at runtime
@@ -64,6 +65,8 @@ class SyncSummary:
     llm_calls_made: int
     llm_calls_deferred: int
     errors_per_user: dict[int, str] = field(default_factory=dict)
+    star_lists_synced: int = 0
+    repos_list_tagged: int = 0
 
 
 _GITHUB_SYNC_LOCK_KEY = "task_lock:github_sync_stars"
@@ -163,11 +166,13 @@ async def _sync_all(
     bot: Any = None,
     correlation_id: str | None = None,
     dry_run: bool = False,
+    force_full: bool = False,
 ) -> SyncSummary:
     """Sync loop over a pre-filtered list of integrations.
 
     Exposed so the CLI can pass a subset (e.g. filtered by user_id) and
-    set *dry_run=True* without touching the Taskiq task signature.
+    set *dry_run=True* / *force_full=True* without touching the Taskiq task
+    signature.
     """
     if correlation_id is None:
         correlation_id = f"github-sync-{uuid4()}"
@@ -183,6 +188,8 @@ async def _sync_all(
     total_unstarred = 0
     total_llm_made = 0
     total_llm_deferred = 0
+    total_star_lists = 0
+    total_list_tagged = 0
     errors_per_user: dict[int, str] = {}
     rate_limited_users: set[int] = set()
     users_processed = 0
@@ -202,6 +209,8 @@ async def _sync_all(
                 unstarred,
                 llm_made,
                 llm_deferred,
+                star_lists,
+                list_tagged,
             ) = await _sync_one_integration(
                 integration=integration,
                 cfg=cfg,
@@ -209,12 +218,15 @@ async def _sync_all(
                 bot=bot,
                 correlation_id=correlation_id,
                 dry_run=dry_run,
+                force_full=force_full,
             )
             total_imported += imported
             total_updated += updated
             total_unstarred += unstarred
             total_llm_made += llm_made
             total_llm_deferred += llm_deferred
+            total_star_lists += star_lists
+            total_list_tagged += list_tagged
             _publish_github_sync_event(
                 correlation_id,
                 "repos_fetched",
@@ -329,6 +341,8 @@ async def _sync_all(
         llm_calls_made=total_llm_made,
         llm_calls_deferred=total_llm_deferred,
         errors_per_user=errors_per_user,
+        star_lists_synced=total_star_lists,
+        repos_list_tagged=total_list_tagged,
     )
     logger.info(
         "github_sync_complete",
@@ -340,6 +354,8 @@ async def _sync_all(
             "repos_unstarred": total_unstarred,
             "llm_calls_made": total_llm_made,
             "llm_calls_deferred": total_llm_deferred,
+            "star_lists_synced": total_star_lists,
+            "repos_list_tagged": total_list_tagged,
             "errors": len(errors_per_user),
         },
     )
@@ -415,6 +431,100 @@ def _publish_github_sync_event(
     )
 
 
+async def _sync_star_lists(
+    *,
+    token: str,
+    db: Database,
+    user_id: int,
+    correlation_id: str,
+    dry_run: bool = False,
+) -> tuple[int, int]:
+    """Mirror GitHub star lists into ``repositories.list_names``.
+
+    Returns ``(lists_seen, repos_tagged)``.
+
+    Star lists are the user's own categorization — the strongest signal about
+    why a repo was kept — and REST does not expose them at all, so this reads
+    ``viewer.lists`` over GraphQL.
+
+    The update is keyed on ``github_id`` and deliberately independent of the
+    star listing this run walked: an incremental run only touches recently
+    starred repos, but a repo can be moved between lists years after it was
+    starred. Every row of the user is reconciled, so a repo dropped from all
+    lists gets an empty array rather than a stale one.
+    """
+    async with GitHubGraphQLClient(token) as gql:
+        star_lists = await gql.fetch_star_lists()
+
+    names_by_github_id: dict[int, list[str]] = {}
+    for star_list in star_lists:
+        if not star_list.name:
+            continue
+        for github_id in star_list.repo_github_ids:
+            names_by_github_id.setdefault(github_id, []).append(star_list.name)
+
+    logger.info(
+        "github_star_lists_fetched",
+        extra={
+            "cid": correlation_id,
+            "user_id": user_id,
+            "lists": len(star_lists),
+            "repos_in_lists": len(names_by_github_id),
+        },
+    )
+    if dry_run:
+        return len(star_lists), len(names_by_github_id)
+
+    repos_tagged = 0
+    async with db.transaction() as session:
+        result = await session.execute(
+            select(Repository.id, Repository.github_id, Repository.list_names).where(
+                Repository.user_id == user_id
+            )
+        )
+        for repo_id, github_id, current in result.all():
+            desired = sorted(names_by_github_id.get(github_id, []))
+            if sorted(current or []) == desired:
+                continue
+            await session.execute(
+                update(Repository)
+                .where(Repository.id == repo_id, Repository.user_id == user_id)
+                .values(list_names=desired, updated_at=func.now())
+            )
+            repos_tagged += 1
+
+    return len(star_lists), repos_tagged
+
+
+def _needs_full_star_snapshot(
+    integration: UserGitHubIntegration,
+    *,
+    interval_days: int,
+    now: datetime | None = None,
+) -> bool:
+    """True when this run must page the entire ``/user/starred`` listing.
+
+    Incremental runs stop at ``last_synced_at`` and therefore never see a repo
+    whose star was removed, so ``is_starred`` can only be flipped back to false
+    on a full snapshot. Without a periodic snapshot the flag is write-once and
+    unstarred repos linger forever.
+
+    A snapshot is due when the integration has never synced, when it has never
+    completed a snapshot, or when the last one is at least *interval_days* old.
+    ``interval_days=0`` disables the periodic refresh and keeps the first sync
+    as the only full one.
+    """
+    if integration.last_synced_at is None:
+        return True
+    if interval_days <= 0:
+        return False
+    last_full = integration.last_full_sync_at
+    if last_full is None:
+        return True
+    now = datetime.now(UTC) if now is None else now
+    return now - last_full >= timedelta(days=interval_days)
+
+
 async def _sync_one_integration(
     *,
     integration: UserGitHubIntegration,
@@ -423,13 +533,18 @@ async def _sync_one_integration(
     bot: Any,
     correlation_id: str,
     dry_run: bool = False,
-) -> tuple[int, int, int, int, int]:
+    force_full: bool = False,
+) -> tuple[int, int, int, int, int, int, int]:
     """Sync a single user's starred repos.
 
-    Returns (imported, updated, unstarred, llm_made, llm_deferred).
+    Returns (imported, updated, unstarred, llm_made, llm_deferred,
+    star_lists_synced, repos_list_tagged).
 
     When *dry_run* is True, no DB writes or Qdrant mutations are performed;
     counts reflect what *would* have been written.
+
+    When *force_full* is True the run pages the whole listing regardless of
+    when the last snapshot happened (``--full`` in the CLI).
     """
     token = decrypt_token(integration.encrypted_token)
 
@@ -438,8 +553,10 @@ async def _sync_one_integration(
     repos_to_analyze: list[Repository] = []
     seen_github_ids: set[int] = set()
 
-    is_first_sync = integration.last_synced_at is None
-    is_full_star_snapshot = integration.last_synced_at is None
+    is_full_star_snapshot = force_full or _needs_full_star_snapshot(
+        integration,
+        interval_days=cfg.github.full_sync_interval_days,
+    )
 
     batch_size = cfg.github.sync_batch_size
     # Buffer for the current batch: list of (row, needs_analysis) tuples built
@@ -456,7 +573,11 @@ async def _sync_one_integration(
             await session.flush()
 
     async with GitHubAPIClient(token) as client:
-        starred_iter = await client.list_starred(since=integration.last_synced_at)
+        # A snapshot must page the whole listing: `since` short-circuits on the
+        # first repo older than the cursor, which is exactly what makes the
+        # soft-unstar comparison below unsound on an incremental run.
+        since = None if is_full_star_snapshot else integration.last_synced_at
+        starred_iter = await client.list_starred(since=since)
         async for item in starred_iter:
             repo_dto = item.repo
             seen_github_ids.add(repo_dto.id)
@@ -608,8 +729,34 @@ async def _sync_one_integration(
             if integ_row is not None:
                 integ_row.last_synced_at = now
                 integ_row.last_sync_cursor = None
-                if is_first_sync:
+                # Only stamped once the whole listing has been paged without an
+                # error, so a run that dies mid-snapshot is retried as a snapshot.
+                if is_full_star_snapshot:
                     integ_row.last_full_sync_at = now
+
+    # Star lists live only in GraphQL, so this is a separate call. A failure
+    # here must not lose the star sync that already committed above: the list
+    # mirror is derived data and the next run rebuilds it from scratch.
+    star_lists_synced = 0
+    repos_list_tagged = 0
+    if cfg.github.sync_star_lists:
+        try:
+            star_lists_synced, repos_list_tagged = await _sync_star_lists(
+                token=token,
+                db=db,
+                user_id=integration.user_id,
+                correlation_id=correlation_id,
+                dry_run=dry_run,
+            )
+        except Exception as exc:
+            logger.warning(
+                "github_star_lists_sync_failed",
+                extra={
+                    "cid": correlation_id,
+                    "user_id": integration.user_id,
+                    "error": str(exc),
+                },
+            )
 
     # Sort oldest-first so budget-cap days favour established repos
     repos_to_analyze.sort(key=lambda r: r.created_at_github or datetime.min.replace(tzinfo=UTC))
@@ -632,6 +779,8 @@ async def _sync_one_integration(
         repos_unstarred,
         llm_calls_made[0],
         llm_calls_deferred[0],
+        star_lists_synced,
+        repos_list_tagged,
     )
 
 

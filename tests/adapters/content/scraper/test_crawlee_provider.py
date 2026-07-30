@@ -14,6 +14,7 @@ so the wiring test injects a fake ``crawlee.crawlers`` module the same way
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from types import ModuleType
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -88,7 +89,8 @@ class _FakePlaywrightCrawler:
 
     last_instance: _FakePlaywrightCrawler | None = None
 
-    def __init__(self, **_kwargs: Any) -> None:
+    def __init__(self, **kwargs: Any) -> None:
+        self.configuration = kwargs["configuration"]
         self.router = _FakeRouter()
         self.pre_nav_hooks: list[Any] = []
         self.prenav_context = MagicMock()
@@ -116,9 +118,19 @@ async def test_playwright_stage_installs_ssrf_guard_before_navigation(
     fake_crawlers = ModuleType("crawlee.crawlers")
     fake_crawlers.PlaywrightCrawler = _FakePlaywrightCrawler  # type: ignore[attr-defined]
     fake_crawlers.PlaywrightCrawlingContext = MagicMock  # type: ignore[attr-defined]
+    fake_configuration = ModuleType("crawlee.configuration")
+
+    class FakeConfiguration:
+        def __init__(self, *, storage_dir: str) -> None:
+            self.storage_dir = storage_dir
+            assert Path(storage_dir).is_dir()
+
+    fake_configuration.Configuration = FakeConfiguration  # type: ignore[attr-defined]
     fake_pkg = ModuleType("crawlee")
     fake_pkg.crawlers = fake_crawlers  # type: ignore[attr-defined]
+    fake_pkg.configuration = fake_configuration  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "crawlee", fake_pkg)
+    monkeypatch.setitem(sys.modules, "crawlee.configuration", fake_configuration)
     monkeypatch.setitem(sys.modules, "crawlee.crawlers", fake_crawlers)
 
     provider = CrawleeProvider()
@@ -127,6 +139,7 @@ async def test_playwright_stage_installs_ssrf_guard_before_navigation(
     assert html == "<html><body>ok</body></html>"
     crawler = _FakePlaywrightCrawler.last_instance
     assert crawler is not None
+    assert Path(crawler.configuration.storage_dir).name.startswith("ratatoskr-crawlee-pw-")
     # The guard installer was registered as a pre-navigation hook...
     assert provider._install_ssrf_guard in crawler.pre_nav_hooks
     # ...and firing it installed the per-request route filter on the page.

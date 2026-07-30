@@ -107,6 +107,13 @@ class GitMirror(Base):
         DateTime(timezone=True), nullable=True
     )
     excluded_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The user asked for this mirror by hand (API register, or an explicit
+    # add-repository call). Nothing else records that fact: ``source`` is derived
+    # from the URL host and ``repository_id`` is set for auto-enrolled rows too.
+    # Reconciliation sweeps that tombstone rows by inference must skip it.
+    pinned: Mapped[bool] = mapped_column(
+        Boolean, server_default="false", default=False, nullable=False
+    )
     clone_strategy: Mapped[str | None] = mapped_column(String(50), nullable=True)
     use_http1_fallback: Mapped[bool] = mapped_column(
         Boolean, server_default="false", default=False, nullable=False

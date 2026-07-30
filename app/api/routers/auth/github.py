@@ -316,7 +316,13 @@ async def device_flow_start(
     async with httpx.AsyncClient() as client:
         gh_resp = await client.post(
             _GITHUB_DEVICE_CODE_URL,
-            data={"client_id": client_id, "scope": "read:user repo"},
+            # `user` is required by the star-list GraphQL mutations, which have no
+            # narrower scope. `repo` already covers starring itself. A token
+            # connected before this scope was requested keeps working for
+            # everything except list writes, where GitHub's own error names the
+            # missing scope; such users must reconnect to file repositories
+            # automatically.
+            data={"client_id": client_id, "scope": "read:user repo user"},
             headers={"Accept": "application/json"},
             timeout=30.0,
         )

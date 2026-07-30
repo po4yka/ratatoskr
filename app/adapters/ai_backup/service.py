@@ -79,6 +79,7 @@ class AiBackupOrchestrationService:
         self._notifier: BackupNotifier = notifier or NullNotifier()
 
     async def run(self, user_id: int, service: AiBackupService) -> None:
+        from app.adapters.ai_backup.browser_profile import browser_profile
         from app.adapters.ai_backup.chatgpt_client import ChatGptClient
         from app.adapters.ai_backup.client_factory import build_client
         from app.adapters.ai_backup.disk_writer import AiBackupDiskWriter
@@ -117,6 +118,7 @@ class AiBackupOrchestrationService:
                 logger.info("ai_backup_no_session", extra={"service": service.value})
                 return
             storage_state = session_snapshot.storage_state
+            domain = domain_for_service(service)
 
             writer = AiBackupDiskWriter(
                 Path(ai_cfg.data_path),
@@ -127,10 +129,12 @@ class AiBackupOrchestrationService:
             )
             await self._notifier.on_start(service)
             async with authenticated_context(
-                domain_for_service(service),
+                domain,
                 storage_state,
                 endpoint_url=self._cfg.scraper.cloakbrowser_url,
+                proxy=self._cfg.scraper.cloakbrowser_proxy,
                 refreshed_out=refreshed_out,
+                **browser_profile(domain, ai_cfg),
             ) as (page, _ctx):
                 fetcher = PlaywrightAuthedFetcher(
                     page,

@@ -3850,6 +3850,25 @@
             }
           },
           {
+            "name": "list_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "GitHub star list name",
+              "title": "List Name"
+            },
+            "description": "GitHub star list name"
+          },
+          {
             "name": "source",
             "in": "query",
             "required": false,
@@ -3945,7 +3964,7 @@
           "repositories"
         ],
         "summary": "Ingest Repository",
-        "description": "Ingest a GitHub repository by URL.",
+        "description": "Add a GitHub repository by URL.\n\n``mode=metadata`` (the default) only indexes it. ``mode=track`` also enrolls\nit for on-disk git backup without starring it. ``mode=star`` additionally\nstars it on GitHub and files it into one of the user's star lists.\n\nA star that lands while the list write or the backup enrollment fails is\nstill a success: the response reports it through ``warnings`` rather than\nundoing the part that worked.",
         "operationId": "ingest_repository_v1_repositories_post",
         "security": [
           {
@@ -4280,6 +4299,238 @@
         }
       }
     },
+    "/v1/star-lists": {
+      "get": {
+        "tags": [
+          "star-lists"
+        ],
+        "summary": "List Star Lists",
+        "description": "List the caller's star lists (metadata only — no repository items).",
+        "operationId": "list_star_lists_v1_star_lists_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StarListsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "star-lists"
+        ],
+        "summary": "Create Star List",
+        "description": "Create a star list. GitHub caps a user at 32 and rejects the 33rd itself.",
+        "operationId": "create_star_list_v1_star_lists_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStarListRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StarListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/star-lists/{slug}": {
+      "patch": {
+        "tags": [
+          "star-lists"
+        ],
+        "summary": "Update Star List",
+        "description": "Rename or re-describe a list, addressed by slug or exact name.",
+        "operationId": "update_star_list_v1_star_lists__slug__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateStarListRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StarListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "star-lists"
+        ],
+        "summary": "Delete Star List",
+        "description": "Delete a list. The repositories in it keep their stars.",
+        "operationId": "delete_star_list_v1_star_lists__slug__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/star-lists/repositories/{repository_id}": {
+      "put": {
+        "tags": [
+          "star-lists"
+        ],
+        "summary": "Set Repository Lists",
+        "description": "Replace the lists a repository belongs to and refresh the local mirror.\n\nPUT semantics: the body is the complete desired membership, so an empty\n``list_names`` removes the repository from every list.",
+        "operationId": "set_repository_lists_v1_star_lists_repositories__repository_id__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Repository Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRepositoryListsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StarListsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
     "/v1/git-mirrors": {
       "get": {
         "tags": [
@@ -4546,7 +4797,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AiBackupListResponse"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_AiBackupListResponse_"
                 }
               }
             }
@@ -4597,10 +4848,326 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AiBackupItem"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_AiBackupItem_"
                 }
               }
             }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/ai-backups/{service}/reauth": {
+      "post": {
+        "tags": [
+          "ai-backups"
+        ],
+        "summary": "Start Reauth",
+        "description": "Start a short-lived interactive login in the private CloakBrowser.",
+        "operationId": "start_reauth_v1_ai_backups__service__reauth_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AiBackupService"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TypedSuccessResponse_AiBackupReauthFlow_"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Owner permissions required"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/ai-backups/{service}/reauth/{flow_id}": {
+      "get": {
+        "tags": [
+          "ai-backups"
+        ],
+        "summary": "Get Reauth",
+        "description": "Return progress without exposing cookies or browser endpoint details.",
+        "operationId": "get_reauth_v1_ai_backups__service__reauth__flow_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AiBackupService"
+            }
+          },
+          {
+            "name": "flow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Flow Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TypedSuccessResponse_AiBackupReauthFlow_"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "ai-backups"
+        ],
+        "summary": "Cancel Reauth",
+        "description": "Close an active interactive login flow.",
+        "operationId": "cancel_reauth_v1_ai_backups__service__reauth__flow_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AiBackupService"
+            }
+          },
+          {
+            "name": "flow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Flow Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/ai-backups/{service}/reauth/{flow_id}/viewer-session": {
+      "post": {
+        "tags": [
+          "ai-backups"
+        ],
+        "summary": "Create Reauth Viewer Session",
+        "description": "Issue a short-lived, one-use viewer cookie scoped to one WebSocket path.",
+        "operationId": "create_reauth_viewer_session_v1_ai_backups__service__reauth__flow_id__viewer_session_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AiBackupService"
+            }
+          },
+          {
+            "name": "flow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Flow Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TypedSuccessResponse_AiBackupViewerSession_"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/ai-backups/{service}/reauth/{flow_id}/frame": {
+      "get": {
+        "tags": [
+          "ai-backups"
+        ],
+        "summary": "Get Reauth Frame",
+        "description": "Capture the current private browser frame for the owning user only.",
+        "operationId": "get_reauth_frame_v1_ai_backups__service__reauth__flow_id__frame_get",
+        "deprecated": true,
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AiBackupService"
+            }
+          },
+          {
+            "name": "flow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Flow Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "image/jpeg": {}
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/v1/ai-backups/{service}/reauth/{flow_id}/input": {
+      "post": {
+        "tags": [
+          "ai-backups"
+        ],
+        "summary": "Send Reauth Input",
+        "description": "Forward one bounded mouse/keyboard event; input is never logged or stored.",
+        "operationId": "send_reauth_input_v1_ai_backups__service__reauth__flow_id__input_post",
+        "deprecated": true,
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AiBackupService"
+            }
+          },
+          {
+            "name": "flow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Flow Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReauthInputRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "$ref": "#/components/responses/ValidationError"
@@ -7125,6 +7692,27 @@
               ],
               "title": "Topics"
             }
+          },
+          {
+            "name": "list_names",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "GitHub star lists; AND-ed",
+              "title": "List Names"
+            },
+            "description": "GitHub star lists; AND-ed"
           },
           {
             "name": "is_starred",
@@ -15128,6 +15716,16 @@
   },
   "components": {
     "schemas": {
+      "AddRepositoryMode": {
+        "type": "string",
+        "enum": [
+          "metadata",
+          "track",
+          "star"
+        ],
+        "title": "AddRepositoryMode",
+        "description": "How far to go when adding a repository.\n\n``METADATA`` is the historical behaviour and stays the default so that every\nexisting caller — including the Telegram URL flow — is unaffected."
+      },
       "AdminAuditLogData": {
         "properties": {
           "logs": {
@@ -15926,6 +16524,54 @@
         "title": "AiBackupListResponse",
         "description": "All AI account backups for the authenticated user."
       },
+      "AiBackupReauthFlow": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "service": {
+            "type": "string",
+            "title": "Service"
+          },
+          "state": {
+            "type": "string",
+            "title": "State",
+            "description": "starting | waiting_for_user | verifying | resuming_backup | completed | failed | expired | cancelled"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "service",
+          "state",
+          "created_at",
+          "expires_at"
+        ],
+        "title": "AiBackupReauthFlow",
+        "description": "Public, secret-free state of one temporary interactive login flow."
+      },
       "AiBackupService": {
         "type": "string",
         "enum": [
@@ -15934,6 +16580,26 @@
         ],
         "title": "AiBackupService",
         "description": "Which AI web account this backup row tracks."
+      },
+      "AiBackupViewerSession": {
+        "properties": {
+          "websocket_path": {
+            "type": "string",
+            "title": "Websocket Path"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "websocket_path",
+          "expires_at"
+        ],
+        "title": "AiBackupViewerSession",
+        "description": "Secret-free metadata for connecting noVNC to the active browser."
       },
       "AppleSignInCallbackRequest": {
         "properties": {
@@ -18652,6 +19318,32 @@
         ],
         "title": "CreateRuleRequest",
         "description": "Request body for creating an automation rule."
+      },
+      "CreateStarListRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Description",
+            "default": ""
+          },
+          "is_private": {
+            "type": "boolean",
+            "title": "Is Private",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "CreateStarListRequest"
       },
       "CreateTagRequest": {
         "properties": {
@@ -21445,6 +22137,11 @@
               }
             ],
             "title": "Repository Id"
+          },
+          "pinned": {
+            "type": "boolean",
+            "title": "Pinned",
+            "default": false
           }
         },
         "type": "object",
@@ -21522,6 +22219,11 @@
               }
             ],
             "title": "Repository Id"
+          },
+          "pinned": {
+            "type": "boolean",
+            "title": "Pinned",
+            "default": false
           },
           "mirror_path": {
             "anyOf": [
@@ -22615,6 +23317,27 @@
             "maxLength": 500,
             "minLength": 10,
             "title": "Url"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/AddRepositoryMode",
+            "description": "metadata: index only. track: also back up on disk, without starring. star: also star on GitHub and file into a star list.",
+            "default": "metadata"
+          },
+          "list_names": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "List Names",
+            "description": "Star lists to file the repository under, overriding the automatic suggestion. Only meaningful with mode=star. An empty array files it nowhere; omit the field to let the suggester choose."
           }
         },
         "type": "object",
@@ -22641,6 +23364,57 @@
           "full_name": {
             "type": "string",
             "title": "Full Name"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "metadata",
+              "track",
+              "star"
+            ],
+            "title": "Mode",
+            "default": "metadata"
+          },
+          "is_starred": {
+            "type": "boolean",
+            "title": "Is Starred",
+            "default": false
+          },
+          "lists_applied": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Lists Applied"
+          },
+          "list_suggestion_source": {
+            "type": "string",
+            "enum": [
+              "knn",
+              "llm",
+              "explicit",
+              "none"
+            ],
+            "title": "List Suggestion Source",
+            "default": "none"
+          },
+          "mirror_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mirror Id"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
           }
         },
         "type": "object",
@@ -23857,6 +24631,105 @@
         ],
         "title": "ReadinessData"
       },
+      "ReauthInputRequest": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "click",
+              "move",
+              "wheel",
+              "key",
+              "text"
+            ],
+            "title": "Type"
+          },
+          "x": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1366.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "X"
+          },
+          "y": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 768.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Y"
+          },
+          "delta_x": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 5000.0,
+                "minimum": -5000.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta X"
+          },
+          "delta_y": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 5000.0,
+                "minimum": -5000.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta Y"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "title": "ReauthInputRequest",
+        "description": "One bounded input event for the owner-only remote browser surface."
+      },
       "RecentContentFailureData": {
         "properties": {
           "id": {
@@ -24211,6 +25084,13 @@
             "type": "array",
             "title": "Topics"
           },
+          "list_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "List Names"
+          },
           "stars": {
             "type": "integer",
             "title": "Stars"
@@ -24328,6 +25208,13 @@
             },
             "type": "array",
             "title": "Topics"
+          },
+          "list_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "List Names"
           },
           "stars": {
             "type": "integer",
@@ -24596,6 +25483,13 @@
             },
             "type": "array",
             "title": "Topics"
+          },
+          "list_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "List Names"
           },
           "stars": {
             "type": "integer",
@@ -27162,6 +28056,21 @@
         ],
         "title": "SessionRevocationResponse"
       },
+      "SetRepositoryListsRequest": {
+        "properties": {
+          "list_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 32,
+            "title": "List Names"
+          }
+        },
+        "type": "object",
+        "title": "SetRepositoryListsRequest",
+        "description": "The complete set of lists the repository should belong to.\n\nThis replaces the membership rather than adding to it — an empty array\nremoves the repository from every list."
+      },
       "SignalFeedbackRequest": {
         "properties": {
           "action": {
@@ -28530,6 +29439,57 @@
           "shannonEntropy"
         ],
         "title": "SourceDiversityResponse"
+      },
+      "StarListResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "is_private": {
+            "type": "boolean",
+            "title": "Is Private",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "slug"
+        ],
+        "title": "StarListResponse",
+        "description": "One star list."
+      },
+      "StarListsResponse": {
+        "properties": {
+          "lists": {
+            "items": {
+              "$ref": "#/components/schemas/StarListResponse"
+            },
+            "type": "array",
+            "title": "Lists"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lists"
+        ],
+        "title": "StarListsResponse",
+        "description": "All star lists of the authenticated user."
       },
       "StatusResponse": {
         "properties": {
@@ -31509,6 +32469,86 @@
         ],
         "title": "TypedSuccessResponse[AdminUsersData]"
       },
+      "TypedSuccessResponse_AiBackupItem_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/AiBackupItem"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[AiBackupItem]"
+      },
+      "TypedSuccessResponse_AiBackupListResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/AiBackupListResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[AiBackupListResponse]"
+      },
+      "TypedSuccessResponse_AiBackupReauthFlow_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/AiBackupReauthFlow"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[AiBackupReauthFlow]"
+      },
+      "TypedSuccessResponse_AiBackupViewerSession_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/AiBackupViewerSession"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[AiBackupViewerSession]"
+      },
       "TypedSuccessResponse_AppleSignInStartResponse_": {
         "properties": {
           "success": {
@@ -33649,6 +34689,49 @@
         "type": "object",
         "title": "UpdateRuleRequest",
         "description": "Request body for updating an automation rule."
+      },
+      "UpdateStarListRequest": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "is_private": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Private"
+          }
+        },
+        "type": "object",
+        "title": "UpdateStarListRequest",
+        "description": "Every field is optional; omitted fields are left untouched."
       },
       "UpdateSummaryRequest": {
         "properties": {

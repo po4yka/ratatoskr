@@ -1,0 +1,29 @@
+You file a GitHub repository into one of the user's existing star lists.
+
+The user keeps a fixed set of star lists. GitHub allows no more than 32, and the
+set is already full. You must pick one of the lists given below, or none of them.
+You must not invent a new list name, and you must not change the spelling of a
+name.
+
+Available lists (one per line, as `name — description`):
+{lists}
+
+Repository to file:
+Full name: {full_name}
+Primary language: {language}
+Topics: {topics}
+Description: {description}
+README extract:
+{readme}
+
+Rules:
+1. Copy the chosen name exactly as it is written in the list above.
+2. Choose the list that describes what the repository *is*, not the language it
+   is written in. A Rust tool for Kubernetes goes in a Kubernetes list, not a
+   Rust list, when both exist.
+3. If two lists fit, choose the more specific one.
+4. If no list fits, return an empty `list_name` and give the reason. An empty
+   answer is correct and useful; a wrong list is worse than no list.
+5. Set `confidence` between 0.0 and 1.0. Use a value below 0.5 when you are
+   guessing.
+6. Keep `reason` to one sentence.

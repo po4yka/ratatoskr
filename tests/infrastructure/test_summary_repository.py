@@ -125,7 +125,7 @@ async def test_summary_repository_upserts_reads_and_finalizes(database: Database
         session.add(
             CrawlResult(
                 request_id=request_id,
-                success=True,
+                firecrawl_success=True,
                 content_text="normalized durable source",
                 status="ok",
             )

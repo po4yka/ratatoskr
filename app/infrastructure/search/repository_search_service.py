@@ -28,6 +28,7 @@ class RepositorySearchResult:
     description: str | None
     primary_language: str | None
     topics: list[str]
+    list_names: list[str]
     stars: int
     is_starred: bool
     pushed_at: datetime | None
@@ -68,6 +69,7 @@ class RepositorySearchService:
         user_id: int,
         languages: list[str] | None = None,
         topics: list[str] | None = None,
+        list_names: list[str] | None = None,
         is_starred: bool | None = None,
         source: Literal["manual", "starred"] | None = None,
         limit: int = 20,
@@ -94,6 +96,7 @@ class RepositorySearchService:
                 user_id=user_id,
                 languages=languages,
                 topics=topics,
+                list_names=list_names,
                 is_starred=is_starred,
                 source=source,
                 limit=limit,
@@ -112,6 +115,7 @@ class RepositorySearchService:
         user_id: int,
         languages: list[str] | None = None,
         topics: list[str] | None = None,
+        list_names: list[str] | None = None,
         is_starred: bool | None = None,
         source: Literal["manual", "starred"] | None = None,
         limit: int = 20,
@@ -162,6 +166,14 @@ class RepositorySearchService:
 
         if topics:
             should = [FieldCondition(key="topics", match=MatchValue(value=t)) for t in topics]
+
+        # Star lists are AND-ed, unlike topics: asking for two lists means
+        # "in both", which is how a curated set is normally narrowed.
+        if list_names:
+            must.extend(
+                FieldCondition(key="list_names", match=MatchValue(value=name))
+                for name in list_names
+            )
 
         if is_starred is not None:
             must.append(FieldCondition(key="is_starred", match=MatchValue(value=is_starred)))
@@ -256,6 +268,7 @@ class RepositorySearchService:
                     description=row.description,
                     primary_language=row.primary_language,
                     topics=topics_list,
+                    list_names=list(row.list_names) if isinstance(row.list_names, list) else [],
                     stars=row.stars,
                     is_starred=row.is_starred,
                     pushed_at=row.pushed_at,
