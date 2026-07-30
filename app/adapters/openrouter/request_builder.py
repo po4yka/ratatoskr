@@ -303,6 +303,11 @@ class RequestBuilder:
             body["top_p"] = request.top_p
         if request.stream:
             body["stream"] = request.stream
+            # A streamed response omits the usage block unless it is requested,
+            # so llm_calls.cost_usd and tokens_* landed NULL for the dominant
+            # traffic class -- which also means LLM_DAILY_HARD_BUDGET_USD, when
+            # enabled, totals roughly $0 and never trips.
+            body["usage"] = {"include": True}
 
         # Provider routing configuration
         provider_prefs: dict[str, Any] = {}
@@ -519,6 +524,24 @@ class RequestBuilder:
 
         return estimated_tokens >= self._cache_large_content_threshold
 
+    @staticmethod
+    def _cache_control_for(ttl: str) -> dict[str, str]:
+        """Build the cache_control object for a resolved TTL.
+
+        ``type`` is the cache *kind* and the only accepted value is
+        ``"ephemeral"``; a non-default lifetime goes in the sibling ``ttl``
+        field. Putting the TTL in the ``type`` slot emitted
+        ``{"type": "1h"}`` for every anthropic/* request -- an invalid object,
+        so either the request was rejected with a 400 (which
+        chat_response_handler treats as non-retryable and burns that cascade
+        rung) or caching silently did nothing and every summarization paid full
+        input-token price. anthropic/* is the first fallback model and the
+        long-context model, and caching is on by default.
+        """
+        if ttl and ttl != "ephemeral":
+            return {"type": "ephemeral", "ttl": ttl}
+        return {"type": "ephemeral"}
+
     def _add_cache_control(self, msg: dict[str, Any], ttl: str) -> dict[str, Any]:
         """Convert message to multipart format with cache_control.
 
@@ -530,6 +553,7 @@ class RequestBuilder:
         Returns:
             Message with cache_control added to content
         """
+        cache_control = self._cache_control_for(ttl)
         content = msg.get("content", "")
 
         # If content is already a list, add cache_control to last text part
@@ -539,7 +563,7 @@ class RequestBuilder:
                 if i == len(content) - 1 and isinstance(part, dict) and part.get("type") == "text":
                     # Add cache_control to last text part
                     new_part = dict(part)
-                    new_part["cache_control"] = {"type": ttl}
+                    new_part["cache_control"] = cache_control
                     new_content.append(new_part)
                 else:
                     new_content.append(part)
@@ -553,7 +577,7 @@ class RequestBuilder:
                     {
                         "type": "text",
                         "text": content,
-                        "cache_control": {"type": ttl},
+                        "cache_control": cache_control,
                     }
                 ],
             }
