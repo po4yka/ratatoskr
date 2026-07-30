@@ -426,14 +426,25 @@ async def test_redirect_chain_is_bounded_by_one_overall_deadline() -> None:
             return None
 
         async def __aenter__(self) -> _SlowRedirect:
-            await asyncio.sleep(2)
+            # Longer than the whole budget on purpose: the deadline must cut the
+            # very first hop. A per-hop sleep close to the budget left the pass
+            # and fail bands only a second or two apart -- the trap that made two
+            # other wall-clock tests flake on loaded CI runners.
+            await asyncio.sleep(30)
             return self
 
         async def __aexit__(self, *exc: object) -> None:
             return None
 
+    calls = 0
+
+    def _stream(*_args: object, **_kwargs: object) -> _SlowRedirect:
+        nonlocal calls
+        calls += 1
+        return _SlowRedirect()
+
     mock_client = MagicMock()
-    mock_client.stream = MagicMock(return_value=_SlowRedirect())
+    mock_client.stream = _stream
 
     started = time.perf_counter()
     with (
@@ -447,5 +458,9 @@ async def test_redirect_chain_is_bounded_by_one_overall_deadline() -> None:
     elapsed = time.perf_counter() - started
 
     assert result.status != "ok"
-    # 1 s budget + 5 s grace. Five 2 s hops without the deadline would be 10 s.
-    assert elapsed < 9, f"redirect chain ran for {elapsed:.1f}s, past the overall deadline"
+    # Deterministic: the deadline fires inside the first hop, so the loop never
+    # reaches a second one. Without it the provider would sit through all five.
+    assert calls == 1, f"expected the deadline to cut the first hop, saw {calls} hops"
+    # Backstop with a wide gap: ~6 s expected (1 s budget + 5 s grace) against a
+    # 30 s first hop if the deadline is missing.
+    assert elapsed < 20, f"redirect chain ran for {elapsed:.1f}s, past the overall deadline"

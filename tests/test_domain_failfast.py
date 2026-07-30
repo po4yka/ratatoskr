@@ -244,8 +244,17 @@ async def test_event_already_set_skips_immediately():
         "https://already-failed.com/page/2",
     ]
 
+    started = 0
+    cancelled = 0
+
     async def _hang_forever(*args, **kwargs):
-        await asyncio.sleep(999)
+        nonlocal started, cancelled
+        started += 1
+        try:
+            await asyncio.sleep(999)
+        except asyncio.CancelledError:
+            cancelled += 1
+            raise
 
     handler.handle_single_url = AsyncMock(side_effect=_hang_forever)
     handler._batch_policy = URLBatchPolicyService(
@@ -260,9 +269,16 @@ async def test_event_already_set_skips_immediately():
 
     wall_elapsed = time.monotonic() - wall_start
 
-    # With domain event cancellation, total time should be close to 1x timeout.
-    # Without, it would be 2x timeout (each URL independently burns through).
-    assert wall_elapsed < test_timeout * 2.0, (
-        f"Expected wall-clock < {test_timeout * 2.0}s but got {wall_elapsed:.1f}s. "
+    # Assert the behaviour, not the stopwatch: the sibling must be cut short by
+    # the domain event rather than burning its own timeout. The wall-clock form
+    # alone put its bound (2x timeout) exactly on the no-fix value, leaving ~2 s
+    # of headroom -- less than the sibling test above had when it flaked on CI.
+    assert cancelled >= 1, (
+        f"expected the second URL to be cancelled by the domain event, "
+        f"started={started} cancelled={cancelled}"
+    )
+    # Loose backstop: without the event each URL burns its own 2 s timeout.
+    assert wall_elapsed < test_timeout * 3.5, (
+        f"Expected wall-clock < {test_timeout * 3.5}s but got {wall_elapsed:.1f}s. "
         "Domain event did not trigger immediate sibling skip."
     )

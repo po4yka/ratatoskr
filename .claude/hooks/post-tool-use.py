@@ -43,8 +43,12 @@ def main() -> None:
     ruff = str(venv_ruff) if venv_ruff.is_file() else "ruff"
     print(f"Running quick lint on {file_path}...")
     try:
+        # No --select: run the project's own rule set. Forcing "F,E" re-enabled
+        # E501, which pyproject deliberately ignores because the formatter owns
+        # line length -- so the hook reported violations on files `make lint`
+        # passes. A gate that disagrees with CI teaches people to ignore it.
         result = subprocess.run(
-            [ruff, "check", "--select", "F,E", file_path],
+            [ruff, "check", file_path],
             capture_output=True,
             text=True,
             timeout=5,
