@@ -93,3 +93,59 @@ def test_setmodel_hot_reload_reaches_live_client() -> None:
 
     assert client._model == "hot-swapped-model"
     assert client._fallback_models == ["fb"]
+
+
+def _client_with_credential(key: str) -> OpenRouterClient:
+    """A client with the collaborators that hold a copy of the credential."""
+    client = _client("m", [])
+    client._api_key = key
+    client.request_builder = SimpleNamespace(
+        _api_key=key,
+        set_api_key=lambda k: setattr(client.request_builder, "_api_key", k),
+    )
+    client.model_capabilities = SimpleNamespace(
+        _api_key=key,
+        set_api_key=lambda k: setattr(client.model_capabilities, "_api_key", k),
+    )
+    # Stand-ins for the lazily built Instructor/AsyncOpenAI pair, which bakes the
+    # key in at construction and is otherwise only dropped by aclose().
+    client._oai_client = object()
+    client._instructor_async_client = object()
+    return client
+
+
+def test_key_rotation_reaches_every_holder_of_the_credential() -> None:
+    """A rotated key must not leave chat_structured on the retired credential.
+
+    apply_runtime_config used to update only the raw-HTTP path, so the repair
+    node, non-streaming and batch summarize, the ru translation, the digest
+    analyser and the agents all kept 401-ing until the process restarted, while
+    the interactive streaming path worked -- which made the breakage look
+    selective.
+    """
+    client = _client_with_credential("sk-old")
+
+    client.apply_runtime_config(
+        SimpleNamespace(openrouter=SimpleNamespace(model="m", fallback_models=[], api_key="sk-new"))
+    )
+
+    assert client._api_key == "sk-new"
+    assert client.request_builder._api_key == "sk-new"
+    assert client.model_capabilities._api_key == "sk-new"
+    # Dropped, so the next structured call rebuilds both with the new key.
+    assert client._oai_client is None
+    assert client._instructor_async_client is None
+
+
+def test_unchanged_key_keeps_the_cached_structured_clients() -> None:
+    """Rebuilding the Instructor pair on every config swap would be wasteful."""
+    client = _client_with_credential("sk-same")
+    oai = client._oai_client
+
+    client.apply_runtime_config(
+        SimpleNamespace(
+            openrouter=SimpleNamespace(model="m", fallback_models=[], api_key="sk-same")
+        )
+    )
+
+    assert client._oai_client is oai

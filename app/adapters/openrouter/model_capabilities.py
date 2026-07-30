@@ -194,6 +194,15 @@ class ModelCapabilities:
             "minimax/minimax-m2",
         }
 
+    def set_api_key(self, api_key: str) -> None:
+        """Replace the bearer credential used for capability lookups.
+
+        Headers are built per request, so this takes effect on the next call.
+        Mirrors ``RequestBuilder.set_api_key``; without it a rotated key left
+        capability probes authenticating with the retired credential.
+        """
+        self._api_key = api_key
+
     def is_reasoning_heavy_model(self, model: str) -> bool:
         """Check if model is reasoning-heavy (like Kimi K2 Thinking, OpenAI o1).
 

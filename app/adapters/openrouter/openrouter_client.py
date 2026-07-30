@@ -271,6 +271,18 @@ class OpenRouterClient:
         if key_rotated:
             self._api_key = new_key
             self.request_builder.set_api_key(new_key)
+            self.model_capabilities.set_api_key(new_key)
+            # The Instructor/AsyncOpenAI pair is built once, lazily, with the key
+            # baked in, and is otherwise only dropped by aclose(). Updating just
+            # the raw-HTTP path left every chat_structured caller -- the repair
+            # node, non-streaming and batch summarize, the ru translation, the
+            # digest analyser, the agents -- on the retired credential until the
+            # process restarted, while the interactive streaming path worked.
+            # Dropping the reference is enough: the next structured call rebuilds
+            # both. The retired client's pool is released when it is collected;
+            # a rotation is a rare operator action, so an explicit async close
+            # here would cost a fire-and-forget task for no practical gain.
+            self._drop_structured_clients()
 
         logger.info(
             "openrouter_config_hot_reloaded",
@@ -443,6 +455,16 @@ class OpenRouterClient:
         """Async context manager exit."""
         await self.aclose()
 
+    def _drop_structured_clients(self) -> None:
+        """Forget the lazily built Instructor/AsyncOpenAI pair.
+
+        Both bake the API key in at construction, so anything that invalidates
+        the credential has to drop them; the next ``chat_structured`` rebuilds
+        the pair from the current key.
+        """
+        self._oai_client = None
+        self._instructor_async_client = None
+
     async def aclose(self) -> None:
         """Close pooled HTTP clients associated with the current loop/client key."""
         oai = getattr(self, "_oai_client", None)
@@ -451,8 +473,7 @@ class OpenRouterClient:
                 await oai.close()
             except Exception:
                 pass
-            self._oai_client = None
-            self._instructor_async_client = None
+            self._drop_structured_clients()
         await BaseLLMClient.aclose(cast("BaseLLMClient", self))
 
     async def _ensure_client(self) -> httpx.AsyncClient:
