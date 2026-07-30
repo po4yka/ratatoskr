@@ -21,6 +21,12 @@ class _RedisConnectionManager:
     def __init__(self) -> None:
         self.client: aioredis.Redis | None = None
         self.lock = asyncio.Lock()
+        # The loop the cached client and lock were built on. A redis.asyncio
+        # pool keeps futures bound to its creating loop, and an asyncio.Lock
+        # binds on first acquire, so neither survives being reused from another
+        # one -- the symptom is "got Future attached to a different loop" from
+        # somewhere entirely unrelated, such as a rate-limit middleware call.
+        self._loop: asyncio.AbstractEventLoop | None = None
         self.last_connection_attempt: float = 0.0
         self.last_error: str | None = None
         self.connection_failed: bool = False
@@ -38,6 +44,16 @@ class _RedisConnectionManager:
         """
         if not cfg.redis.enabled:
             return None
+
+        running = asyncio.get_running_loop()
+        if self._loop is not running:
+            # Drop rather than close: awaiting aclose() on a pool owned by
+            # another loop raises the very error being avoided. A loop swap is
+            # rare (a test harness, or sequential asyncio.run calls in one
+            # process), so the leaked pool is cheaper than the crash.
+            self.client = None
+            self.lock = asyncio.Lock()
+            self._loop = running
 
         async with self.lock:
             if self.client is not None:
@@ -105,6 +121,7 @@ class _RedisConnectionManager:
                 logger.info("redis_closed")
             finally:
                 self.client = None
+                self._loop = None
                 self.connection_failed = False
                 self.last_error = None
 
