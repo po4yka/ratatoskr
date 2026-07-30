@@ -1277,6 +1277,17 @@ jobs:
             pyproject.toml
             uv.lock
 
+      - name: Install PostgreSQL client (matching service major version)
+        # ubuntu-latest's default apt package trails the postgres:17 service
+        # image, so `pg_dump` refuses to dump a newer server ("aborting
+        # because of server version mismatch"). Pull client 17 from the
+        # PGDG apt repo instead of relying on the distro default.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-common
+          yes '' | sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
+
       - name: Install dependencies (all extras for DB-backed tests)
         run: |
           uv sync --frozen --no-default-groups \
