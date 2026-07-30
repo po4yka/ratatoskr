@@ -1,4 +1,6 @@
 import json
+import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,6 +19,29 @@ from app.api.services.sync_service import SyncService
 from app.config import ApiLimitsConfig, RedisConfig, SyncConfig
 from app.config.deployment import DeploymentConfig
 from app.infrastructure.redis import redis_key
+
+
+@pytest.fixture(autouse=True)
+def _frozen_rate_limit_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the clock so a test's two requests cannot straddle a window boundary.
+
+    rate_limit_middleware buckets on
+    ``window_start = (int(time.time()) // window) * window`` and every test here
+    uses ``window_seconds=1``, so two sequential calls landing on either side of
+    an integer second fall into different windows: the second is allowed and the
+    "then blocks" assertion fails with ``assert 200 == 429``. It reproduces
+    essentially never on an idle machine -- 40 local runs in a row stayed green
+    -- and did fire on a loaded CI runner under ``-n auto``.
+
+    Only the middleware module's ``time`` reference is replaced, and only
+    ``time()``; ``perf_counter`` keeps running so latency logging is unaffected.
+    No test in this module depends on the clock advancing.
+    """
+    frozen = SimpleNamespace(
+        time=lambda: 1_000_000.0,
+        perf_counter=time.perf_counter,
+    )
+    monkeypatch.setattr(middleware, "time", frozen)
 
 
 class DummyCfg:
