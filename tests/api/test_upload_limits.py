@@ -126,7 +126,21 @@ async def test_import_success(client: TestClient, db, user_factory):
     mock_parser_cls = MagicMock()
     mock_parser_cls.return_value.parse.return_value = fake_bookmarks
 
-    mock_job = {"id": 99, "status": "pending", "total_items": 1}
+    # Every non-defaulted field of ImportJobResponse; a partial job dict makes the
+    # endpoint fail response validation instead of exercising the upload path.
+    mock_job = {
+        "id": 99,
+        "source_format": "html",
+        "file_name": "bookmarks.html",
+        "status": "pending",
+        "total_items": 1,
+        "processed_items": 0,
+        "created_items": 0,
+        "skipped_items": 0,
+        "failed_items": 0,
+        "created_at": "2026-07-30T00:00:00Z",
+        "updated_at": "2026-07-30T00:00:00Z",
+    }
 
     with (
         _patch("app.api.routers.import_export.load_config", return_value=mock_cfg),

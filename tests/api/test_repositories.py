@@ -243,9 +243,9 @@ async def test_get_detail_404_for_other_users_repo(client: Any, db: Database) ->
 
 def test_post_ingest_invalid_url_returns_400(client: Any, db: Database) -> None:
     from app.api.main import app
-    from app.api.routers.repositories import _get_github_extractor
+    from app.api.routers.repositories import _get_add_use_case
 
-    app.dependency_overrides[_get_github_extractor] = lambda: MagicMock()
+    app.dependency_overrides[_get_add_use_case] = lambda: MagicMock()
     try:
         resp = client.post(
             "/v1/repositories",
@@ -253,30 +253,34 @@ def test_post_ingest_invalid_url_returns_400(client: Any, db: Database) -> None:
             headers=_auth(_USER_A_ID),
         )
     finally:
-        app.dependency_overrides.pop(_get_github_extractor, None)
+        app.dependency_overrides.pop(_get_add_use_case, None)
     assert resp.status_code == 400
 
 
 # ---------------------------------------------------------------------------
-# 9. ingest happy path (mocked extractor)
+# 9. ingest happy path (mocked use case)
 # ---------------------------------------------------------------------------
 
 
 async def test_post_ingest_happy_path(client: Any, db: Database) -> None:
     await _create_user(db, _USER_A_ID)
 
-    mock_result = MagicMock()
-    mock_result.request_id = 42
-    mock_result.title = "octocat/hello-world"
-    mock_result.metadata = {"full_name": "octocat/hello-world"}
+    from app.application.use_cases.add_repository import AddRepositoryResult
 
-    mock_extractor = MagicMock()
-    mock_extractor.extract = AsyncMock(return_value=mock_result)
+    use_case = MagicMock()
+    use_case.add = AsyncMock(
+        return_value=AddRepositoryResult(
+            repository_id=42,
+            full_name="octocat/hello-world",
+            mode="metadata",
+            is_starred=False,
+        )
+    )
 
     from app.api.main import app
-    from app.api.routers.repositories import _get_github_extractor
+    from app.api.routers.repositories import _get_add_use_case
 
-    app.dependency_overrides[_get_github_extractor] = lambda: mock_extractor
+    app.dependency_overrides[_get_add_use_case] = lambda: use_case
     try:
         resp = client.post(
             "/v1/repositories",
@@ -284,13 +288,18 @@ async def test_post_ingest_happy_path(client: Any, db: Database) -> None:
             headers=_auth(_USER_A_ID),
         )
     finally:
-        app.dependency_overrides.pop(_get_github_extractor, None)
+        app.dependency_overrides.pop(_get_add_use_case, None)
 
     assert resp.status_code == 202
     data = resp.json()
     assert data["repository_id"] == 42
     assert data["full_name"] == "octocat/hello-world"
     assert data["status"] == "ready"
+    # The default mode must stay a pure index: no star, no mirror.
+    assert data["mode"] == "metadata"
+    assert data["is_starred"] is False
+    assert data["mirror_id"] is None
+    assert use_case.add.await_args.kwargs["mode"] == "metadata"
 
 
 # ---------------------------------------------------------------------------

@@ -214,7 +214,8 @@ _DEFAULT_PERMISSIONS_POLICY = "geolocation=(), microphone=(), camera=(), payment
 #   header a plain <img src> cannot send (see ratatoskr-web's
 #   src/features/reader/ReaderPage.tsx and src/features/library/adapters.ts).
 #   Known, accepted gap until a same-origin unauthenticated image proxy
-#   exists.
+#   exists. blob: is required for authenticated, short-lived re-authorization
+#   screenshots fetched by the SPA and never persisted as public URLs.
 # - frame-src allows https://oauth.telegram.org: the Telegram Login Widget
 #   renders its confirmation UI in an iframe from Telegram's documented
 #   widget embed domain.
@@ -240,7 +241,7 @@ def _app_csp(connect_src_extra: str) -> str:
         "script-src 'self' https://telegram.org; "
         "style-src 'self'; "
         "style-src-attr 'unsafe-inline'; "
-        "img-src 'self' https: data:; "
+        "img-src 'self' https: data: blob:; "
         "font-src 'self'; "
         f"connect-src {connect_src}; "
         "frame-src https://oauth.telegram.org; "
@@ -343,6 +344,8 @@ def _resolve_limit_from_bucket(cfg: AppConfig, bucket: str | None) -> int:
         return limits.secret_login_limit
     if bucket == "credentials_login":
         return limits.credentials_login_limit
+    if bucket == "ai_backup_reauth":
+        return limits.ai_backup_reauth_limit
     if bucket == "summaries":
         return limits.summaries_limit
     if bucket == "requests":
@@ -519,6 +522,8 @@ async def _resolve_rate_limit_context(
 def _resolve_bucket(method: str, path: str) -> str | None:
     normalized_path = path.rstrip("/") or "/"
     method_upper = method.upper()
+    if normalized_path.startswith("/v1/ai-backups/") and "reauth" in normalized_path.split("/"):
+        return "ai_backup_reauth"
     if method_upper == "POST" and normalized_path == "/v1/aggregations":
         return "aggregation_create"
     if method_upper == "POST" and normalized_path == "/v1/auth/secret-login":

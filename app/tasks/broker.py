@@ -72,7 +72,20 @@ else:
         result_ex_time=_result_ttl,
     )
     broker = (
-        RedisStreamBroker(url=_url)
+        RedisStreamBroker(
+            url=_url,
+            # taskiq's listen() loop issues `XREADGROUP ... BLOCK 2000`, so Redis
+            # replies within 2s -- but redis-py 8 defaults socket_timeout to 5s
+            # and builds Retry(NoBackoff(), 0). That left a 3-second margin and
+            # no retry: any event-loop stall longer than that raised TimeoutError
+            # out of listen(), which tears down taskiq's receiver TaskGroup and
+            # cancels every in-flight task. Observed three times on 2026-07-29,
+            # each while torch inference and Playwright shared the worker's
+            # single process; Redis itself was idle throughout. Widen the margin
+            # and let a stalled read retry instead of killing the process.
+            socket_timeout=30,
+            retry_on_timeout=True,  # redis-py builds Retry(NoBackoff(), 1)
+        )
         .with_result_backend(_result_backend)
         .with_middlewares(*_middlewares)
     )

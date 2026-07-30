@@ -78,10 +78,10 @@ class TestAppCsp:
         assert "style-src-attr 'unsafe-inline'" in csp
         assert "style-src 'self';" in csp
 
-    def test_img_src_allows_any_https_and_data_for_third_party_covers(self):
+    def test_img_src_allows_https_data_and_reauth_frame_blobs(self):
         client = TestClient(_make_app())
         csp = client.get("/ping").headers["Content-Security-Policy"]
-        assert "img-src 'self' https: data:" in csp
+        assert "img-src 'self' https: data: blob:" in csp
 
     def test_font_src_self_only(self):
         client = TestClient(_make_app())

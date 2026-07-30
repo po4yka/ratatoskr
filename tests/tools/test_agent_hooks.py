@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -90,6 +93,10 @@ def test_codex_pre_tool_hook_checks_python_content_from_apply_patch() -> None:
     assert "Arbitrary code evaluation" in result.stderr
 
 
+@pytest.mark.skipif(
+    not (ROOT / ".venv/bin/ruff").is_file() and shutil.which("ruff") is None,
+    reason="ruff not installed in this environment (e.g. the ci-test-only job)",
+)
 def test_codex_post_tool_hook_lints_python_path_from_apply_patch() -> None:
     result = _run_hook(
         ".codex/hooks/post-tool-use.py",

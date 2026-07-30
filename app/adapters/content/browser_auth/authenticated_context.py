@@ -118,6 +118,9 @@ async def authenticated_context(
     mobile: bool = False,
     proxy: str = "",
     refreshed_out: list[dict] | None = None,
+    fingerprint_seed: str | None = None,
+    timezone: str | None = None,
+    locale: str | None = None,
 ) -> AsyncIterator[tuple[Any, Any]]:
     """Connect to cloakserve for ``domain`` and yield ``(page, context)``.
 
@@ -130,9 +133,11 @@ async def authenticated_context(
       BEFORE closing the context (the jar is gone after ``context.close()``), then
       disconnects from the shared sidecar without stopping it.
     """
-    seed = seed_for_url(f"https://{domain}")
-    timezone, locale = locale_for_seed(seed)
-    cdp_url = build_cdp_url(endpoint_url, seed, timezone, locale, proxy=proxy)
+    seed = fingerprint_seed or seed_for_url(f"https://{domain}")
+    default_timezone, default_locale = locale_for_seed(seed)
+    resolved_timezone = timezone or default_timezone
+    resolved_locale = locale or default_locale
+    cdp_url = build_cdp_url(endpoint_url, seed, resolved_timezone, resolved_locale, proxy=proxy)
 
     from playwright.async_api import Error as PWError, async_playwright
 
@@ -147,6 +152,8 @@ async def authenticated_context(
                 "is_mobile": mobile,
                 "has_touch": mobile,
                 "accept_downloads": True,
+                "timezone_id": resolved_timezone,
+                "locale": resolved_locale,
             }
             if storage_state is not None:
                 ctx_kwargs["storage_state"] = storage_state

@@ -34,8 +34,6 @@ from app.api.error_handlers import (
 )
 from app.api.exceptions import APIException
 from app.api.metrics_auth import require_metrics_bearer
-from app.api.models.responses.common import TypedSuccessResponse
-from app.api.models.responses.operational import BasicHealthData
 from app.api.middleware import (
     correlation_id_middleware,
     http_red_metrics_middleware,
@@ -44,7 +42,8 @@ from app.api.middleware import (
     webapp_auth_middleware,
 )
 from app.api.models.responses import success_response
-from app.api.models.responses.common import API_CONTRACT_VERSION
+from app.api.models.responses.common import API_CONTRACT_VERSION, TypedSuccessResponse
+from app.api.models.responses.operational import BasicHealthData
 from app.api.routers import (
     admin,
     aggregation,
@@ -72,6 +71,7 @@ from app.api.routers import (
     search,
     signals,
     social_auth,
+    star_lists,
     status,
     streams,
     summaries,
@@ -100,6 +100,7 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     runtime = None
+    ai_backup_reauth_coordinator = None
     broker = None
     checkpointer_runtime = None
     durable_worker = None
@@ -157,6 +158,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
         app.state.runtime = runtime
         set_current_api_runtime(runtime)
+
+        from app.adapters.ai_backup.reauth import AiBackupReauthCoordinator
+        from app.tasks.ai_backup_sync import enqueue_targeted_backup
+
+        ai_backup_reauth_coordinator = AiBackupReauthCoordinator(
+            cfg=runtime.cfg,
+            db=runtime.db,
+            enqueue_backup=enqueue_targeted_backup,
+        )
+        app.state.ai_backup_reauth_coordinator = ai_backup_reauth_coordinator
 
         logger.info("database_initialized", extra={"database": "postgresql"})
 
@@ -221,6 +232,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
                 await runtime.durable_request_queue.stop()
             if transcription_worker is not None:
                 await runtime.durable_transcription_queue.stop()
+            if ai_backup_reauth_coordinator is not None:
+                await ai_backup_reauth_coordinator.close()
             if broker is not None and not broker.is_worker_process:
                 await broker.shutdown()
             await close_redis()
@@ -361,6 +374,7 @@ app.include_router(
 )
 app.include_router(summaries.router, prefix="/v1/summaries", tags=["Summaries"])
 app.include_router(repositories.router)
+app.include_router(star_lists.router)
 app.include_router(git_mirrors.router)
 app.include_router(ai_backups.router)
 app.include_router(credentials.router)

@@ -84,14 +84,6 @@ database:
   pool_size: 5
   max_overflow: 3
 
-redis:
-  # NOTE: REDIS_ENABLED is hardcoded per-service in docker-compose (worker,
-  # mobile-api, scheduler all set it to 1) so it's intentionally NOT in YAML.
-  # The legacy .env had REDIS_ENABLED=0 set for the bot; that line is dropped
-  # in Pass 2 of the env/YAML refactor — the bot picks up the field's default
-  # (false) when nothing in env or compose overrides it.
-  required: false
-
 auth:
   secret_login_enabled: true
 

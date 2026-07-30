@@ -39,7 +39,10 @@ def _service(
     ),
     persist_source_content: bool = True,
 ) -> tuple[SourceContentBackfillService, AsyncMock, AsyncMock]:
-    summary_reader = SimpleNamespace(get_summary_context_for_user=AsyncMock(return_value=context))
+    summary_reader = SimpleNamespace(
+        get_summary_context_for_user=AsyncMock(return_value=context),
+        get_summary_context_for_reconciliation=AsyncMock(return_value=context),
+    )
     source_extractor = SimpleNamespace(
         extract_content_pure=AsyncMock(
             return_value=extracted,
@@ -153,10 +156,50 @@ async def test_backfill_honors_network_budget_after_local_sources_are_exhausted(
 
 @pytest.mark.asyncio
 async def test_backfill_rejects_unowned_or_missing_summary() -> None:
-    service, _extract, _update = _service(context=None)
+    summary_reader = SimpleNamespace(
+        get_summary_context_for_user=AsyncMock(return_value=None),
+        get_summary_context_for_reconciliation=AsyncMock(return_value=_context()),
+    )
+    extract = AsyncMock()
+    update = AsyncMock()
+    service = SourceContentBackfillService(
+        summary_reader=summary_reader,
+        source_extractor=SimpleNamespace(extract_content_pure=extract),
+        source_writer=SimpleNamespace(async_materialize_source_content=update),
+        persist_source_content=True,
+    )
 
     with pytest.raises(SourceContentBackfillNotFoundError):
         await service.backfill(user_id=7, summary_id=1402)
+
+    summary_reader.get_summary_context_for_reconciliation.assert_not_awaited()
+    extract.assert_not_awaited()
+    update.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_backfill_supports_ownerless_legacy_summary() -> None:
+    context = _context()
+    summary_reader = SimpleNamespace(
+        get_summary_context_for_user=AsyncMock(),
+        get_summary_context_for_reconciliation=AsyncMock(return_value=context),
+    )
+    source_extractor = SimpleNamespace(
+        extract_content_pure=AsyncMock(return_value=("Restored.", "markdown", {}))
+    )
+    source_writer = SimpleNamespace(async_materialize_source_content=AsyncMock(return_value=17))
+    service = SourceContentBackfillService(
+        summary_reader=summary_reader,
+        source_extractor=source_extractor,
+        source_writer=source_writer,
+        persist_source_content=True,
+    )
+
+    result = await service.backfill_for_reconciliation(summary_id=1402)
+
+    assert result.reextracted is True
+    summary_reader.get_summary_context_for_reconciliation.assert_awaited_once_with(1402)
+    summary_reader.get_summary_context_for_user.assert_not_awaited()
 
 
 @pytest.mark.asyncio

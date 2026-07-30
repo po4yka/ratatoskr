@@ -606,6 +606,9 @@ class RepositoryEmbeddingGenerator:
             "full_name": repository.full_name,
             "primary_language": repository.primary_language,
             "topics": topics,
+            "list_names": list(repository.list_names)
+            if isinstance(repository.list_names, list)
+            else [],
             "is_starred": repository.is_starred,
             "source": repository.source.value
             if hasattr(repository.source, "value")

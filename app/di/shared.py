@@ -413,5 +413,5 @@ def _build_firecrawl_client(
 
 
 def _default_audit(level: str, event: str, details: dict[str, Any]) -> None:
-    log_level = logging.INFO if level == "info" else logging.ERROR
+    log_level = logging.INFO if level.strip().lower() == "info" else logging.ERROR
     logger.log(log_level, event, extra=details)
