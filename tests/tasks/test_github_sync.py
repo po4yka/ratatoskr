@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -849,3 +851,141 @@ def test_scheduler_skips_task_when_disabled(monkeypatch):
 
     task_names = [t.task_name for t in tasks]
     assert "ratatoskr.github.sync_stars" not in task_names
+
+
+# ---------------------------------------------------------------------------
+# last_sync_cursor payload must fit String(500) whatever the error text is
+# ---------------------------------------------------------------------------
+
+
+def test_error_payload_always_fits_the_cursor_column() -> None:
+    """The write happens inside the except block that records the failure.
+
+    Truncating only the message left the JSON wrapper (~120 chars) and
+    json.dumps escaping outside the budget, so a long DBAPIError or
+    ValidationError text produced a payload over String(500). Postgres raised
+    22001, the transaction rolled back -- losing last_error and backoff_until --
+    the per-integration loop unwound, and the task crashed all three retries.
+    """
+    from app.tasks.github_sync import _SYNC_CURSOR_MAX_CHARS, _github_sync_error_payload
+
+    cases = [
+        "x" * 5000,  # plain overflow
+        '"' * 2000,  # every char doubles when escaped
+        "\n" * 2000,  # newlines escape to two chars
+        "ошибка " * 500,  # non-ASCII -> \uXXXX, six chars each
+        "e" * 379,  # just under the old breaking point
+        "",  # degenerate
+    ]
+    for error in cases:
+        payload = _github_sync_error_payload(error=error, failure_count=1)
+        assert len(payload) <= _SYNC_CURSOR_MAX_CHARS, (
+            f"payload of {len(payload)} chars overflows the column for {error[:20]!r}"
+        )
+        # Still valid JSON carrying the fields the diagnostics reader expects.
+        parsed = json.loads(payload)
+        assert parsed["kind"] == "github_sync_state"
+        assert parsed["failure_count"] == 1
+        assert "backoff_until" in parsed
+
+
+def test_error_payload_keeps_short_messages_intact() -> None:
+    from app.tasks.github_sync import _github_sync_error_payload
+
+    payload = json.loads(_github_sync_error_payload(error="boom", failure_count=2))
+    assert payload["last_error"] == "boom"
+
+
+# ---------------------------------------------------------------------------
+# One unreachable watched repository must not abandon the rest of the pass
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_repository_watch_failure_is_isolated_per_repo(monkeypatch) -> None:
+    """A 403/502 on one watched repo used to abort the whole watch pass.
+
+    _sync_repository_watches runs *before* the run's timestamp bookkeeping, so
+    the exception also left last_synced_at and last_full_sync_at unstamped and
+    forced the next run to paginate the full snapshot again.
+    """
+    from contextlib import asynccontextmanager
+
+    from app.tasks import github_sync as mod
+
+    watches = [
+        (
+            SimpleNamespace(
+                id=1,
+                watch_readme=True,
+                watch_releases=False,
+                last_readme_sha256=None,
+                last_notified_readme_sha256=None,
+                last_release_tag=None,
+                last_notified_release_tag=None,
+            ),
+            SimpleNamespace(
+                id=10,
+                owner="acme",
+                name="broken",
+                full_name="acme/broken",
+                url="u",
+                default_branch="main",
+            ),
+        ),
+        (
+            SimpleNamespace(
+                id=2,
+                watch_readme=True,
+                watch_releases=False,
+                last_readme_sha256=None,
+                last_notified_readme_sha256=None,
+                last_release_tag=None,
+                last_notified_release_tag=None,
+            ),
+            SimpleNamespace(
+                id=11,
+                owner="acme",
+                name="fine",
+                full_name="acme/fine",
+                url="u",
+                default_branch="main",
+            ),
+        ),
+    ]
+
+    class _Session:
+        async def execute(self, _stmt):
+            return SimpleNamespace(all=lambda: watches)
+
+    @asynccontextmanager
+    async def _session():
+        yield _Session()
+
+    db = SimpleNamespace(session=_session)
+
+    attempted: list[str] = []
+
+    class _Client:
+        async def get_readme(self, owner, name, ref=None):
+            attempted.append(name)
+            if name == "broken":
+                raise RuntimeError("GitHub returned 403 Forbidden")
+            return SimpleNamespace(content="body")
+
+    updated: list[int] = []
+
+    async def _fake_update(_db, *, watch_id, **_kw):
+        updated.append(watch_id)
+
+    monkeypatch.setattr(mod, "_update_repository_watch_state", _fake_update)
+    monkeypatch.setattr(mod, "_mark_repository_watch_checked", AsyncMock())
+    monkeypatch.setattr(mod, "_emit_repository_watch_triggered", AsyncMock())
+
+    await mod._sync_repository_watches(
+        client=_Client(), db=db, user_id=1, bot=None, correlation_id="cid"
+    )
+
+    # Both repos were attempted, and the healthy one still committed its state.
+    assert attempted == ["broken", "fine"]
+    assert updated == [2]

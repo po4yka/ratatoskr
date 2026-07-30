@@ -15,6 +15,17 @@ class GitHubAuthError(GitHubError):
     """401 Unauthorized: token revoked, expired, or insufficient scope."""
 
 
+class GitHubForbiddenError(GitHubError):
+    """403 that is not a rate limit: this token may not perform this call.
+
+    Deliberately NOT a ``GitHubAuthError``. A fine-grained PAT without contents
+    access to one watched repository, or an org with SSO enforced on a single
+    resource, produces a 403 on that endpoint while the credential stays valid
+    everywhere else -- so it is a per-call failure, not a reason to mark the
+    whole integration NEEDS_REAUTH and tell the owner their token was revoked.
+    """
+
+
 class GitHubNotFoundError(GitHubError):
     """404 Not Found: repo doesn't exist or token can't see it."""
 

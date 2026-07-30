@@ -10,6 +10,7 @@ from __future__ import annotations
 from app.application.exceptions.github import (
     GitHubAuthError,
     GitHubError,
+    GitHubForbiddenError,
     GitHubIntegrationRequiredError,
     GitHubNotFoundError,
     GitHubRateLimitError,
@@ -21,6 +22,7 @@ from app.application.exceptions.github import (
 __all__ = [
     "GitHubAuthError",
     "GitHubError",
+    "GitHubForbiddenError",
     "GitHubIntegrationRequiredError",
     "GitHubNotFoundError",
     "GitHubRateLimitError",

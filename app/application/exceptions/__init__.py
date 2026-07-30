@@ -9,6 +9,7 @@ from __future__ import annotations
 from .github import (
     GitHubAuthError,
     GitHubError,
+    GitHubForbiddenError,
     GitHubIntegrationRequiredError,
     GitHubNotFoundError,
     GitHubRateLimitError,
@@ -20,6 +21,7 @@ from .github import (
 __all__ = [
     "GitHubAuthError",
     "GitHubError",
+    "GitHubForbiddenError",
     "GitHubIntegrationRequiredError",
     "GitHubNotFoundError",
     "GitHubRateLimitError",

@@ -70,7 +70,10 @@ def is_github_repo_url(url: str) -> bool:
     parts = [p for p in parsed.path.split("/") if p]
     if len(parts) != 2:
         return False
-    if parts[1].rstrip(".git") in EXCLUDED_PATH_SEGMENTS:
+    # removesuffix, not rstrip: rstrip strips any trailing run of ".git"
+    # characters, so "pullit" -> "pull" and "findit" -> "find", both of which
+    # are in EXCLUDED_PATH_SEGMENTS. Line 85 already got this right.
+    if parts[1].removesuffix(".git") in EXCLUDED_PATH_SEGMENTS:
         return False
     return True
 

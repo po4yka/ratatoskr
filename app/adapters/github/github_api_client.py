@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 from app.adapters.github.exceptions import (
     GitHubAuthError,
+    GitHubForbiddenError,
     GitHubNotFoundError,
     GitHubRateLimitError,
     GitHubServerError,
@@ -213,8 +214,13 @@ class GitHubAPIClient:
                     raise GitHubRateLimitError(reset_epoch=_rate_limit_reset_epoch(response))
 
                 if status == 403:
-                    # Non-rate-limit 403 (e.g. forbidden scope) — treat as auth error
-                    raise GitHubAuthError(f"GitHub returned 403 Forbidden for {url}")
+                    # Not a rate limit (that is handled above): this token may
+                    # not perform *this* call -- a fine-grained PAT without
+                    # contents access to one watched repo, or SSO enforced on a
+                    # single org resource. Raising GitHubAuthError here made the
+                    # sync task mark the whole integration NEEDS_REAUTH and tell
+                    # the owner their token was revoked, over one endpoint.
+                    raise GitHubForbiddenError(f"GitHub returned 403 Forbidden for {url}")
 
                 if status == 404:
                     raise GitHubNotFoundError(f"GitHub returned 404 Not Found for {url}")
@@ -229,9 +235,14 @@ class GitHubAPIClient:
 
                 return response
 
-            except (GitHubAuthError, GitHubNotFoundError, GitHubRateLimitError):
+            except (
+                GitHubAuthError,
+                GitHubForbiddenError,
+                GitHubNotFoundError,
+                GitHubRateLimitError,
+            ):
                 raise
-            except httpx.NetworkError as exc:
+            except httpx.TransportError as exc:
                 last_exc = exc
                 logger.warning(
                     "github_network_error",
@@ -400,7 +411,7 @@ class GitHubAPIClient:
                         GITHUB_API_RATE_LIMIT_HITS_TOTAL.inc()
                     raise GitHubRateLimitError(reset_epoch=_rate_limit_reset_epoch(response))
                 if status == 403:
-                    raise GitHubAuthError(f"GitHub returned 403 for {url}")
+                    raise GitHubForbiddenError(f"GitHub returned 403 for {url}")
                 if status == 404:
                     raise GitHubNotFoundError(f"GitHub returned 404 for {url}")
                 if 500 <= status < 600:
@@ -411,9 +422,14 @@ class GitHubAPIClient:
                         await sleep_backoff(attempt, self._backoff_min_sec, self._backoff_max_sec)
                     continue
                 return response
-            except (GitHubAuthError, GitHubNotFoundError, GitHubRateLimitError):
+            except (
+                GitHubAuthError,
+                GitHubForbiddenError,
+                GitHubNotFoundError,
+                GitHubRateLimitError,
+            ):
                 raise
-            except httpx.NetworkError as exc:
+            except httpx.TransportError as exc:
                 last_exc = exc
                 if attempt < self._max_retries - 1:
                     await sleep_backoff(attempt, self._backoff_min_sec, self._backoff_max_sec)
@@ -527,5 +543,6 @@ class GitHubAPIClient:
         try:
             await self._request("GET", "/user/starred", params={"per_page": "1"})
             return True
-        except GitHubAuthError:
+        except (GitHubAuthError, GitHubForbiddenError):
+            # 403 is the answer this probe exists to detect; 401 also means "no".
             return False

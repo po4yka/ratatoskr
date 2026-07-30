@@ -24,6 +24,7 @@ from app.adapters.github.github_graphql_client import GitHubGraphQLClient
 from app.application.events.repository_watch import RepositoryWatchTriggered
 from app.application.use_cases.analyze_repository import _compute_content_hash
 from app.config import AppConfig  # noqa: TC001 — taskiq resolves type hints at runtime
+from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import get_logger
 from app.db.models.repository import (
     GitHubIntegrationStatus,
@@ -72,6 +73,10 @@ class SyncSummary:
 _GITHUB_SYNC_LOCK_KEY = "task_lock:github_sync_stars"
 # TTL covers the maximum expected run: 100-repo budget * ~18 s/LLM call ≈ 30 min.
 _GITHUB_SYNC_LOCK_TTL = 1800
+# Read off the column so the budget cannot drift away from the schema.
+_SYNC_CURSOR_MAX_CHARS: int = (
+    UserGitHubIntegration.__table__.c.last_sync_cursor.type.length or 500  # type: ignore[attr-defined]
+)
 
 
 @broker.task(task_name="ratatoskr.github.sync_stars", retry_on_error=True, max_retries=3)
@@ -558,6 +563,15 @@ async def _sync_one_integration(
         interval_days=cfg.github.full_sync_interval_days,
     )
 
+    # Stamped as last_synced_at once the listing completes. Captured *before*
+    # paging starts, not after: /user/starred is ordered newest-first, so a star
+    # added while the run is in flight shifts onto page 1, which has already
+    # been read. Stamping the finish time would then place the cursor past that
+    # star and it would stay invisible until the next full snapshot -- up to
+    # GITHUB_FULL_SYNC_INTERVAL_DAYS later. An earlier cursor can only re-read a
+    # few rows, which the upsert absorbs.
+    run_started_at = datetime.now(UTC)
+
     batch_size = cfg.github.sync_batch_size
     # Buffer for the current batch: list of (row, needs_analysis) tuples built
     # without holding a DB connection. Flushed every `batch_size` items.
@@ -722,17 +736,16 @@ async def _sync_one_integration(
             repos_unstarred = result.scalar_one() or 0  # type: ignore[assignment]
 
     # Update integration timestamps
-    now = datetime.now(UTC)
     if not dry_run:
         async with db.transaction() as session:
             integ_row = await session.get(UserGitHubIntegration, integration.id)
             if integ_row is not None:
-                integ_row.last_synced_at = now
+                integ_row.last_synced_at = run_started_at
                 integ_row.last_sync_cursor = None
                 # Only stamped once the whole listing has been paged without an
                 # error, so a run that dies mid-snapshot is retried as a snapshot.
                 if is_full_star_snapshot:
-                    integ_row.last_full_sync_at = now
+                    integ_row.last_full_sync_at = run_started_at
 
     # Star lists live only in GraphQL, so this is a separate call. A failure
     # here must not lose the star sync that already committed above: the list
@@ -806,63 +819,81 @@ async def _sync_repository_watches(
         rows = list(result.all())
 
     for watch, repository in rows:
-        if not watch.watch_readme and not watch.watch_releases:
-            await _mark_repository_watch_checked(db, watch_id=watch.id)
+        # One unreachable repository must not abandon the remaining watches:
+        # this runs before the run's timestamp bookkeeping, so an exception
+        # here also left last_synced_at and last_full_sync_at unstamped and
+        # forced the next run to redo the whole snapshot. A fine-grained PAT
+        # without contents access to one watched repo is enough to trigger it.
+        try:
+            if not watch.watch_readme and not watch.watch_releases:
+                await _mark_repository_watch_checked(db, watch_id=watch.id)
+                continue
+
+            readme_sha256: str | None = None
+            release_tag: str | None = None
+            release_url: str | None = None
+            if watch.watch_readme:
+                readme = await client.get_readme(
+                    repository.owner,
+                    repository.name,
+                    ref=repository.default_branch,
+                )
+                readme_body = readme.content or ""
+                readme_sha256 = hashlib.sha256(readme_body.encode()).hexdigest()
+            if watch.watch_releases:
+                latest_release = await client.get_latest_release(repository.owner, repository.name)
+                if latest_release is not None:
+                    release_tag = latest_release.tag_name
+                    release_url = latest_release.html_url
+                else:
+                    release_tag = ""
+
+            events = _repository_watch_events_for_state(
+                user_id=user_id,
+                repository_id=repository.id,
+                repository_full_name=repository.full_name,
+                repository_url=repository.url,
+                release_url=release_url,
+                watch_readme=watch.watch_readme,
+                watch_releases=watch.watch_releases,
+                previous_readme_sha256=watch.last_readme_sha256,
+                last_notified_readme_sha256=watch.last_notified_readme_sha256,
+                current_readme_sha256=readme_sha256,
+                previous_release_tag=watch.last_release_tag,
+                last_notified_release_tag=watch.last_notified_release_tag,
+                current_release_tag=release_tag,
+            )
+            for event in events:
+                await _emit_repository_watch_triggered(
+                    event,
+                    bot=bot,
+                    correlation_id=correlation_id,
+                )
+
+            await _update_repository_watch_state(
+                db,
+                watch_id=watch.id,
+                readme_sha256=readme_sha256 if watch.watch_readme else None,
+                notified_readme_sha256=readme_sha256
+                if any(event.trigger == "readme" for event in events)
+                else None,
+                release_tag=release_tag if watch.watch_releases else None,
+                notified_release_tag=release_tag
+                if any(event.trigger == "release" for event in events)
+                else None,
+            )
+        except Exception as exc:
+            raise_if_cancelled(exc)
+            logger.warning(
+                "github_repository_watch_failed",
+                extra={
+                    "cid": correlation_id,
+                    "user_id": user_id,
+                    "repository": repository.full_name,
+                    "error": str(exc),
+                },
+            )
             continue
-
-        readme_sha256: str | None = None
-        release_tag: str | None = None
-        release_url: str | None = None
-        if watch.watch_readme:
-            readme = await client.get_readme(
-                repository.owner,
-                repository.name,
-                ref=repository.default_branch,
-            )
-            readme_body = readme.content or ""
-            readme_sha256 = hashlib.sha256(readme_body.encode()).hexdigest()
-        if watch.watch_releases:
-            latest_release = await client.get_latest_release(repository.owner, repository.name)
-            if latest_release is not None:
-                release_tag = latest_release.tag_name
-                release_url = latest_release.html_url
-            else:
-                release_tag = ""
-
-        events = _repository_watch_events_for_state(
-            user_id=user_id,
-            repository_id=repository.id,
-            repository_full_name=repository.full_name,
-            repository_url=repository.url,
-            release_url=release_url,
-            watch_readme=watch.watch_readme,
-            watch_releases=watch.watch_releases,
-            previous_readme_sha256=watch.last_readme_sha256,
-            last_notified_readme_sha256=watch.last_notified_readme_sha256,
-            current_readme_sha256=readme_sha256,
-            previous_release_tag=watch.last_release_tag,
-            last_notified_release_tag=watch.last_notified_release_tag,
-            current_release_tag=release_tag,
-        )
-        for event in events:
-            await _emit_repository_watch_triggered(
-                event,
-                bot=bot,
-                correlation_id=correlation_id,
-            )
-
-        await _update_repository_watch_state(
-            db,
-            watch_id=watch.id,
-            readme_sha256=readme_sha256 if watch.watch_readme else None,
-            notified_readme_sha256=readme_sha256
-            if any(event.trigger == "readme" for event in events)
-            else None,
-            release_tag=release_tag if watch.watch_releases else None,
-            notified_release_tag=release_tag
-            if any(event.trigger == "release" for event in events)
-            else None,
-        )
 
 
 def _repository_watch_events_for_state(
@@ -1062,16 +1093,42 @@ def _github_sync_error_payload(
     failure_count: int,
     backoff_until: datetime | None = None,
 ) -> str:
+    """Build the sync-state JSON, guaranteed to fit ``last_sync_cursor``.
+
+    The budget has to be measured on the serialized payload, not on the raw
+    message: the JSON wrapper adds ~120 characters, and ``json.dumps`` escapes
+    quotes, newlines and non-ASCII (up to six characters each). Truncating
+    ``error`` to 500 alone therefore overflowed the ``String(500)`` column for
+    any exception text over roughly 380 characters -- a ``DBAPIError`` carrying
+    a statement and parameters, or a ``ValidationError`` quoting its input.
+
+    That mattered because the write happens *inside* the except block that
+    records the failure: Postgres raised 22001, the transaction rolled back
+    (losing both ``last_error`` and ``backoff_until``), the per-integration loop
+    unwound, and the task -- ``retry_on_error=True, max_retries=3`` -- crashed
+    the same way three times while the operator saw only a DataError with no
+    trace of the original problem.
+    """
     if backoff_until is None:
         backoff_until = datetime.now(UTC) + timedelta(minutes=min(60, 5 * max(1, failure_count)))
-    return json.dumps(
-        {
-            "kind": "github_sync_state",
-            "last_error": error[:500],
-            "failure_count": failure_count,
-            "backoff_until": backoff_until.isoformat(),
-        }
-    )
+
+    def _encode(message: str) -> str:
+        return json.dumps(
+            {
+                "kind": "github_sync_state",
+                "last_error": message,
+                "failure_count": failure_count,
+                "backoff_until": backoff_until.isoformat(),
+            }
+        )
+
+    truncated = error
+    payload = _encode(truncated)
+    while len(payload) > _SYNC_CURSOR_MAX_CHARS and truncated:
+        overflow = len(payload) - _SYNC_CURSOR_MAX_CHARS
+        truncated = truncated[: max(0, len(truncated) - overflow)]
+        payload = _encode(truncated)
+    return payload
 
 
 async def _analyze_pending(

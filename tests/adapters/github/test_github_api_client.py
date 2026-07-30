@@ -15,6 +15,7 @@ import respx
 
 from app.adapters.github.exceptions import (
     GitHubAuthError,
+    GitHubForbiddenError,
     GitHubRateLimitError,
     GitHubServerError,
 )
@@ -189,6 +190,73 @@ async def test_401_raises_github_auth_error() -> None:
         async with _make_client() as gh:
             with pytest.raises(GitHubAuthError):
                 await gh.get_repo("tiangolo", "fastapi")
+
+
+# ---------------------------------------------------------------------------
+# 4b. A non-rate-limit 403 is a per-call refusal, not a credential failure
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_scope_403_raises_forbidden_not_auth_error() -> None:
+    """A fine-grained PAT lacking contents access to one repo hits this.
+
+    Raising GitHubAuthError made github_sync flip the whole integration to
+    NEEDS_REAUTH and tell the owner their token was revoked, over a single
+    endpoint -- and since _sync_all only picks ACTIVE rows, that disabled the
+    integration entirely.
+    """
+    async with respx.mock:
+        respx.get(REPO_URL).mock(
+            return_value=httpx.Response(403, json={"message": "Resource not accessible"})
+        )
+
+        async with _make_client() as gh:
+            with pytest.raises(GitHubForbiddenError):
+                await gh.get_repo("tiangolo", "fastapi")
+            # Explicitly not an auth error: github_sync keys NEEDS_REAUTH off that.
+            assert not issubclass(GitHubForbiddenError, GitHubAuthError)
+
+
+@pytest.mark.asyncio
+async def test_probe_repository_access_reports_false_on_403() -> None:
+    """The probe exists to detect exactly this 403; it must not propagate."""
+    async with respx.mock:
+        respx.get(STARRED_URL).mock(return_value=httpx.Response(403, json={"message": "no"}))
+
+        async with _make_client() as gh:
+            assert await gh.probe_repository_access() is False
+
+
+# ---------------------------------------------------------------------------
+# 4c. Timeouts are retried: they are TransportError but not NetworkError
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_read_timeout_is_retried() -> None:
+    """`except httpx.NetworkError` missed ReadTimeout and RemoteProtocolError.
+
+    A timeout on page 7 of /user/starred therefore threw away the unmerged
+    pending batch, skipped the watch pass and left last_full_sync_at unstamped,
+    so the next run paginated from scratch.
+    """
+    calls = {"n": 0}
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ReadTimeout("timed out", request=request)
+        return httpx.Response(200, json=_repo_json())
+
+    async with respx.mock:
+        respx.get(REPO_URL).mock(side_effect=_handler)
+
+        async with _make_client() as gh:
+            repo = await gh.get_repo("tiangolo", "fastapi")
+
+    assert calls["n"] == 2, "the timeout was not retried"
+    assert repo is not None
 
 
 # ---------------------------------------------------------------------------

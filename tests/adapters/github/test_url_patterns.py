@@ -79,3 +79,32 @@ def test_parse_github_repo_url_handles_dashes() -> None:
         "great-scott",
         "back-to-the-future",
     )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://github.com/acme/pullit",
+        "https://github.com/acme/findit",
+        "https://github.com/acme/tagit",
+        "https://github.com/acme/pullit.git",
+    ],
+)
+def test_repo_names_ending_in_git_characters_are_valid(url: str) -> None:
+    """`rstrip(".git")` strips a character set, not a suffix.
+
+    "pullit" -> "pull" and "findit" -> "find", both of which are in
+    EXCLUDED_PATH_SEGMENTS, so these real repositories were rejected: the REST
+    endpoint answered 400 and, in Telegram, GitHubPlatformExtractor.supports()
+    returned False and the URL fell through to the generic scraper chain.
+    """
+    assert is_github_repo_url(url) is True
+
+
+def test_actual_excluded_segments_are_still_rejected() -> None:
+    for url in (
+        "https://github.com/acme/issues",
+        "https://github.com/acme/pull",
+        "https://github.com/acme/wiki",
+    ):
+        assert is_github_repo_url(url) is False
