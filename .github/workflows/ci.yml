@@ -1285,7 +1285,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-common
-          yes '' | sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y postgresql-client-17
 
       - name: Install dependencies (all extras for DB-backed tests)
