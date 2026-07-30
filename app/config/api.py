@@ -35,6 +35,10 @@ class ApiLimitsConfig(BaseModel):
         default=5,
         validation_alias="API_RATE_LIMIT_CREDENTIALS_LOGIN",
     )
+    ai_backup_reauth_limit: int = Field(
+        default=600,
+        validation_alias="API_RATE_LIMIT_AI_BACKUP_REAUTH",
+    )
     aggregation_create_user_limit: int = Field(
         default=5,
         validation_alias="API_RATE_LIMIT_AGGREGATION_CREATE_USER",
@@ -79,6 +83,7 @@ class ApiLimitsConfig(BaseModel):
         "auth_limit",
         "secret_login_limit",
         "credentials_login_limit",
+        "ai_backup_reauth_limit",
         "aggregation_create_user_limit",
         "aggregation_create_client_limit",
         mode="before",

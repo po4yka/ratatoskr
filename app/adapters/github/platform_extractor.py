@@ -153,8 +153,14 @@ class GitHubPlatformExtractor:
         metadata = {
             "platform": "github",
             "github_id": repo_dto.id,
+            # Local primary key of the row upserted in step 7. Callers that need
+            # to act on the repository afterwards (star it, file it in a list,
+            # enroll it for backup) have no other way to find it: ``request_id``
+            # on the result carries the *request* override, not this id.
+            "repository_id": repository_id,
             "owner": owner,
             "name": name,
+            "size_kb": repo_dto.size or None,
             "full_name": repo_dto.full_name,
             "stars": repo_dto.stargazers_count,
             "primary_language": repo_dto.language,

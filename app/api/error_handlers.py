@@ -5,8 +5,8 @@ Provides consistent error responses across all endpoints with correlation ID tra
 
 from http import HTTPStatus
 
-from fastapi.exception_handlers import http_exception_handler as default_http_exception_handler
 from fastapi import Request, status
+from fastapi.exception_handlers import http_exception_handler as default_http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError as PydanticValidationError

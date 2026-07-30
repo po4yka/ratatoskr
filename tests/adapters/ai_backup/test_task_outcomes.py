@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -115,3 +115,44 @@ async def test_run_sync_completes_only_when_all_services_are_ok(
     )
 
     assert recorded == [("chatgpt", "success"), ("claude", "success")]
+
+
+@pytest.mark.asyncio
+async def test_targeted_sync_waits_for_scheduled_lock_then_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    acquisitions = iter((False, True))
+
+    class _Lock:
+        def __init__(self, *_args: object) -> None:
+            self.acquired = next(acquisitions)
+
+        async def __aenter__(self) -> bool:
+            return self.acquired
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    cfg = MagicMock()
+    cfg.telegram.allowed_user_ids = (42,)
+    cfg.ai_backup.enabled = True
+    cfg.ai_backup.chatgpt_enabled = True
+    cfg.ai_backup.claude_enabled = True
+    run_sync = AsyncMock()
+    sleep = AsyncMock()
+    db = MagicMock()
+    monkeypatch.setattr(ai_backup_sync, "RedisDistributedLock", _Lock)
+    monkeypatch.setattr(ai_backup_sync, "get_redis", AsyncMock(return_value=MagicMock()))
+    monkeypatch.setattr(ai_backup_sync, "_run_sync", run_sync)
+    monkeypatch.setattr(ai_backup_sync.asyncio, "sleep", sleep)
+    monkeypatch.setattr(ai_backup_sync, "_TARGETED_LOCK_RETRY_ATTEMPTS", 2)
+
+    await ai_backup_sync.sync_one_ai_backup.original_func(42, "chatgpt", cfg, db)
+
+    sleep.assert_awaited_once_with(ai_backup_sync._TARGETED_LOCK_RETRY_INTERVAL_SECONDS)
+    run_sync.assert_awaited_once_with(
+        cfg,
+        db,
+        owner_id=42,
+        services=[AiBackupService.CHATGPT],
+    )

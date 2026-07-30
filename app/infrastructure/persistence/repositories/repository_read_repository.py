@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Literal
 
-from sqlalchemy import asc, delete as sql_delete, desc, func, nulls_last, select
+from sqlalchemy import (
+    asc,
+    delete as sql_delete,
+    desc,
+    func,
+    nulls_last,
+    select,
+    update as sql_update,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import cast
 
@@ -36,6 +44,7 @@ class RepositoryReadRepositoryAdapter:
         is_starred: bool | None,
         language: str | None,
         topic: str | None,
+        list_name: str | None,
         source: Literal["manual", "starred"] | None,
         pending_analysis: bool | None,
         sort: Any,
@@ -50,6 +59,8 @@ class RepositoryReadRepositoryAdapter:
                 conditions.append(Repository.primary_language == language)
             if topic is not None:
                 conditions.append(Repository.topics_json.contains(cast([topic], JSONB)))
+            if list_name is not None:
+                conditions.append(Repository.list_names.contains(cast([list_name], JSONB)))
             if source is not None:
                 conditions.append(Repository.source == source)
             if pending_analysis is not None:
@@ -88,6 +99,25 @@ class RepositoryReadRepositoryAdapter:
         if row is None:
             return None
         return self._repo_to_detail(row)
+
+    async def set_repository_list_names(
+        self,
+        *,
+        repository_id: int,
+        user_id: int,
+        list_names: list[str],
+    ) -> None:
+        """Keep the local mirror in step with a membership change made on GitHub.
+
+        Cheaper and far more immediate than waiting for the nightly star sync
+        to notice; the sync remains the authority and will overwrite this.
+        """
+        async with self._db.transaction() as session:
+            await session.execute(
+                sql_update(Repository)
+                .where(Repository.id == repository_id, Repository.user_id == user_id)
+                .values(list_names=sorted(list_names), updated_at=func.now())
+            )
 
     async def delete_owned_repository(
         self,
@@ -239,6 +269,7 @@ class RepositoryReadRepositoryAdapter:
     @staticmethod
     def _repo_to_compact(row: Repository) -> RepositoryCompactDTO:
         topics: list[str] = list(row.topics_json) if isinstance(row.topics_json, list) else []
+        list_names: list[str] = list(row.list_names) if isinstance(row.list_names, list) else []
         return RepositoryCompactDTO(
             id=row.id,
             github_id=row.github_id,
@@ -248,6 +279,7 @@ class RepositoryReadRepositoryAdapter:
             description=row.description,
             primary_language=row.primary_language,
             topics=topics,
+            list_names=list_names,
             stars=row.stars,
             forks=row.forks,
             is_starred=row.is_starred,
@@ -262,6 +294,7 @@ class RepositoryReadRepositoryAdapter:
     @staticmethod
     def _repo_to_detail(row: Repository) -> RepositoryDetailDTO:
         topics: list[str] = list(row.topics_json) if isinstance(row.topics_json, list) else []
+        list_names: list[str] = list(row.list_names) if isinstance(row.list_names, list) else []
         languages: dict[str, int] = (
             dict(row.languages_json) if isinstance(row.languages_json, dict) else {}
         )
@@ -300,6 +333,7 @@ class RepositoryReadRepositoryAdapter:
             description=row.description,
             primary_language=row.primary_language,
             topics=topics,
+            list_names=list_names,
             stars=row.stars,
             forks=row.forks,
             is_starred=row.is_starred,

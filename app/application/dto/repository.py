@@ -28,6 +28,7 @@ class RepositoryCompactDTO(BaseModel):
     description: str | None
     primary_language: str | None
     topics: list[str] = Field(default_factory=list)
+    list_names: list[str] = Field(default_factory=list)
     stars: int
     forks: int
     is_starred: bool

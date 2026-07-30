@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from typing import Any
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urljoin, urlsplit
 
 import httpx
 
@@ -190,9 +190,10 @@ class DefuddleProvider:
             ) as client:
                 current_url = defuddle_url
                 for _ in range(5):
-                    safe, reason = await is_url_safe_async(current_url)
-                    if not safe:
-                        raise ValueError(f"SSRF blocked redirect target: {reason}")
+                    if not _same_origin(current_url, self._api_base_url):
+                        safe, reason = await is_url_safe_async(current_url)
+                        if not safe:
+                            raise ValueError(f"SSRF blocked redirect target: {reason}")
                     async with client.stream("GET", current_url, headers=request_headers) as resp:
                         if resp.status_code in {301, 302, 303, 307, 308}:
                             location = resp.headers.get("location")
@@ -245,6 +246,18 @@ class DefuddleProvider:
         if self._api_token:
             headers["Authorization"] = f"Bearer {self._api_token}"
         return headers
+
+
+def _same_origin(left: str, right: str) -> bool:
+    left_parts = urlsplit(left)
+    right_parts = urlsplit(right)
+    return (
+        left_parts.scheme.lower(),
+        left_parts.netloc.lower(),
+    ) == (
+        right_parts.scheme.lower(),
+        right_parts.netloc.lower(),
+    )
 
 
 def _parse_frontmatter(raw: str) -> tuple[dict[str, Any], str]:

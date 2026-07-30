@@ -120,7 +120,9 @@ ssh raspi 'docker logs --tail 50 ratatoskr-mobile-api'
 - The Pi is single-tenant production -- avoid `docker compose down` during user sessions if possible; `up -d --force-recreate` is gentler.
 - Image streaming uses `docker save | ssh raspi docker load` -- it's bandwidth-heavy. Don't run it from a slow network.
 - `RASPI_REMOTE_PATH` overrides the assumed `~/ratatoskr` location.
-- Mobile API, the bot, and `pg-backup` are separate images. `make pi-deploy-all`
-  includes all app processes plus `pg-backup`; a targeted deploy restarts only
-  the selected service.
+- Mobile API, the bot, `pg-backup`, AI re-auth displays, and filtered WebAuthn
+  bridges are separate images. `make pi-deploy-all` includes the complete AI
+  re-auth stack, all app processes, and `pg-backup`. A targeted CloakBrowser
+  deploy automatically includes its provider display and WebAuthn bridge;
+  other targeted deploys restart only the selected service.
 - The Pi keeps its own `.env` -- never commit Pi-specific secrets locally.

@@ -65,6 +65,11 @@ class Repository(Base):
             postgresql_where=text("pushed_at IS NOT NULL"),
         ),
         Index("ix_repositories_github_id", "github_id"),
+        Index(
+            "ix_repositories_list_names_gin",
+            "list_names",
+            postgresql_using="gin",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -80,6 +85,11 @@ class Repository(Base):
         JSONB, nullable=True, default=dict
     )
     topics_json: Mapped[list[Any] | None] = mapped_column(JSONB, nullable=True, default=list)
+    # Star-list membership, mirrored from GraphQL viewer.lists. Denormalized on
+    # purpose: a repo belongs to at most 32 lists (GitHub's cap), reads are
+    # always "which lists is this repo in" or "which repos are in this list",
+    # and a JSONB array with a GIN index answers both without a join table.
+    list_names: Mapped[list[Any] | None] = mapped_column(JSONB, nullable=True, default=list)
     stars: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     forks: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     watchers: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

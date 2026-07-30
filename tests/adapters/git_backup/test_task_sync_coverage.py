@@ -282,7 +282,7 @@ class TestEnumerateAndUpsertGithubRepos:
             patch(_REPO_MOD),
             patch(_DECRYPT, side_effect=ValueError("bad")),
         ):
-            total = await _enumerate_and_upsert_github_repos(cfg, db)
+            total, _seen = await _enumerate_and_upsert_github_repos(cfg, db)
 
         assert total == 0
 
@@ -304,7 +304,7 @@ class TestEnumerateAndUpsertGithubRepos:
             patch(_DECRYPT, return_value="tok"),
             patch(_GH_CLIENT, return_value=mock_client),
         ):
-            total = await _enumerate_and_upsert_github_repos(cfg, db)
+            total, _seen = await _enumerate_and_upsert_github_repos(cfg, db)
 
         assert total == 0
 
@@ -352,7 +352,7 @@ class TestEnumerateAndUpsertGithubRepos:
             patch(_DECRYPT, return_value="tok"),
             patch(_GH_CLIENT, return_value=mock_client),
         ):
-            total = await _enumerate_and_upsert_github_repos(cfg, db)
+            total, _seen = await _enumerate_and_upsert_github_repos(cfg, db)
 
         assert total == 1
         call_kwargs = mock_repo_inst.upsert_target.call_args.kwargs
@@ -392,7 +392,7 @@ class TestEnumerateAndUpsertGithubRepos:
             patch(_DECRYPT, return_value="tok"),
             patch(_GH_CLIENT, return_value=mock_client),
         ):
-            total = await _enumerate_and_upsert_github_repos(cfg, db)
+            total, _seen = await _enumerate_and_upsert_github_repos(cfg, db)
 
         assert total == 1
         call_kwargs = mock_repo_inst.upsert_target.call_args.kwargs
@@ -430,7 +430,7 @@ class TestEnumerateAndUpsertGithubRepos:
             patch(_DECRYPT, return_value="tok"),
             patch(_GH_CLIENT, return_value=mock_client),
         ):
-            total = await _enumerate_and_upsert_github_repos(cfg, db)
+            total, _seen = await _enumerate_and_upsert_github_repos(cfg, db)
 
         assert total == 1
 
@@ -466,7 +466,7 @@ class TestEnumerateAndUpsertGithubRepos:
             patch(_DECRYPT, return_value="tok"),
             patch(_GH_CLIENT, return_value=mock_client),
         ):
-            total = await _enumerate_and_upsert_github_repos(cfg, db)
+            total, _seen = await _enumerate_and_upsert_github_repos(cfg, db)
 
         assert total == 0
 
@@ -512,7 +512,7 @@ class TestEnumerateAndUpsertGithubRepos:
             patch(_DECRYPT, return_value="tok"),
             patch(_GH_CLIENT, return_value=mock_client),
         ):
-            total = await _enumerate_and_upsert_github_repos(cfg, db)
+            total, _seen = await _enumerate_and_upsert_github_repos(cfg, db)
 
         assert total == 1
         assert mock_repo_inst.upsert_target.call_count == 1
@@ -1190,7 +1190,7 @@ class TestSyncGitBackupTask:
         db = _make_fake_db()
         lock_ctx = _make_lock_ctx(acquired=True)
         runtime, _summary = _make_runtime_mock()
-        enum_repos = AsyncMock(return_value=0)
+        enum_repos = AsyncMock(return_value=(0, {}))
 
         with (
             patch(_TASK_PATCHES["get_redis"], AsyncMock(return_value=AsyncMock())),

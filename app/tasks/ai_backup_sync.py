@@ -9,6 +9,8 @@ See ``docs/explanation/ai-account-backup.md`` for the full design.
 
 from __future__ import annotations
 
+import asyncio
+
 from taskiq import TaskiqDepends
 
 from app.config import AppConfig  # noqa: TC001 — taskiq resolves type hints at runtime
@@ -30,6 +32,8 @@ logger = get_logger(__name__)
 _AI_BACKUP_SYNC_LOCK_KEY = "task_lock:ai_backup_sync"
 # TTL covers the maximum expected run; 30 minutes default.
 _AI_BACKUP_SYNC_LOCK_TTL = 1800
+_TARGETED_LOCK_RETRY_INTERVAL_SECONDS = 5
+_TARGETED_LOCK_RETRY_ATTEMPTS = (_AI_BACKUP_SYNC_LOCK_TTL // 5) + 2
 
 
 def _enabled_services(cfg: AppConfig) -> list[AiBackupService]:
@@ -76,9 +80,35 @@ class TaskAiBackupNotifier:
     async def on_auth_expired(self, service: AiBackupService, correlation_id: str) -> None:
         await self._ping("fail")
         if self._cfg.ai_backup.notify_on != "never":
+            reply_markup = None
+            api_base_url = self._cfg.telegram.api_base_url
+            if api_base_url:
+                from app.adapters.telegram.telethon_compat import (
+                    InlineKeyboardButton,
+                    InlineKeyboardMarkup,
+                    WebAppInfo,
+                )
+
+                url = (
+                    f"{api_base_url.rstrip('/')}/account/backups"
+                    f"?tab=ai-accounts&service={service.value}&reauth=1"
+                )
+                reply_markup = InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "Re-authorize ChatGPT"
+                                if service == AiBackupService.CHATGPT
+                                else "Re-authorize Claude",
+                                web_app=WebAppInfo(url=url),
+                            )
+                        ]
+                    ]
+                )
             await self._send(
                 f"AI backup session EXPIRED for [{service.value}]. "
-                f"Re-supply a session via POST /v1/ai-backups/{service.value}/session."
+                "Open the secure browser to sign in; backup resumes automatically.",
+                reply_markup=reply_markup,
             )
 
     async def _ping(self, phase: str) -> None:
@@ -97,7 +127,7 @@ class TaskAiBackupNotifier:
         except Exception as exc:
             logger.debug("ai_backup_hc_ping_failed", extra={"phase": phase, "error": str(exc)})
 
-    async def _send(self, text: str) -> None:
+    async def _send(self, text: str, *, reply_markup: object | None = None) -> None:
         chat_id = self._cfg.ai_backup.notify_chat_id
         if chat_id is None:
             return
@@ -106,7 +136,11 @@ class TaskAiBackupNotifier:
 
             bot = create_digest_bot_client(self._cfg)
             async with bot:
-                await bot.send_message(chat_id=chat_id, text=text)
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    reply_markup=reply_markup,
+                )
         except Exception as exc:
             logger.warning("ai_backup_notify_failed", extra={"chat_id": chat_id, "error": str(exc)})
 
@@ -152,6 +186,39 @@ async def sync_ai_backup(
             return
 
         await _run_sync(cfg, db, owner_id=owner_id, services=services)
+
+
+@broker.task(task_name="ratatoskr.ai_backup.sync_one")
+async def sync_one_ai_backup(
+    user_id: int,
+    service: str,
+    cfg: AppConfig = TaskiqDepends(get_app_config),
+    db: Database = TaskiqDepends(get_db),
+) -> None:
+    """Run one provider immediately after an owner re-authorizes it."""
+    try:
+        service_enum = AiBackupService(service)
+    except ValueError as exc:
+        raise ValueError(f"Unsupported AI backup service: {service!r}") from exc
+
+    owner_id = next(iter(cfg.telegram.allowed_user_ids), None)
+    if owner_id is None or user_id != owner_id:
+        raise PermissionError("AI backup re-authorization is owner-only")
+    if not cfg.ai_backup.enabled or service_enum not in _enabled_services(cfg):
+        raise RuntimeError(f"AI backup is disabled for {service_enum.value}")
+
+    redis_client = await get_redis(cfg)
+    for attempt in range(_TARGETED_LOCK_RETRY_ATTEMPTS):
+        async with RedisDistributedLock(
+            redis_client, _AI_BACKUP_SYNC_LOCK_KEY, _AI_BACKUP_SYNC_LOCK_TTL
+        ) as acquired:
+            if acquired:
+                await _run_sync(cfg, db, owner_id=owner_id, services=[service_enum])
+                return
+        if attempt + 1 < _TARGETED_LOCK_RETRY_ATTEMPTS:
+            await asyncio.sleep(_TARGETED_LOCK_RETRY_INTERVAL_SECONDS)
+
+    raise RuntimeError("AI backup sync remained busy until the re-authorization retry expired")
 
 
 async def _run_sync(
@@ -214,3 +281,14 @@ async def _run_sync(
         names = ",".join(failed_services)
         raise RuntimeError(f"ai_backup_sync_failed: non-successful services={names}")
     await notifier._ping("")
+
+
+async def enqueue_targeted_backup(user_id: int, service: AiBackupService) -> None:
+    """Queue :func:`sync_one_ai_backup` for one owner/provider pair.
+
+    Lives here rather than in ``app.adapters.ai_backup.reauth`` because an
+    adapter must not import ``app.tasks`` (import-linter layering contract).
+    The reauth coordinator takes this as an injected ``enqueue_backup``
+    callable and the composition root supplies it.
+    """
+    await sync_one_ai_backup.kiq(user_id, service.value)
