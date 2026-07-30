@@ -93,14 +93,23 @@ CLAUDE.md mandates documenting schema changes in `docs/SPEC.md` (Data Model sect
 from alembic import op
 
 attempt_trigger = sa.Enum(
-    "initial", "user_retry", "auto_backfill", "repair_loop", "stream_fallback_retry",
+    "initial",
+    "user_retry",
+    "auto_backfill",
+    "repair_loop",
+    "stream_fallback_retry",
     name="llm_attempt_trigger",
     create_type=False,
 )
 
+
 def upgrade() -> None:
     attempt_trigger.create(op.get_bind(), checkfirst=True)
-    op.add_column("llm_calls", sa.Column("attempt_trigger", attempt_trigger, nullable=False, server_default="initial"))
+    op.add_column(
+        "llm_calls",
+        sa.Column("attempt_trigger", attempt_trigger, nullable=False, server_default="initial"),
+    )
+
 
 def downgrade() -> None:
     op.drop_column("llm_calls", "attempt_trigger")
@@ -111,7 +120,9 @@ def downgrade() -> None:
 
 ```python
 def upgrade() -> None:
-    op.create_index("ix_requests_paper_canonical_id", "requests", ["paper_canonical_id"], unique=False)
+    op.create_index(
+        "ix_requests_paper_canonical_id", "requests", ["paper_canonical_id"], unique=False
+    )
 ```
 
 ## Key Files

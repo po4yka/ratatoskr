@@ -76,8 +76,10 @@ class DigestFormatter:
         ch_word = _pluralize_channels(total_channels)
         post_word = _pluralize_posts(total_posts)
         parts: list[str] = [
-            f"\U0001f4cb **\u0414\u0430\u0439\u0434\u0436\u0435\u0441\u0442 \u043a\u0430\u043d\u0430\u043b\u043e\u0432** \u2014 "
-            f"{total_posts} {post_word} \u0438\u0437 {total_channels} {ch_word}\n\n",
+            (
+                f"\U0001f4cb **\u0414\u0430\u0439\u0434\u0436\u0435\u0441\u0442 \u043a\u0430\u043d\u0430\u043b\u043e\u0432** \u2014 "
+                f"{total_posts} {post_word} \u0438\u0437 {total_channels} {ch_word}\n\n"
+            ),
         ]
         for ch in sorted_channels:
             count = len(by_channel[ch])

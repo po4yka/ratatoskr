@@ -38,6 +38,7 @@ select = [
 ignore = [
   "E501",    # line length handled by formatter
   "PLR0913", # too many arguments
+  "PLR0917", # too many positional arguments - same complexity-limit bucket as PLR0913, not enforced here
   "PLR2004", # magic value comparison
   "PLR0911", # too many return statements
   "PLR0912", # too many branches
@@ -333,7 +334,7 @@ ci-lint = [
     "import-linter>=2.8.0,<3",
     "isort>=7.0.0,<8",
     "radon>=6.0.1,<7",
-    "ruff>=0.15.22,<0.16",
+    "ruff>=0.16.0",
 ]
 ci-type = [
     "mypy>=2.3.0",

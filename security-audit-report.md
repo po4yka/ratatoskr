@@ -122,7 +122,7 @@ No CRITICAL findings.
   ```python
   def _get_client_ip(request: Request) -> str:
       if request.client and request.client.host:
-          return request.client.host   # proxy IP in production
+          return request.client.host  # proxy IP in production
       return "unknown"
   ```
 

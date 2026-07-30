@@ -138,14 +138,18 @@ def test_dependency_exporters_are_pinned_internal_and_bounded() -> None:
         "postgres-exporter": (
             "9187",
             "postgres",
-            "quay.io/prometheuscommunity/postgres-exporter:v0.20.1@sha256:"
-            "ac5ec343104fae0e2d84a27bb8d69b38430a11910c5382cad85d478d2bab713e",
+            (
+                "quay.io/prometheuscommunity/postgres-exporter:v0.20.1@sha256:"
+                "ac5ec343104fae0e2d84a27bb8d69b38430a11910c5382cad85d478d2bab713e"
+            ),
         ),
         "redis-exporter": (
             "9121",
             "redis",
-            "oliver006/redis_exporter:v1.87.0-alpine@sha256:"
-            "1a286dba9547b0aa3ebd4e4106fa52ad67c754dcd7cb744eb745e41d48b252ad",
+            (
+                "oliver006/redis_exporter:v1.87.0-alpine@sha256:"
+                "1a286dba9547b0aa3ebd4e4106fa52ad67c754dcd7cb744eb745e41d48b252ad"
+            ),
         ),
     }
     for name, (port, dependency, image) in expected.items():

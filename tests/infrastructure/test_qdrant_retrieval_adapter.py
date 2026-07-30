@@ -267,7 +267,7 @@ def test_score_threshold_defaults_per_entity_type() -> None:
 
 class _RecordingEmbedding:
     def __init__(self) -> None:
-        self.last_language: str | None | object = "UNSET"
+        self.last_language: str | object | None = "UNSET"
 
     async def generate_embedding(
         self, text: str, *, language: str | None = None, task_type: str = "document"

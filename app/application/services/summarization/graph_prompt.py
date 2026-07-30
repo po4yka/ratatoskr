@@ -177,8 +177,10 @@ def build_summary_user_prompt(
     """Assemble the user prompt (verbatim parity with summary_request_factory)."""
     detection = detect_prompt_injection_patterns(content_for_summary)
     parts = [
-        "Analyze the source content and output ONLY a valid JSON object that "
-        "matches the system contract exactly.",
+        (
+            "Analyze the source content and output ONLY a valid JSON object that "
+            "matches the system contract exactly."
+        ),
         f"Respond in {'Russian' if chosen_lang == LANG_RU else 'English'}.",
         "Do NOT include any text outside the JSON.",
         _build_source_security_notice(detection),

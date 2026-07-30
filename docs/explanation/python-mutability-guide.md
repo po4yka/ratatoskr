@@ -53,6 +53,7 @@ def process(items=[]):
     items.append("x")
     return items
 
+
 # Fix: use None as sentinel, initialise in the body
 def process(items=None):
     if items is None:
@@ -87,9 +88,11 @@ class Chain:
     def __init__(self, providers):
         self._providers = providers  # alias!
 
+
 providers = [a, b]
 chain = Chain(providers)
-providers.append(c)          # also appended to chain._providers!
+providers.append(c)  # also appended to chain._providers!
+
 
 # Fix: defensive copy in the constructor
 class Chain:
@@ -103,7 +106,8 @@ class Chain:
 # Bug: caller can mutate internal state
 @property
 def items(self):
-    return self._items   # caller gets the real list
+    return self._items  # caller gets the real list
+
 
 # Fix: return a copy
 @property
@@ -125,12 +129,12 @@ Python has two distinct equality operators:
 ```python
 # Bug: "ok" may or may not be interned; this can silently return False
 status = get_status_from_json()
-if status is "ok":          # F632: use == instead
+if status is "ok":  # F632: use == instead
     ...
 
 # Bug: integers outside [-5, 256] are not cached by CPython
 code = http_response.status_code
-if code is 200:             # F632: use == instead
+if code is 200:  # F632: use == instead
     ...
 ```
 
@@ -148,21 +152,25 @@ if code == 200:
 
 ```python
 # Singleton: None
-if value is None:           # correct — None is always the same object
+if value is None:  # correct — None is always the same object
     ...
-if value is not None:       # correct
+if value is not None:  # correct
     ...
 
 # Private sentinel for "not provided" (distinct from None)
 MISSING = object()
+
+
 def f(x=MISSING):
-    if x is MISSING:        # correct — MISSING is always the same object
+    if x is MISSING:  # correct — MISSING is always the same object
         ...
+
 
 # Ellipsis sentinel (stdlib pattern)
 def g(callback=...):
-    if callback is not ...: # correct — Ellipsis is a singleton
+    if callback is not ...:  # correct — Ellipsis is a singleton
         ...
+
 
 # Real Enum members (project convention)
 if result.status is CallStatus.OK:  # OK — enum members are singletons
