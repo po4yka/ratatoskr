@@ -20,6 +20,13 @@ logger = get_logger(__name__)
 # Retry configuration for edit operations
 _EDIT_MAX_RETRIES: int = 2
 _EDIT_BACKOFF_DELAYS: tuple[float, ...] = (0.5, 1.0)
+# Telethon already sleeps FloodWaits below its own flood_sleep_threshold (60 s
+# by default), so every wait that surfaces here is a long one -- 1800 s is not
+# unusual. Obeying it verbatim, up to twice, held the caller's concurrency slot
+# and typing task for the better part of an hour and delayed the fresh-send
+# fallback by exactly as long. Past this cap the edit is abandoned rather than
+# waited out: retrying sooner would only earn the same FloodWait again.
+_EDIT_MAX_FLOOD_WAIT_SEC: float = 30.0
 
 
 class ResponseSenderEditFlow:
@@ -186,6 +193,17 @@ class ResponseSenderEditFlow:
 
                 # Determine backoff delay
                 flood_wait = self._get_flood_wait_seconds(exc)
+                if flood_wait is not None and flood_wait > _EDIT_MAX_FLOOD_WAIT_SEC:
+                    logger.warning(
+                        "edit_message_flood_wait_exceeds_cap",
+                        extra={
+                            "chat_id": chat_id,
+                            "message_id": message_id,
+                            "flood_wait": flood_wait,
+                            "cap_sec": _EDIT_MAX_FLOOD_WAIT_SEC,
+                        },
+                    )
+                    break
                 delay = (
                     flood_wait
                     if flood_wait is not None

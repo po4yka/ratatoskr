@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -403,3 +405,47 @@ class TestCrawl4AIProvider:
         assert result.status == "error"
         assert result.endpoint == "crawl4ai"
         assert "byte limit" in (result.error_text or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_redirect_chain_is_bounded_by_one_overall_deadline() -> None:
+    """The httpx timeout is per-operation, so five hops each got the full budget.
+
+    A sidecar answering 307 slowly consumed 5x the advertised timeout, and
+    because aiter_bytes restarts the read timer on every chunk, one trickling a
+    byte per interval never timed out at all. The chain cannot advance to the
+    browser tier until this task returns.
+    """
+    provider = Crawl4AIProvider(url="http://crawl4ai:11235", timeout_sec=1)
+
+    class _SlowRedirect:
+        status_code = 307
+        headers = {"location": "http://crawl4ai:11235/crawl"}
+
+        async def aclose(self) -> None:
+            return None
+
+        async def __aenter__(self) -> _SlowRedirect:
+            await asyncio.sleep(2)
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+    mock_client = MagicMock()
+    mock_client.stream = MagicMock(return_value=_SlowRedirect())
+
+    started = time.perf_counter()
+    with (
+        patch.object(provider, "_get_client", return_value=mock_client),
+        patch(
+            "app.adapters.content.scraper.crawl4ai_provider.is_url_safe_async",
+            new=AsyncMock(return_value=(True, None)),
+        ),
+    ):
+        result = await provider.scrape_markdown("https://example.com")
+    elapsed = time.perf_counter() - started
+
+    assert result.status != "ok"
+    # 1 s budget + 5 s grace. Five 2 s hops without the deadline would be 10 s.
+    assert elapsed < 9, f"redirect chain ran for {elapsed:.1f}s, past the overall deadline"

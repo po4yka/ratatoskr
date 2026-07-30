@@ -141,11 +141,20 @@ class CloakBrowserProvider:
 
         humanize_status = "skipped"
         try:
-            html, http_status, humanize_status = await self._render(
-                url,
-                cdp_url=cdp_url,
-                mobile=mobile,
-                timeout_ms=timeout_ms,
+            # One deadline over the whole render, as playwright_provider and
+            # crawlee_provider already do. timeout_ms only reaches page.goto and
+            # the capped wait_for_load_state; connect_over_cdp, new_context,
+            # new_page and page.content() each fall back to Playwright's own 30 s
+            # default, so a wedged sidecar held the browser tier for roughly
+            # 150 s while this provider advertised 60.
+            html, http_status, humanize_status = await asyncio.wait_for(
+                self._render(
+                    url,
+                    cdp_url=cdp_url,
+                    mobile=mobile,
+                    timeout_ms=timeout_ms,
+                ),
+                timeout=effective_timeout + 5,
             )
         except TimeoutError:
             latency = int((time.perf_counter() - started) * 1000)
@@ -452,13 +461,19 @@ class CloakBrowserProvider:
         seed = _seed_for_url(landing_url)
         timeout_ms = max(1_000, int(self._timeout_sec * 1000))
         try:
-            async with self._stealth_page(landing_url, seed=seed, mobile=mobile) as (
-                page,
-                downloads,
-            ):
-                body = await self._goto_capture(
-                    page, pdf_url, downloads, timeout_ms=timeout_ms, max_bytes=max_bytes
-                )
+            # timeout_ms bounds the navigation only; the CDP connect and context
+            # setup inside _stealth_page run on Playwright's own defaults. The
+            # overall deadline keeps a wedged sidecar from holding this recovery
+            # tier far past the advertised budget. TimeoutError is an Exception,
+            # so the handler below still degrades to the next tier as documented.
+            async with asyncio.timeout(self._timeout_sec + 5):
+                async with self._stealth_page(landing_url, seed=seed, mobile=mobile) as (
+                    page,
+                    downloads,
+                ):
+                    body = await self._goto_capture(
+                        page, pdf_url, downloads, timeout_ms=timeout_ms, max_bytes=max_bytes
+                    )
             return self._validate_pdf(body, pdf_url)
         except Exception as exc:
             logger.warning(
@@ -501,27 +516,31 @@ class CloakBrowserProvider:
         seed = _seed_for_url(landing_url)
         timeout_ms = max(1_000, int(self._timeout_sec * 1000))
         try:
-            async with self._stealth_page(landing_url, seed=seed, mobile=mobile) as (
-                page,
-                downloads,
-            ):
-                candidates = await page.evaluate(_CONTROL_SCAN_JS)
-                choice = await picker(list(candidates or []))
-                if not choice:
-                    return None
-                href = choice.get("href")
-                if href:
-                    ok, _why = await is_url_safe_async(href)
-                    if not ok:
+            # Same overall deadline as fetch_pdf: the agentic tier adds a
+            # page.evaluate scan and a picker round-trip on top of the
+            # navigation, none of which timeout_ms covers.
+            async with asyncio.timeout(self._timeout_sec + 5):
+                async with self._stealth_page(landing_url, seed=seed, mobile=mobile) as (
+                    page,
+                    downloads,
+                ):
+                    candidates = await page.evaluate(_CONTROL_SCAN_JS)
+                    choice = await picker(list(candidates or []))
+                    if not choice:
                         return None
-                    body = await self._goto_capture(
-                        page, href, downloads, timeout_ms=timeout_ms, max_bytes=max_bytes
-                    )
-                else:
-                    body = await self._click_capture(
-                        page, choice, downloads, timeout_ms=timeout_ms, max_bytes=max_bytes
-                    )
-            return self._validate_pdf(body, href or landing_url)
+                    href = choice.get("href")
+                    if href:
+                        ok, _why = await is_url_safe_async(href)
+                        if not ok:
+                            return None
+                        body = await self._goto_capture(
+                            page, href, downloads, timeout_ms=timeout_ms, max_bytes=max_bytes
+                        )
+                    else:
+                        body = await self._click_capture(
+                            page, choice, downloads, timeout_ms=timeout_ms, max_bytes=max_bytes
+                        )
+                return self._validate_pdf(body, href or landing_url)
         except Exception as exc:
             logger.warning(
                 "cloakbrowser_agentic_failed",

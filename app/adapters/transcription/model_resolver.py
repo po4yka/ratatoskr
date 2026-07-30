@@ -127,6 +127,15 @@ class UnknownLanguageError(ValueError):
 # ---------------------------------------------------------------------------
 
 
+# Applies to the connect and to every individual read, so a CDN that stalls
+# mid-body fails instead of hanging. This call runs in asyncio.to_thread while
+# service.py holds _asr_lock: a permanently blocked worker there loses the lock
+# forever and TranscriptionJobService stops draining its queue entirely. Fires
+# on the first transcription after a deploy with an empty model volume, where
+# ~230 MB of GigaAM is fetched from scratch.
+_DOWNLOAD_SOCKET_TIMEOUT_SEC = 60.0
+
+
 def _download(url: str, dest: Path) -> None:
     """Download ``url`` to ``dest`` atomically with a sanity check on size.
 
@@ -144,22 +153,32 @@ def _download(url: str, dest: Path) -> None:
 
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     try:
-        resp = urllib.request.urlopen(req)  # nosec B310
+        resp = urllib.request.urlopen(req, timeout=_DOWNLOAD_SOCKET_TIMEOUT_SEC)  # nosec B310
     except urllib.error.HTTPError as exc:
         msg = f"HTTP {exc.code} {exc.reason} for {url}"
         raise ModelDownloadError(msg) from exc
     except urllib.error.URLError as exc:
         msg = f"network error for {url}: {exc.reason}"
         raise ModelDownloadError(msg) from exc
+    except TimeoutError as exc:
+        msg = f"timed out connecting to {url}"
+        raise ModelDownloadError(msg) from exc
 
     bytes_read = 0
-    with resp, tmp.open("wb") as fh:
-        while True:
-            chunk = resp.read(_HTTP_CHUNK)
-            if not chunk:
-                break
-            fh.write(chunk)
-            bytes_read += len(chunk)
+    try:
+        with resp, tmp.open("wb") as fh:
+            while True:
+                chunk = resp.read(_HTTP_CHUNK)
+                if not chunk:
+                    break
+                fh.write(chunk)
+                bytes_read += len(chunk)
+    except (TimeoutError, OSError) as exc:
+        # Leaving the .part behind would make the next run resume nothing and
+        # only occupy disk; the caller retries from scratch.
+        tmp.unlink(missing_ok=True)
+        msg = f"download of {dest.name} failed after {bytes_read} bytes: {exc}"
+        raise ModelDownloadError(msg) from exc
 
     size = tmp.stat().st_size
     if dest.suffix == ".onnx" and size < 1024:

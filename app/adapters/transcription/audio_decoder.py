@@ -42,6 +42,16 @@ def require_ffmpeg() -> None:
         raise FfmpegNotInstalledError(msg)
 
 
+# ffprobe only reads container metadata, so it is quick or it is wedged.
+_PROBE_TIMEOUT_SEC = 15.0
+# A hang guard, not a throughput budget: -nostdin already rules out the classic
+# stdin wait, but a corrupt container or a stalled network mount can leave
+# ffmpeg running forever. Every one of these calls runs inside asyncio.to_thread
+# on the shared default executor, and a lost worker there also starves the
+# SSRF preflight and summary parsing that share it.
+_DECODE_TIMEOUT_SEC = 1800.0
+
+
 def has_audio_stream(media_path: Path) -> bool:
     """Return True when ffprobe reports at least one audio stream.
 
@@ -68,9 +78,15 @@ def has_audio_stream(media_path: Path) -> bool:
             capture_output=True,
             check=True,
             text=True,
+            timeout=_PROBE_TIMEOUT_SEC,
         )
     except subprocess.CalledProcessError:
         return False
+    except subprocess.TimeoutExpired:
+        # Same posture as a missing ffprobe: defer to the decode step, which
+        # reports a clear error if there really is no audio.
+        logger.warning("transcription_ffprobe_timeout", extra={"media_path": str(media_path)})
+        return True
     return "audio" in proc.stdout.lower()
 
 
@@ -93,8 +109,9 @@ def probe_duration_sec(media_path: Path) -> float | None:
             capture_output=True,
             check=True,
             text=True,
+            timeout=_PROBE_TIMEOUT_SEC,
         )
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return None
     raw = proc.stdout.strip()
     if not raw:
@@ -161,7 +178,15 @@ def decode_to_pcm(media_path: Path, speed: float = 1.0) -> np.ndarray:
             cmd,
             capture_output=True,
             check=True,
+            timeout=_DECODE_TIMEOUT_SEC,
         )
+    except subprocess.TimeoutExpired as exc:
+        logger.warning(
+            "transcription_ffmpeg_decode_timeout",
+            extra={"media_path": str(media_path), "timeout_sec": _DECODE_TIMEOUT_SEC},
+        )
+        msg = f"ffmpeg decode timed out after {_DECODE_TIMEOUT_SEC:.0f}s for {media_path.name}"
+        raise AudioDecodeError(msg) from exc
     except subprocess.CalledProcessError as exc:
         stderr = exc.stderr.decode("utf-8", errors="ignore") if exc.stderr else ""
         logger.warning(

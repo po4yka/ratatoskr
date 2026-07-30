@@ -11,6 +11,7 @@ The body envelopes nested configs in {type, params} wrappers as required by the 
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from typing import TYPE_CHECKING, Any
@@ -132,60 +133,68 @@ class Crawl4AIProvider:
             client = self._get_client()
             current_endpoint = crawl_endpoint
             data: dict[str, Any] | None = None
-            for _ in range(5):
-                if current_endpoint != crawl_endpoint:
-                    safe, reason = await is_url_safe_async(current_endpoint)
-                    if not safe:
-                        raise ValueError(f"SSRF blocked redirect target: {reason}")
-                async with client.stream(
-                    "POST",
-                    current_endpoint,
-                    json=payload,
-                    headers=request_headers,
-                    timeout=effective_timeout,
-                ) as resp:
-                    if resp.status_code in {301, 302, 303, 307, 308}:
-                        location = resp.headers.get("location")
-                        await resp.aclose()
-                        if not location:
-                            resp.raise_for_status()
-                        current_endpoint = urljoin(current_endpoint, location)
-                        continue
-                    resp.raise_for_status()
+            # One deadline over the whole redirect chain, matching the sibling
+            # providers. The httpx timeout below is per-operation: five hops each
+            # allowed the full budget, and aiter_bytes restarts the read timer on
+            # every chunk, so a sidecar answering 307 slowly consumed 5x the
+            # advertised timeout and one trickling a byte per interval never
+            # timed out at all. The chain cannot advance to the browser tier
+            # until this task finishes, so the request sat in `processing`.
+            async with asyncio.timeout(effective_timeout + 5):
+                for _ in range(5):
+                    if current_endpoint != crawl_endpoint:
+                        safe, reason = await is_url_safe_async(current_endpoint)
+                        if not safe:
+                            raise ValueError(f"SSRF blocked redirect target: {reason}")
+                    async with client.stream(
+                        "POST",
+                        current_endpoint,
+                        json=payload,
+                        headers=request_headers,
+                        timeout=effective_timeout,
+                    ) as resp:
+                        if resp.status_code in {301, 302, 303, 307, 308}:
+                            location = resp.headers.get("location")
+                            await resp.aclose()
+                            if not location:
+                                resp.raise_for_status()
+                            current_endpoint = urljoin(current_endpoint, location)
+                            continue
+                        resp.raise_for_status()
 
-                    content_length = resp.headers.get("content-length")
-                    if content_length:
-                        try:
-                            declared_size = int(content_length)
-                        except ValueError:
-                            logger.debug(
-                                "crawl4ai_invalid_content_length_header",
-                                extra={
-                                    "url": current_endpoint,
-                                    "content_length": content_length,
-                                },
-                            )
-                        else:
-                            if declared_size > self._max_response_bytes:
-                                raise ValueError(
-                                    f"Crawl4AI response exceeds "
-                                    f"{self._max_response_bytes} byte limit"
+                        content_length = resp.headers.get("content-length")
+                        if content_length:
+                            try:
+                                declared_size = int(content_length)
+                            except ValueError:
+                                logger.debug(
+                                    "crawl4ai_invalid_content_length_header",
+                                    extra={
+                                        "url": current_endpoint,
+                                        "content_length": content_length,
+                                    },
                                 )
+                            else:
+                                if declared_size > self._max_response_bytes:
+                                    raise ValueError(
+                                        f"Crawl4AI response exceeds "
+                                        f"{self._max_response_bytes} byte limit"
+                                    )
 
-                    chunks: list[bytes] = []
-                    total = 0
-                    async for chunk in resp.aiter_bytes():
-                        total += len(chunk)
-                        if total > self._max_response_bytes:
-                            raise ValueError(
-                                f"Crawl4AI response exceeds {self._max_response_bytes} byte limit"
-                            )
-                        chunks.append(chunk)
+                        chunks: list[bytes] = []
+                        total = 0
+                        async for chunk in resp.aiter_bytes():
+                            total += len(chunk)
+                            if total > self._max_response_bytes:
+                                raise ValueError(
+                                    f"Crawl4AI response exceeds {self._max_response_bytes} byte limit"
+                                )
+                            chunks.append(chunk)
 
-                    data = json.loads(b"".join(chunks))
-                break
-            else:
-                raise ValueError("Too many redirects")
+                        data = json.loads(b"".join(chunks))
+                    break
+                else:
+                    raise ValueError("Too many redirects")
         except (TimeoutError, httpx.TimeoutException):
             latency = int((time.perf_counter() - started) * 1000)
             logger.warning(

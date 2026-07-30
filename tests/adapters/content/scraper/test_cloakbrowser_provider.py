@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -410,3 +412,36 @@ class TestStealthKnobs:
         # The proxy URL itself must NOT leak into options_json.
         for value in opts.values():
             assert "proxy:3128" not in str(value)
+
+
+@pytest.mark.asyncio
+async def test_render_is_bounded_by_an_overall_deadline() -> None:
+    """timeout_ms only reaches page.goto and the capped wait_for_load_state.
+
+    connect_over_cdp, new_context, new_page and page.content() each fall back to
+    Playwright's own 30 s default, so a wedged sidecar held the browser tier for
+    roughly 150 s while this provider advertised 60. The chain cannot try the
+    next rung until the task returns.
+    """
+    provider = CloakBrowserProvider(endpoint_url="http://cloakbrowser:9222", timeout_sec=1)
+
+    async def _stalls(*_args: object, **_kwargs: object) -> tuple[str, int, str]:
+        # Comfortably past the 1 s budget + 5 s grace, but short enough that a
+        # regression fails the assertion below instead of hanging the suite.
+        await asyncio.sleep(20)
+        raise AssertionError("unreachable")
+
+    started = time.perf_counter()
+    with (
+        patch.object(provider, "_render", _stalls),
+        patch(
+            "app.adapters.content.scraper.cloakbrowser_provider.is_url_safe_async",
+            new=AsyncMock(return_value=(True, None)),
+        ),
+    ):
+        result = await provider.scrape_markdown("https://example.com")
+    elapsed = time.perf_counter() - started
+
+    assert result.status != "ok"
+    # timeout_sec=1 plus the 5 s grace; nowhere near Playwright's stacked defaults.
+    assert elapsed < 15, f"render ran unbounded for {elapsed:.1f}s"
