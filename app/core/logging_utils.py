@@ -259,13 +259,24 @@ def setup_json_logging(
     root.setLevel(lvl)
     root.addHandler(EnhancedInterceptHandler())
 
-    # Reduce noise from verbose third-party loggers
-    for noisy_logger in (
-        "telethon",
-        "telethon.network",
-        "telethon.extensions",
+    # Reduce noise from verbose third-party loggers.
+    #
+    # httpx/httpcore are held at WARNING rather than INFO because httpx logs
+    # ``HTTP Request: GET <full url> "..."`` at INFO -- query string included.
+    # EnhancedInterceptHandler redacts ``record.__dict__`` extras but forwards
+    # ``record.getMessage()`` verbatim, so any adapter that passes a credential
+    # as a query parameter (Meta Graph takes ``access_token`` and
+    # ``client_secret`` that way) would otherwise write that credential into the
+    # JSON log on every single call. Silencing the emitter is the choke point:
+    # it holds for adapters that do not exist yet.
+    for noisy_logger, noisy_level in (
+        ("telethon", logging.INFO),
+        ("telethon.network", logging.INFO),
+        ("telethon.extensions", logging.INFO),
+        ("httpx", logging.WARNING),
+        ("httpcore", logging.WARNING),
     ):
-        logging.getLogger(noisy_logger).setLevel(logging.INFO)
+        logging.getLogger(noisy_logger).setLevel(noisy_level)
 
     # Log setup completion
     loguru_logger.info(

@@ -15,6 +15,7 @@ from app.core.logging_utils import (
     redact_headers_for_logging,
     redact_url_for_logging,
     sanitize_messages_for_logging,
+    setup_json_logging,
 )
 
 
@@ -186,3 +187,25 @@ def test_redact_url_for_logging_preserves_host_only() -> None:
         redact_url_for_logging("https://user:pass@example.test/private/path?token=secret&view=1#x")
         == "https://example.test/[redacted]?token=%5BREDACTED%5D"
     )
+
+
+def test_setup_json_logging_silences_httpx_request_logging() -> None:
+    """httpx must never emit its request line, because it contains the full URL.
+
+    ``logger.info('HTTP Request: %s %s ...', request.method, request.url, ...)``
+    in ``httpx._client`` prints the query string verbatim, and the intercept
+    handler redacts ``extra`` fields rather than the formatted message.  Meta
+    Graph takes ``access_token`` and ``client_secret`` as query parameters, so at
+    INFO every poll wrote a live long-lived credential into the JSON log.
+    """
+    previous = {name: logging.getLogger(name).level for name in ("httpx", "httpcore")}
+    try:
+        setup_json_logging(level="INFO")
+
+        for name in ("httpx", "httpcore"):
+            logger = logging.getLogger(name)
+            assert logger.level >= logging.WARNING
+            assert not logger.isEnabledFor(logging.INFO), f"{name} would log request URLs at INFO"
+    finally:
+        for name, level in previous.items():
+            logging.getLogger(name).setLevel(level)
