@@ -96,6 +96,16 @@ class IngestRepositoryResponse(BaseModel):
     repository_id: int
     status: Literal["pending", "ready"]
     full_name: str
+    mode: Literal["metadata", "track", "star"] = "metadata"
+    is_starred: bool = False
+    # The lists the repository ended up in. Empty is a valid outcome: nothing
+    # fitted, or filing failed after the star succeeded (see ``warnings``).
+    lists_applied: list[str] = Field(default_factory=list)
+    list_suggestion_source: Literal["knn", "llm", "explicit", "none"] = "none"
+    mirror_id: int | None = None
+    # Steps that did not complete after something already had. The request is
+    # still a success; these say which half is missing.
+    warnings: list[str] = Field(default_factory=list)
 
 
 class RepositorySearchHit(RepositoryCompact):

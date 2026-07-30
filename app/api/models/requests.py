@@ -446,10 +446,38 @@ class QuickSaveRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class AddRepositoryMode(StrEnum):
+    """How far to go when adding a repository.
+
+    ``METADATA`` is the historical behaviour and stays the default so that every
+    existing caller — including the Telegram URL flow — is unaffected.
+    """
+
+    METADATA = "metadata"
+    TRACK = "track"
+    STAR = "star"
+
+
 class IngestRepositoryRequest(BaseModel):
     """Request body for ingesting a GitHub repository by URL."""
 
     url: str = Field(..., min_length=10, max_length=500)
+    mode: AddRepositoryMode = Field(
+        default=AddRepositoryMode.METADATA,
+        description=(
+            "metadata: index only. track: also back up on disk, without starring. "
+            "star: also star on GitHub and file into a star list."
+        ),
+    )
+    list_names: list[str] | None = Field(
+        default=None,
+        max_length=32,
+        description=(
+            "Star lists to file the repository under, overriding the automatic "
+            "suggestion. Only meaningful with mode=star. An empty array files it "
+            "nowhere; omit the field to let the suggester choose."
+        ),
+    )
 
 
 class RepositoryWatchRequest(BaseModel):

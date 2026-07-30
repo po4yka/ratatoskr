@@ -91,6 +91,68 @@ logger = get_logger(__name__)
 _runtime_lock = asyncio.Lock()
 
 
+def _build_add_repository_use_case(
+    *,
+    app_cfg: AppConfig,
+    database: Database,
+    core: Any,
+    search: Any,
+    llm_repository: Any,
+    github_platform_extractor: Any,
+    star_lists_use_case: Any,
+) -> Any:
+    """Compose the add-repository flow from the pieces that already exist.
+
+    The optional collaborators degrade independently: without a vector store the
+    suggester has no neighbours to vote with, and without the LLM fallback an
+    inconclusive vote simply leaves the repository unfiled.
+    """
+    from app.adapters.git_backup.mirror_enrollment_adapter import GitMirrorEnrollmentAdapter
+    from app.adapters.git_backup.repository import GitMirrorRepository
+    from app.adapters.github.repository_ingest_adapter import GitHubRepositoryIngestAdapter
+    from app.application.services.star_list_classifier import StarListClassifierService
+    from app.application.use_cases.add_repository import AddRepositoryUseCase
+    from app.application.use_cases.suggest_star_lists import SuggestStarListsUseCase
+    from app.infrastructure.persistence.repositories.repository_read_repository import (
+        RepositoryReadRepositoryAdapter,
+    )
+    from app.infrastructure.search.repository_search_service import RepositorySearchService
+
+    github_cfg = app_cfg.github
+    suggester: Any = None
+    if search.vector_store is not None:
+        classifier: Any = None
+        if github_cfg.star_list_suggest_llm_fallback:
+            classifier = StarListClassifierService(
+                llm_client=core.llm_client,
+                llm_repo=llm_repository,
+            )
+        suggester = SuggestStarListsUseCase(
+            neighbour_search=RepositorySearchService(
+                embedding_service=search.embedding_service,
+                qdrant_store=search.vector_store,
+                db=database,
+                environment=app_cfg.vector_store.environment,
+                user_scope=app_cfg.vector_store.user_scope,
+            ),
+            classifier=classifier,
+            neighbour_limit=github_cfg.star_list_suggest_k,
+            min_similarity=github_cfg.star_list_suggest_min_similarity,
+            min_score=github_cfg.star_list_suggest_min_score,
+            dominance_ratio=github_cfg.star_list_suggest_dominance_ratio,
+        )
+
+    return AddRepositoryUseCase(
+        ingest=GitHubRepositoryIngestAdapter(github_platform_extractor),
+        repository_repo=RepositoryReadRepositoryAdapter(database),
+        star_lists=star_lists_use_case,
+        suggester=suggester,
+        mirrors=GitMirrorEnrollmentAdapter(
+            GitMirrorRepository(database, app_cfg.git_backup),
+        ),
+    )
+
+
 async def build_api_runtime(
     cfg: AppConfig | None = None,
     *,
@@ -259,6 +321,15 @@ async def build_api_runtime(
         repository_repo=RepositoryReadRepositoryAdapter(database),
         integration_repo=GitHubIntegrationRepository(database),
     )
+    add_repository_use_case = _build_add_repository_use_case(
+        app_cfg=app_cfg,
+        database=database,
+        core=core,
+        search=search,
+        llm_repository=llm_repository,
+        github_platform_extractor=github_platform_extractor,
+        star_lists_use_case=star_lists_use_case,
+    )
     request_service = RequestService(
         db=database,
         request_repository=request_repository,
@@ -337,6 +408,7 @@ async def build_api_runtime(
         social_auth_service=social_auth_service,
         repository_service=repository_service,
         star_lists_use_case=star_lists_use_case,
+        add_repository_use_case=add_repository_use_case,
         analyze_repository_use_case=analyze_repository_use_case,
         github_platform_extractor=github_platform_extractor,
         tag_repo=tag_repo,

@@ -2509,7 +2509,21 @@ paths:
       tags:
       - repositories
       summary: Ingest Repository
-      description: Ingest a GitHub repository by URL.
+      description: 'Add a GitHub repository by URL.
+
+
+        ``mode=metadata`` (the default) only indexes it. ``mode=track`` also enrolls
+
+        it for on-disk git backup without starring it. ``mode=star`` additionally
+
+        stars it on GitHub and files it into one of the user''s star lists.
+
+
+        A star that lands while the list write or the backup enrollment fails is
+
+        still a success: the response reports it through ``warnings`` rather than
+
+        undoing the part that worked.'
       operationId: ingest_repository_v1_repositories_post
       security:
       - HTTPBearer: []
@@ -9918,6 +9932,19 @@ paths:
       - HTTPBearer: []
 components:
   schemas:
+    AddRepositoryMode:
+      type: string
+      enum:
+      - metadata
+      - track
+      - star
+      title: AddRepositoryMode
+      description: 'How far to go when adding a repository.
+
+
+        ``METADATA`` is the historical behaviour and stays the default so that every
+
+        existing caller — including the Telegram URL flow — is unaffected.'
     AdminAuditLogData:
       properties:
         logs:
@@ -14046,6 +14073,10 @@ components:
           - type: integer
           - type: 'null'
           title: Repository Id
+        pinned:
+          type: boolean
+          title: Pinned
+          default: false
       type: object
       required:
       - id
@@ -14092,6 +14123,10 @@ components:
           - type: integer
           - type: 'null'
           title: Repository Id
+        pinned:
+          type: boolean
+          title: Pinned
+          default: false
         mirror_path:
           anyOf:
           - type: string
@@ -14796,6 +14831,21 @@ components:
           maxLength: 500
           minLength: 10
           title: Url
+        mode:
+          $ref: '#/components/schemas/AddRepositoryMode'
+          description: 'metadata: index only. track: also back up on disk, without starring. star: also star on GitHub and
+            file into a star list.'
+          default: metadata
+        list_names:
+          anyOf:
+          - items:
+              type: string
+            type: array
+            maxItems: 32
+          - type: 'null'
+          title: List Names
+          description: Star lists to file the repository under, overriding the automatic suggestion. Only meaningful with
+            mode=star. An empty array files it nowhere; omit the field to let the suggester choose.
       type: object
       required:
       - url
@@ -14815,6 +14865,42 @@ components:
         full_name:
           type: string
           title: Full Name
+        mode:
+          type: string
+          enum:
+          - metadata
+          - track
+          - star
+          title: Mode
+          default: metadata
+        is_starred:
+          type: boolean
+          title: Is Starred
+          default: false
+        lists_applied:
+          items:
+            type: string
+          type: array
+          title: Lists Applied
+        list_suggestion_source:
+          type: string
+          enum:
+          - knn
+          - llm
+          - explicit
+          - none
+          title: List Suggestion Source
+          default: none
+        mirror_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Mirror Id
+        warnings:
+          items:
+            type: string
+          type: array
+          title: Warnings
       type: object
       required:
       - repository_id

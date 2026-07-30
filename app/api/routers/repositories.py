@@ -31,7 +31,7 @@ from app.db.session import (  # noqa: TC001  # used at runtime in FastAPI Depend
 )
 
 if TYPE_CHECKING:
-    from app.adapters.github.platform_extractor import GitHubPlatformExtractor
+    from app.application.use_cases.add_repository import AddRepositoryUseCase
     from app.application.use_cases.analyze_repository import AnalyzeRepositoryUseCase
 
 logger = get_logger(__name__)
@@ -48,12 +48,6 @@ def _get_db(request: Request) -> Database:
     from app.api.dependencies.database import get_session_manager
 
     return get_session_manager(request)
-
-
-def _get_github_extractor(request: Request) -> GitHubPlatformExtractor:
-    from app.di.api import resolve_api_runtime
-
-    return cast("GitHubPlatformExtractor", resolve_api_runtime(request).github_platform_extractor)
 
 
 def _get_analyze_use_case(request: Request) -> AnalyzeRepositoryUseCase:
@@ -85,6 +79,53 @@ def _get_qdrant(request: Request) -> Any:
 
 def _get_correlation_id(request: Request) -> str:
     return getattr(request.state, "correlation_id", None) or str(uuid.uuid4())
+
+
+def _get_add_use_case(request: Request) -> AddRepositoryUseCase:
+    """Resolve the pre-wired use case; the router stays transport-only."""
+    from app.di.api import resolve_api_runtime
+
+    use_case = resolve_api_runtime(request).add_repository_use_case
+    if use_case is None:
+        raise HTTPException(status_code=503, detail="Repository ingestion is not available")
+    return cast("AddRepositoryUseCase", use_case)
+
+
+def _translate_add_error(exc: Exception, *, url: str, correlation_id: str) -> HTTPException:
+    """Map a domain error from the add flow onto its transport status."""
+    from app.adapters.github.exceptions import (
+        GitHubAuthError,
+        GitHubIntegrationRequiredError,
+        GitHubNotFoundError,
+        GitHubRateLimitError,
+    )
+    from app.application.use_cases.add_repository import StarManagementUnavailableError
+
+    if isinstance(exc, GitHubIntegrationRequiredError):
+        return HTTPException(
+            status_code=409,
+            detail=(
+                "GitHub integration required. Connect via /v1/auth/github/pat or "
+                "/v1/auth/github/device/start."
+            ),
+        )
+    if isinstance(exc, GitHubRateLimitError):
+        return HTTPException(status_code=429, detail="GitHub rate limit exceeded")
+    if isinstance(exc, GitHubAuthError):
+        # Carries GitHub's own wording, which names the scope the token lacks.
+        return HTTPException(status_code=403, detail=str(exc))
+    if isinstance(exc, GitHubNotFoundError):
+        return HTTPException(status_code=404, detail="GitHub has no such repository")
+    if isinstance(exc, StarManagementUnavailableError):
+        return HTTPException(status_code=503, detail=str(exc))
+    logger.exception(
+        "github_ingest_failed",
+        extra={"url": url, "correlation_id": correlation_id},
+    )
+    return HTTPException(
+        status_code=502,
+        detail=f"GitHub ingestion failed (correlation_id={correlation_id})",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -156,60 +197,43 @@ async def get_repository(
 async def ingest_repository(
     body: IngestRepositoryRequest,
     user: dict[str, Any] = Depends(get_current_user),
-    extractor: GitHubPlatformExtractor = Depends(_get_github_extractor),
+    use_case: AddRepositoryUseCase = Depends(_get_add_use_case),
     correlation_id: str = Depends(_get_correlation_id),
 ) -> IngestRepositoryResponse:
-    """Ingest a GitHub repository by URL."""
+    """Add a GitHub repository by URL.
+
+    ``mode=metadata`` (the default) only indexes it. ``mode=track`` also enrolls
+    it for on-disk git backup without starring it. ``mode=star`` additionally
+    stars it on GitHub and files it into one of the user's star lists.
+
+    A star that lands while the list write or the backup enrollment fails is
+    still a success: the response reports it through ``warnings`` rather than
+    undoing the part that worked.
+    """
     if not is_github_repo_url(body.url):
         raise HTTPException(status_code=400, detail="URL is not a github.com repository URL")
 
-    from app.adapters.content.platform_extraction.models import PlatformExtractionRequest
-
-    request_envelope = PlatformExtractionRequest(
-        message=None,
-        url_text=body.url,
-        normalized_url=body.url,
-        correlation_id=correlation_id,
-        user_id=user["user_id"],
-        mode="pure",
-    )
-
-    from app.adapters.github.exceptions import (
-        GitHubAuthError,
-        GitHubIntegrationRequiredError,
-        GitHubNotFoundError,
-    )
-
     try:
-        result = await extractor.extract(request_envelope)
-    except GitHubIntegrationRequiredError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail="GitHub integration required. Connect via /v1/auth/github/pat or /v1/auth/github/device/start.",
-        ) from exc
-    except (GitHubAuthError, GitHubNotFoundError) as exc:
-        raise HTTPException(
-            status_code=502,
-            detail="GitHub returned an error fetching the repository",
-        ) from exc
-    except Exception as exc:
-        logger.exception(
-            "github_ingest_failed",
-            extra={"url": body.url, "correlation_id": correlation_id},
+        result = await use_case.add(
+            url=body.url,
+            user_id=user["user_id"],
+            mode=body.mode.value,
+            list_names=body.list_names,
+            correlation_id=correlation_id,
         )
-        raise HTTPException(
-            status_code=502,
-            detail=f"GitHub ingestion failed (correlation_id={correlation_id})",
-        ) from exc
-
-    metadata = result.metadata or {}
-    full_name: str = metadata.get("full_name") or result.title or body.url
-    repository_id: int = result.request_id or 0
+    except Exception as exc:
+        raise _translate_add_error(exc, url=body.url, correlation_id=correlation_id) from exc
 
     return IngestRepositoryResponse(
-        repository_id=repository_id,
-        status="ready" if repository_id else "pending",
-        full_name=full_name,
+        repository_id=result.repository_id,
+        status="ready" if result.repository_id else "pending",
+        full_name=result.full_name,
+        mode=result.mode,
+        is_starred=result.is_starred,
+        lists_applied=result.lists_applied,
+        list_suggestion_source=result.list_suggestion_source,
+        mirror_id=result.mirror_id,
+        warnings=result.warnings,
     )
 
 
