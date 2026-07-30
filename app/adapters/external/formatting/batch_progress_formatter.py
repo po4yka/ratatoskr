@@ -6,6 +6,7 @@ ETA estimates, and detailed completion reports with titles and error reasons.
 
 from __future__ import annotations
 
+import html
 import time
 from typing import TYPE_CHECKING
 
@@ -36,15 +37,10 @@ class BatchProgressFormatter:
     # HTML helpers
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _html_escape(text: str) -> str:
-        """Escape ``<``, ``>``, and ``&`` for safe Telegram HTML."""
-        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
     @classmethod
     def _make_link(cls, url: str, display_text: str) -> str:
         """Create an HTML ``<a>`` hyperlink safe for Telegram."""
-        return f'<a href="{cls._html_escape(url)}">{cls._html_escape(display_text)}</a>'
+        return f'<a href="{html.escape(url)}">{html.escape(display_text)}</a>'
 
     @classmethod
     def _get_spinner(cls, tick: int | None = None) -> str:
@@ -182,7 +178,7 @@ class BatchProgressFormatter:
         if entry.status == URLStatus.FAILED:
             error = cls._format_error_short(entry.error_type, entry.error_message)
             elapsed = cls._format_elapsed(entry.processing_time_ms)
-            return f"{prefix} {link}  Failed: {cls._html_escape(error)}{elapsed}"
+            return f"{prefix} {link}  Failed: {html.escape(error)}{elapsed}"
 
         if entry.status == URLStatus.EXTRACTING:
             live = cls._format_live_elapsed(entry.start_time)
@@ -347,10 +343,10 @@ class BatchProgressFormatter:
         if entry.status == URLStatus.FAILED:
             error = cls._format_error_short(entry.error_type, entry.error_message)
             link = cls._make_link(entry.url, label)
-            return f"{index}. {link}  Failed: {cls._html_escape(error)}{elapsed}"
+            return f"{index}. {link}  Failed: {html.escape(error)}{elapsed}"
 
         # Shouldn't happen in a completed batch, but handle gracefully
-        return f"{index}. {cls._html_escape(label)}  {cls._html_escape(entry.status.value)}"
+        return f"{index}. {html.escape(label)}  {html.escape(entry.status.value)}"
 
     @classmethod
     def _format_compact_progress(cls, batch: URLBatchStatus) -> str:
@@ -402,7 +398,7 @@ class BatchProgressFormatter:
                 label = entry.display_label or entry.domain or entry.url[:20]
                 error = cls._format_error_short(entry.error_type, entry.error_message)
                 link = cls._make_link(entry.url, label)
-                lines.append(f"  {link}: {cls._html_escape(error)}")
+                lines.append(f"  {link}: {html.escape(error)}")
             if len(failed_entries) > 5:
                 lines.append(f"  ... and {len(failed_entries) - 5} more failed")
 
@@ -457,7 +453,7 @@ class BatchProgressFormatter:
                 label = entry.display_label or entry.domain or entry.url[:20]
                 error = cls._format_error_short(entry.error_type, entry.error_message)
                 link = cls._make_link(entry.url, label)
-                lines.append(f"  - {link}: {cls._html_escape(error)}")
+                lines.append(f"  - {link}: {html.escape(error)}")
             if len(failed_entries) > 3:
                 lines.append(f"  ... and {len(failed_entries) - 3} more")
 

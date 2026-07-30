@@ -133,3 +133,116 @@ async def test_batch_analysis_result_escapes_untrusted_html() -> None:
     # Static structural markup is preserved.
     assert "<b>Topic:</b>" in sent
     assert "<b>Thematic Arc:</b>" in sent
+
+
+def test_supplemental_blocks_escape_highlights_and_key_points() -> None:
+    """`_build_bullet_message` used to escape only when asked, and no caller asked.
+
+    Both bullet lists are LLM-derived and go out under parse_mode="HTML".
+    """
+    out = _presenter().build_all_supplemental_blocks(
+        {
+            "highlights": ["<b>hl</b>", "a & b"],
+            "key_points_to_remember": ['<a href="x">kp</a>'],
+        }
+    )
+
+    assert out is not None
+    for raw in ("<b>hl</b>", '<a href="x">kp</a>'):
+        assert raw not in out, f"unescaped {raw!r} leaked into HTML output"
+    assert "&lt;b&gt;hl&lt;/b&gt;" in out
+    assert "a &amp; b" in out
+    # The intentional bold headers survive.
+    assert "<b>✨" in out
+
+
+def test_taxonomy_label_is_escaped() -> None:
+    out = _presenter().build_all_supplemental_blocks(
+        {"topic_taxonomy": [{"label": "<i>cat</i>", "score": 0.5}, {"label": "A&B"}]}
+    )
+
+    assert out is not None
+    assert "<i>cat</i>" not in out
+    assert "&lt;i&gt;cat&lt;/i&gt;" in out
+    assert "A&amp;B" in out
+
+
+def test_forwarded_post_extras_are_escaped() -> None:
+    """Channel title, username and hashtags are controlled by the source channel."""
+    out = _presenter().build_all_supplemental_blocks(
+        {
+            "forwarded_post_extras": {
+                "channel_title": "<b>Chan</b>",
+                "channel_username": "user<script>",
+                "hashtags": ["<tag>", "a&b"],
+            }
+        }
+    )
+
+    assert out is not None
+    for raw in ("<b>Chan</b>", "user<script>", "<tag>"):
+        assert raw not in out, f"unescaped {raw!r} leaked into HTML output"
+    assert "&lt;b&gt;Chan&lt;/b&gt;" in out
+    assert "&lt;script&gt;" in out
+    assert "a&amp;b" in out
+
+
+@pytest.mark.asyncio
+async def test_russian_translation_body_is_escaped() -> None:
+    """The header was escaped and the body was not, though both are one message.
+
+    The body is raw LLM output: a translated technical article containing `<div>`
+    lost that text to the Telethon parser, and an unclosed `<b>` bolded the rest.
+    """
+    from app.adapters.external.formatting.summary.followup_presenters import (
+        SummaryFollowupPresenters,
+    )
+
+    sent: list[str] = []
+
+    class _CapturingTextProcessor(_IdentityTextProcessor):
+        async def send_long_text(
+            self, message: object, text: str, *, parse_mode: str | None = None
+        ) -> None:
+            del message, parse_mode
+            sent.append(text)
+
+    context = SummaryPresenterContext(
+        response_sender=cast("ResponseSender", None),
+        text_processor=_CapturingTextProcessor(),
+        data_formatter=cast("DataFormatter", SimpleNamespace()),
+        verbosity_resolver=None,
+        progress_tracker=None,
+        topic_manager=None,
+        lang="ru",
+    )
+
+    await SummaryFollowupPresenters(context).send_russian_translation(
+        SimpleNamespace(), "Тег <div> и незакрытый <b>жирный", correlation_id=None
+    )
+
+    assert sent, "translation was never sent"
+    body = sent[0]
+    assert "<div>" not in body
+    assert "&lt;div&gt;" in body
+    assert "&lt;b&gt;" in body
+    # The intentional header markup is still real markup.
+    assert body.startswith("<b>")
+
+
+def test_batch_progress_link_escapes_the_href_attribute() -> None:
+    """The batch formatter's own escaper left `"` alone, and its output goes in href.
+
+    A URL carrying a double quote could therefore close the attribute early and
+    inject arbitrary markup into the bot's trusted progress message.
+    """
+    from app.adapters.external.formatting.batch_progress_formatter import BatchProgressFormatter
+
+    link = BatchProgressFormatter._make_link('https://e.test/a"><b>x</b>', 'title"><i>y</i>')
+
+    assert '"><b>x</b>' not in link
+    assert '"><i>y</i>' not in link
+    assert "&quot;" in link
+    # Exactly one real anchor, opened and closed by us.
+    assert link.count("<a href=") == 1
+    assert link.count("</a>") == 1

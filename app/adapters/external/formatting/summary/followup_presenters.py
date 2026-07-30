@@ -48,8 +48,16 @@ class SummaryFollowupPresenters:
         if correlation_id and not reader:
             header += f"\nCorrelation ID: {correlation_id}"
 
+        # The body needs escaping as much as the header does: it is raw LLM
+        # output, and sanitize_summary_text only NFC-normalizes and strips
+        # control characters. A translation of a technical article carrying
+        # `<div>` lost that text to the Telethon parser, and an unclosed `<b>`
+        # bolded the rest of the message. The sibling renderer in
+        # summary_blocks escapes its bodies.
         await self._context.text_processor.send_long_text(
-            message, f"<b>{html.escape(header)}</b>\n\n{cleaned}", parse_mode="HTML"
+            message,
+            f"<b>{html.escape(header)}</b>\n\n{html.escape(cleaned)}",
+            parse_mode="HTML",
         )
 
     def _insights_cap_text(self, text: str, max_chars: int) -> str:

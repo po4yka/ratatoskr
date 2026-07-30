@@ -267,14 +267,18 @@ class SummaryBlocksPresenter:
         return "\n".join(lines) if len(lines) > 1 else None
 
     @staticmethod
-    def _build_bullet_message(
-        title: str, values: list[str], *, limit: int, escape: bool = False
-    ) -> str | None:
+    def _build_bullet_message(title: str, values: list[str], *, limit: int) -> str | None:
+        """Render an LLM-derived bullet list under a code-built title.
+
+        ``values`` are always escaped. This used to be opt-in via ``escape=False``
+        and no caller ever passed it, so `highlights` and `key_points_to_remember`
+        reached parse_mode="HTML" raw -- against the invariant stated at the top
+        of this file. ``title`` carries the intentional ``<b>`` markup and must
+        not be escaped.
+        """
         if not values:
             return None
-        items = values[:limit]
-        if escape:
-            items = [html.escape(item) for item in items]
+        items = [html.escape(item) for item in values[:limit]]
         return title + "\n" + "\n".join(f"• {item}" for item in items)
 
     def _build_questions_answered_message(self, shaped: dict[str, Any]) -> str | None:
@@ -354,7 +358,7 @@ class SummaryBlocksPresenter:
         for tax in taxonomy[:5]:
             if not isinstance(tax, dict) or not tax.get("label"):
                 continue
-            label = str(tax["label"]).strip()
+            label = html.escape(str(tax["label"]).strip())
             score = tax.get("score", 0.0)
             if isinstance(score, (int, float)) and score > 0:
                 lines.append(f"• {label} ({score:.1%})")
@@ -369,11 +373,16 @@ class SummaryBlocksPresenter:
 
         _l = self._context.lang
         fwd_parts: list[str] = []
+        # Channel title, username and hashtags come from the forwarded post, so
+        # they are as untrusted as scraped content -- a hostile channel controls
+        # them outright.
         if fwd_extras.get("channel_title"):
-            fwd_parts.append(f"📺 Channel: {fwd_extras['channel_title']}")
+            fwd_parts.append(f"📺 Channel: {html.escape(str(fwd_extras['channel_title']))}")
         if fwd_extras.get("channel_username"):
-            fwd_parts.append(f"@{fwd_extras['channel_username']}")
-        hashtags = self._clean_string_list(fwd_extras.get("hashtags") or [])
+            fwd_parts.append(f"@{html.escape(str(fwd_extras['channel_username']))}")
+        hashtags = [
+            html.escape(h) for h in self._clean_string_list(fwd_extras.get("hashtags") or [])
+        ]
         if hashtags:
             fwd_parts.append(
                 f"{t('tags', _l)}: "

@@ -7,6 +7,7 @@ Similar to BatchProgressFormatter but tailored for single-URL workflows.
 
 from __future__ import annotations
 
+import html
 import time
 
 from app.core.ui_strings import t
@@ -14,16 +15,6 @@ from app.core.ui_strings import t
 
 class SingleURLProgressFormatter:
     """Formats progress messages for single-URL operations."""
-
-    @staticmethod
-    def _html_escape(text: str) -> str:
-        """Escape HTML special characters."""
-        return (
-            text.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;")
-        )
 
     @staticmethod
     def _format_duration(seconds: float) -> str:
@@ -102,7 +93,7 @@ class SingleURLProgressFormatter:
         eta_str = cls._format_duration(estimate)
         return (
             f"\U0001f310 <b>{t('progress_extracting_content', lang)}</b>\n\n"
-            f"\U0001f517 {cls._html_escape(display_url)}\n"
+            f"\U0001f517 {html.escape(display_url)}\n"
             f"\u23f1\ufe0f {t('progress_extracting', lang)} ({duration} / ~{eta_str}) {spinner}\n"
             f"<code>{bar}</code>"
         )
@@ -167,7 +158,7 @@ class SingleURLProgressFormatter:
             f"\U0001f4dd {t('progress_content', lang)}: {content_formatted} chars",
             f"\U0001f310 {t('progress_lang', lang)}: {lang_label}",
             f"{tier_icon} {t('progress_tier', lang)}: {tier_label}",
-            f"\U0001f916 {t('progress_model', lang)}: <code>{cls._html_escape(model_short)}</code>",
+            f"\U0001f916 {t('progress_model', lang)}: <code>{html.escape(model_short)}</code>",
             "",
             f"\u23f1\ufe0f {phase_label} ({duration} / ~{eta_str}) {spinner}",
             f"<code>{bar}</code>",
@@ -206,9 +197,9 @@ class SingleURLProgressFormatter:
             return (
                 f"\u2705 <b>{t('progress_analysis_complete', lang)}</b> ({duration})\n\n"
                 f"\U0001f4ca {t('progress_summary_generated', lang)}\n"
-                f"\U0001f916 {t('progress_model', lang)}: {cls._html_escape(model)}"
+                f"\U0001f916 {t('progress_model', lang)}: {html.escape(model)}"
             )
-        error_text = cls._html_escape(error_msg or "Unknown error")
+        error_text = html.escape(error_msg or "Unknown error")
         error_id_line = (
             f"\n{t('progress_error_id', lang)}: <code>{correlation_id}</code>"
             if correlation_id
@@ -259,7 +250,7 @@ class SingleURLProgressFormatter:
         return (
             f"\U0001f3a5 <b>{t('progress_youtube_processing', lang)}</b>\n\n"
             f"{stages_text}\n"
-            f"Video ID: <code>{cls._html_escape(video_id)}</code>\n"
+            f"Video ID: <code>{html.escape(video_id)}</code>\n"
             f"Quality: 1080p\n\n"
             f"<b>{t('progress_total', lang)}:</b> {total_duration}"
         )
@@ -297,11 +288,11 @@ class SingleURLProgressFormatter:
             display_title = title[:100] + "..." if len(title) > 100 else title
             return (
                 f"\u2705 <b>{t('progress_video_complete', lang)}</b> ({duration})\n\n"
-                f"\U0001f4f9 Title: {cls._html_escape(display_title)}\n"
+                f"\U0001f4f9 Title: {html.escape(display_title)}\n"
                 f"\U0001f4be Size: {size_mb:.1f} MB\n"
                 f"\U0001f4dd {t('progress_transcript_ready', lang)}"
             )
-        error_text = cls._html_escape(error_msg or "Unknown error")
+        error_text = html.escape(error_msg or "Unknown error")
         error_id_line = (
             f"\n{t('progress_error_id', lang)}: <code>{correlation_id}</code>"
             if correlation_id
