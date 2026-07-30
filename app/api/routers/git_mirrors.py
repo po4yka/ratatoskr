@@ -89,6 +89,7 @@ def _mirror_to_compact(row: GitMirror) -> GitMirrorCompact:
         last_mirrored_at=row.last_mirrored_at,
         size_kb=row.size_kb,
         repository_id=row.repository_id,
+        pinned=row.pinned,
     )
 
 
@@ -102,6 +103,7 @@ def _mirror_to_detail(row: GitMirror) -> GitMirrorDetail:
         last_mirrored_at=row.last_mirrored_at,
         size_kb=row.size_kb,
         repository_id=row.repository_id,
+        pinned=row.pinned,
         mirror_path=row.mirror_path,
         default_branch=row.default_branch,
         consecutive_failures=row.consecutive_failures,
@@ -249,6 +251,9 @@ async def register_mirror(
             clone_url=clone_url,
             name=body.name,
             repository_id=body.repository_id,
+            # Registered by hand, so the unstar reconciliation must leave it alone
+            # even if the linked repository later becomes starred and unstarred.
+            pinned=True,
         )
     except Exception as exc:
         logger.exception(

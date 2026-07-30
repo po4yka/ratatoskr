@@ -244,7 +244,7 @@ async def _release_unstarred_mirrors(
     point, because ``EXCLUDED`` is otherwise only set when the upstream repo is
     permanently gone.
 
-    Two independent signals must agree before a row is touched:
+    Three independent signals must agree before a row is touched:
 
     1. ``repository_id`` is set — mirrors added by hand through ``/mirror`` or
        the API carry no FK, and the Telegram handler stores ``source=GITHUB``
@@ -254,6 +254,11 @@ async def _release_unstarred_mirrors(
        starred, and the clone URL was absent from this run's enumeration. The
        second half keeps a repo that is still owned or watched — and therefore
        still legitimately mirrored — out of the sweep.
+    3. The row is not ``pinned``. Signals 1 and 2 both hold for a repository the
+       user asked to back up explicitly and *later* starred and unstarred on
+       GitHub: the star sync promotes such a row to ``source=starred``, at which
+       point inference alone cannot tell it from an auto-enrolled mirror. Dropping
+       it would discard a backup the user requested by hand.
 
     Turning ``GIT_BACKUP_MIRROR_STARRED`` off cannot trigger a purge: the
     candidates must also be unstarred, and the row stays revivable (a later
@@ -281,6 +286,7 @@ async def _release_unstarred_mirrors(
                     GitMirror.user_id == user_id,
                     GitMirror.source == GitMirrorSource.GITHUB,
                     GitMirror.status != GitMirrorStatus.EXCLUDED,
+                    GitMirror.pinned == False,  # noqa: E712
                     Repository.user_id == user_id,
                     Repository.source == RepoSource.STARRED,
                     Repository.is_starred == False,  # noqa: E712
