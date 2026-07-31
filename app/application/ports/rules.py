@@ -1,11 +1,14 @@
-"""Webhook, collection-membership, and automation-rule ports."""
+"""Webhook and automation-rule ports.
+
+Rules are stored, listed and edited; nothing executes them. The ports the
+executor needed -- context building, webhook dispatch, rate limiting, collection
+membership -- went with it. What remains is the CRUD surface behind /v1/rules and
+the Telegram /rules command.
+"""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
-
-if TYPE_CHECKING:
-    from app.application.dto.rule_execution import RuleEvaluationContextDTO
+from typing import Any, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -70,51 +73,6 @@ class WebhookRepositoryPort(Protocol):
         self, subscription_id: int, new_secret: str, user_id: int
     ) -> None:
         """Rotate the HMAC secret for a subscription owned by user_id."""
-
-
-@runtime_checkable
-class CollectionMembershipPort(Protocol):
-    async def async_add_summary(
-        self,
-        *,
-        user_id: int,
-        collection_id: int,
-        summary_id: int,
-    ) -> str:
-        """Add a summary to a collection owned by the user."""
-
-    async def async_remove_summary(
-        self,
-        *,
-        user_id: int,
-        collection_id: int,
-        summary_id: int,
-    ) -> str:
-        """Remove a summary from a collection owned by the user."""
-
-
-@runtime_checkable
-class RuleContextPort(Protocol):
-    async def async_build_context(self, event_data: dict[str, Any]) -> RuleEvaluationContextDTO:
-        """Build a rule-evaluation context from event data."""
-
-
-@runtime_checkable
-class WebhookDispatchPort(Protocol):
-    async def async_dispatch(self, url: str, payload: dict[str, Any]) -> int:
-        """Dispatch a webhook payload and return the response status code."""
-
-
-@runtime_checkable
-class RuleRateLimiterPort(Protocol):
-    async def async_allow_execution(
-        self,
-        user_id: int,
-        *,
-        limit: int,
-        window_seconds: float,
-    ) -> bool:
-        """Return True when the rule execution should proceed."""
 
 
 @runtime_checkable

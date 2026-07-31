@@ -60,7 +60,6 @@ VALID_ACTION_TYPES = frozenset(
 MAX_RULES_PER_USER = 50
 MAX_ACTIONS_PER_RULE = 10
 MAX_CONDITIONS_PER_RULE = 5
-MAX_EXECUTIONS_PER_MINUTE = 100
 
 # ---------------------------------------------------------------------------
 # Validation functions
