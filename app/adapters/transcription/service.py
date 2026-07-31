@@ -1,13 +1,18 @@
 """High-level TranscriptionService.
 
 Wraps the synchronous engines (ASR + diarization + decode) in ``asyncio``
-primitives and gates concurrent first-load via an ``asyncio.Lock`` so the
-sherpa-onnx recognizer is constructed exactly once even under burst load.
+primitives. Concurrent first-load is gated at two levels, because the two
+halves of the cold path run on different threads:
 
-Threading model:
-
-    * Cold path (first call): recognizer constructed under the lock, model
-      files downloaded if missing.
+    * Cold path, event loop: ``_asr_lock`` (``asyncio.Lock``) covers the model
+      download and the engine-object construction in ``_get_engine()``, so the
+      ~230 MB bundle is fetched once and one engine object is cached.
+    * Cold path, worker thread: the sherpa-onnx recognizer itself is built
+      lazily inside ``engine.transcribe_sync``, which runs under
+      ``asyncio.to_thread``. An ``asyncio.Lock`` cannot guard a worker thread,
+      so each engine holds its own ``threading.Lock`` around that construction
+      (see ``asr_engine.py``). Without it, N concurrent transcriptions each
+      build their own recognizer and hold N copies of the model in RAM.
     * Hot path: ``transcribe_media_path()`` runs the ffmpeg decode and the
       sherpa-onnx step in ``asyncio.to_thread``; diarization (when requested)
       runs in the same way on a separately-decoded 1.0x signal.
@@ -18,7 +23,10 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from app.application.ports.transcriptions import TranscribeOptions
+from app.application.ports.transcriptions import (
+    PermanentTranscriptionError,
+    TranscribeOptions,
+)
 from app.core.logging_utils import get_logger
 
 from .asr_engine import AsrEngine, OfflineAsrEngine, StreamingAsrEngine
@@ -54,7 +62,7 @@ class TranscriptionDisabledError(RuntimeError):
     """Raised when ``TranscriptionConfig.enabled`` is False but a caller requested transcription."""
 
 
-class TranscriptionDurationExceededError(RuntimeError):
+class TranscriptionDurationExceededError(PermanentTranscriptionError, RuntimeError):
     """Raised when the input media exceeds ``TranscriptionConfig.max_duration_sec``."""
 
     def __init__(self, duration_sec: float, max_duration_sec: int) -> None:
@@ -66,7 +74,7 @@ class TranscriptionDurationExceededError(RuntimeError):
         self.max_duration_sec = max_duration_sec
 
 
-class TimestampsUnavailableError(RuntimeError):
+class TimestampsUnavailableError(PermanentTranscriptionError, RuntimeError):
     """Raised when diarization is requested but the ASR build lacks alignment data."""
 
 

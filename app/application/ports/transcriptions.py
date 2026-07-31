@@ -12,6 +12,17 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+class PermanentTranscriptionError(Exception):
+    """A failure no retry can fix: bad input bytes, or a capability this job needs.
+
+    Terminality is otherwise decided purely by attempt count, so a doomed job
+    re-downloaded, re-decoded and re-ran the model on every attempt before being
+    dead-lettered. Adapters mix this into the exceptions that are permanent by
+    construction; it lives in ports because app.application must not import
+    app.adapters (see .importlinter).
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class TranscriptionJobCreate:
     user_id: int
@@ -190,8 +201,13 @@ class TranscriptionRepositoryPort(Protocol):
         error_code: str,
         error_message: str,
         retry_delay_seconds: int,
+        terminal: bool = False,
     ) -> str:
-        """Mark a leased job failed or terminal after attempts are exhausted."""
+        """Mark a leased job failed, or terminal when retries cannot help.
+
+        ``terminal`` short-circuits the attempt count for failures that are
+        permanent by construction.
+        """
 
     async def requeue_expired_leases(self) -> int:
         """Move expired running jobs back to queued."""

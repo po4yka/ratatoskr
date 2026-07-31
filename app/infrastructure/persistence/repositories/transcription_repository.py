@@ -197,9 +197,13 @@ class TranscriptionRepositoryAdapter:
         error_code: str,
         error_message: str,
         retry_delay_seconds: int,
+        terminal: bool = False,
     ) -> str:
         now = _utcnow()
-        terminal = job.attempt_count >= job.max_attempts
+        # A permanent failure short-circuits the attempt count: re-downloading,
+        # re-decoding and re-running the model on a file that cannot be decoded
+        # buys nothing but three more passes over a Pi's CPU.
+        terminal = terminal or job.attempt_count >= job.max_attempts
         status = "dead_letter" if terminal else "failed"
         retry_after = None if terminal else now + timedelta(seconds=retry_delay_seconds)
         async with self._db.transaction() as session:

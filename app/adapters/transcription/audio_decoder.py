@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from app.application.ports.transcriptions import PermanentTranscriptionError
 from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:
@@ -27,11 +28,11 @@ class FfmpegNotInstalledError(RuntimeError):
     """Raised when the ffmpeg binary cannot be found on PATH."""
 
 
-class AudioDecodeError(RuntimeError):
+class AudioDecodeError(PermanentTranscriptionError, RuntimeError):
     """Raised when ffmpeg fails to decode a media file."""
 
 
-class NoAudioStreamError(RuntimeError):
+class NoAudioStreamError(PermanentTranscriptionError, RuntimeError):
     """Raised when the input file carries no audio stream ffmpeg can read."""
 
 

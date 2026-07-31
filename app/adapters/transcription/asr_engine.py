@@ -11,14 +11,18 @@ them without caring which is which:
       ships in the same encoder/decoder/joiner/tokens layout.
 
 Both synchronously wait for the full transcript and rely on the caller to
-wrap them in ``asyncio.to_thread``. Token/timestamp extraction is shared
-via ``_try_extract_timestamps``.
+wrap them in ``asyncio.to_thread``. Because of that the first-load path runs
+in a worker thread, not on the event loop, so each engine guards its own
+recognizer construction with a ``threading.Lock`` -- the service-level
+``asyncio.Lock`` cannot reach into a thread. Token/timestamp extraction is
+shared via ``_try_extract_timestamps``.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import threading
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 import numpy as np
@@ -61,6 +65,7 @@ class StreamingAsrEngine:
     """Lazy-loaded sherpa-onnx streaming Zipformer recognizer.
 
     Holds the underlying recognizer for the process lifetime once constructed.
+    Concurrent ``transcribe_sync`` callers load it exactly once.
     """
 
     def __init__(
@@ -74,38 +79,42 @@ class StreamingAsrEngine:
         self._num_threads = max(1, int(num_threads or 1))
         self._tokens_mode: TokensMode = tokens_mode
         self._recognizer: Any | None = None
+        self._load_lock = threading.Lock()
 
     def _ensure_recognizer(self) -> Any:
         if self._recognizer is not None:
             return self._recognizer
-        import sherpa_onnx
+        with self._load_lock:
+            if self._recognizer is not None:
+                return self._recognizer
+            import sherpa_onnx
 
-        encoder = find_model_file(self._model_dir, "encoder")
-        decoder = find_model_file(self._model_dir, "decoder")
-        joiner = find_model_file(self._model_dir, "joiner")
-        tokens = self._model_dir / "tokens.txt"
+            encoder = find_model_file(self._model_dir, "encoder")
+            decoder = find_model_file(self._model_dir, "decoder")
+            joiner = find_model_file(self._model_dir, "joiner")
+            tokens = self._model_dir / "tokens.txt"
 
-        logger.info(
-            "transcription_asr_recognizer_load",
-            extra={
-                "backend": "streaming",
-                "model_dir": str(self._model_dir),
-                "encoder": encoder.name,
-                "num_threads": self._num_threads,
-            },
-        )
-        self._recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
-            encoder=str(encoder),
-            decoder=str(decoder),
-            joiner=str(joiner),
-            tokens=str(tokens),
-            num_threads=self._num_threads or os.cpu_count() or 1,
-            sample_rate=SAMPLE_RATE,
-            feature_dim=_FEATURE_DIM,
-            decoding_method="greedy_search",
-            provider="cpu",
-            enable_endpoint_detection=False,
-        )
+            logger.info(
+                "transcription_asr_recognizer_load",
+                extra={
+                    "backend": "streaming",
+                    "model_dir": str(self._model_dir),
+                    "encoder": encoder.name,
+                    "num_threads": self._num_threads,
+                },
+            )
+            self._recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
+                encoder=str(encoder),
+                decoder=str(decoder),
+                joiner=str(joiner),
+                tokens=str(tokens),
+                num_threads=self._num_threads or os.cpu_count() or 1,
+                sample_rate=SAMPLE_RATE,
+                feature_dim=_FEATURE_DIM,
+                decoding_method="greedy_search",
+                provider="cpu",
+                enable_endpoint_detection=False,
+            )
         return self._recognizer
 
     def transcribe_sync(
@@ -151,6 +160,8 @@ class OfflineAsrEngine:
     canonical encoder/decoder/joiner/tokens.txt layout. Offline means the
     recognizer consumes the full PCM buffer in one call -- there is no
     streaming chunk loop and no tail-padding to flush.
+
+    Concurrent ``transcribe_sync`` callers load the recognizer exactly once.
     """
 
     def __init__(
@@ -164,36 +175,40 @@ class OfflineAsrEngine:
         self._num_threads = max(1, int(num_threads or 1))
         self._tokens_mode: TokensMode = tokens_mode
         self._recognizer: Any | None = None
+        self._load_lock = threading.Lock()
 
     def _ensure_recognizer(self) -> Any:
         if self._recognizer is not None:
             return self._recognizer
-        import sherpa_onnx
+        with self._load_lock:
+            if self._recognizer is not None:
+                return self._recognizer
+            import sherpa_onnx
 
-        encoder = find_model_file(self._model_dir, "encoder")
-        decoder = find_model_file(self._model_dir, "decoder")
-        joiner = find_model_file(self._model_dir, "joiner")
-        tokens = self._model_dir / "tokens.txt"
+            encoder = find_model_file(self._model_dir, "encoder")
+            decoder = find_model_file(self._model_dir, "decoder")
+            joiner = find_model_file(self._model_dir, "joiner")
+            tokens = self._model_dir / "tokens.txt"
 
-        logger.info(
-            "transcription_asr_recognizer_load",
-            extra={
-                "backend": "offline_transducer",
-                "model_dir": str(self._model_dir),
-                "encoder": encoder.name,
-                "num_threads": self._num_threads,
-            },
-        )
-        self._recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
-            encoder=str(encoder),
-            decoder=str(decoder),
-            joiner=str(joiner),
-            tokens=str(tokens),
-            num_threads=self._num_threads or os.cpu_count() or 1,
-            sample_rate=SAMPLE_RATE,
-            feature_dim=_FEATURE_DIM,
-            decoding_method="greedy_search",
-        )
+            logger.info(
+                "transcription_asr_recognizer_load",
+                extra={
+                    "backend": "offline_transducer",
+                    "model_dir": str(self._model_dir),
+                    "encoder": encoder.name,
+                    "num_threads": self._num_threads,
+                },
+            )
+            self._recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
+                encoder=str(encoder),
+                decoder=str(decoder),
+                joiner=str(joiner),
+                tokens=str(tokens),
+                num_threads=self._num_threads or os.cpu_count() or 1,
+                sample_rate=SAMPLE_RATE,
+                feature_dim=_FEATURE_DIM,
+                decoding_method="greedy_search",
+            )
         return self._recognizer
 
     def transcribe_sync(

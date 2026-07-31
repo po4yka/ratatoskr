@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from app.application.ports.transcriptions import (
     LeasedTranscriptionJob,
+    PermanentTranscriptionError,
     TranscribeOptions,
     TranscriptionArtifactCreate,
     TranscriptionJobCreate,
@@ -269,6 +270,7 @@ class TranscriptionJobService:
                 error_code=exc.__class__.__name__,
                 error_message=safe_message,
                 retry_delay_seconds=self._retry_delay_seconds,
+                terminal=isinstance(exc, PermanentTranscriptionError),
             )
             await self._publish(
                 job, "error", "error", 1.0 if status == "dead_letter" else None, safe_message
