@@ -72,6 +72,20 @@ services:
       # Cap glibc malloc arenas (default up to 8*cores) to curb RSS growth on
       # the long-lived async process; Pi-tuning, see CLAUDE.md.
       - MALLOC_ARENA_MAX=2
+      # Same torch-vs-cgroup oversubscription the worker documents below; this
+      # service was missed when that fix landed. The bot embeds too --
+      # di/telegram.py:52 pulls build_search_dependencies, which calls
+      # create_embedding_service at di/search.py:109 -- under the same 0.75-CPU
+      # quota, so uncapped torch sizes its pool from nproc (4) and burns the CFS
+      # quota in a fraction of every period, freezing the whole container
+      # including the event loop. Must be env, not torch.set_num_threads():
+      # torch reads these at import and the import is lazy (see EmbeddingService).
+      # This does not touch transcription: sherpa-onnx gets its thread count
+      # explicitly from TRANSCRIPTION_NUM_THREADS (default 2), and ONNX Runtime
+      # is not an OpenMP build.
+      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
+      - MKL_NUM_THREADS=${MKL_NUM_THREADS:-1}
+      - OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-1}
       - TEXTACY_ENABLED=${TEXTACY_ENABLED:-0}
       - MAX_CONCURRENT_CALLS=${MAX_CONCURRENT_CALLS:-2}
       - SCRAPER_PROFILE=${SCRAPER_PROFILE:-balanced}
