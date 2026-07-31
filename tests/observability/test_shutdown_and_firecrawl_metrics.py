@@ -21,6 +21,7 @@ notice that Firecrawl has gone quiet while URLs are still being processed.
 
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -31,7 +32,24 @@ import pytest
 ALERTS = Path(__file__).resolve().parents[2] / "ops/monitoring/alerting_rules.yml"
 
 
+# The CI unit-test environment installs no optional extras, so the OTel SDK is
+# absent there. The source-level wiring assertions below still run; only the
+# tests that poke the SDK need it.
+def _otel_installed() -> bool:
+    try:
+        return importlib.util.find_spec("opentelemetry") is not None
+    except ModuleNotFoundError:
+        return False
+
+
+_needs_otel = pytest.mark.skipif(
+    not _otel_installed(),
+    reason="opentelemetry SDK is not installed in this environment",
+)
+
+
 class TestTracingShutdown:
+    @_needs_otel
     def test_shutdown_flushes_the_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from app.observability import otel
 
@@ -44,6 +62,7 @@ class TestTracingShutdown:
 
         provider.shutdown.assert_called_once()
 
+    @_needs_otel
     def test_a_second_call_is_a_no_op(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """atexit fires after the explicit call; the second must not double-shutdown."""
         from app.observability import otel
@@ -58,6 +77,7 @@ class TestTracingShutdown:
 
         assert provider.shutdown.call_count == 1
 
+    @_needs_otel
     def test_it_is_safe_when_tracing_never_started(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from app.observability import otel
 
@@ -65,6 +85,7 @@ class TestTracingShutdown:
         monkeypatch.setattr(otel, "_initialized", False)
         otel.shutdown_tracing()  # must not raise
 
+    @_needs_otel
     def test_the_sdk_already_owns_the_atexit_hook(self) -> None:
         """Why this fix lives in the shutdown seams and not in an atexit hook.
 
