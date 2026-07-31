@@ -33,7 +33,6 @@ class TelegramClient:
     def __init__(self, cfg: AppConfig) -> None:
         self.cfg = cfg
         self.client: TelethonBotClient | None = None
-        self.topic_manager: Any = None
 
         if not TELETHON_AVAILABLE:
             self.client = None
@@ -79,7 +78,6 @@ class TelegramClient:
             },
         )
         await self._setup_bot_commands()
-        await self._setup_forum_topics()
         await idle()
 
     async def _setup_bot_commands(self) -> None:
@@ -201,22 +199,6 @@ class TelegramClient:
             except Exception as exc:
                 logger.warning(
                     "owner_bot_commands_set_failed",
-                    extra={"user_id": uid, "error": str(exc)},
-                )
-
-    async def _setup_forum_topics(self) -> None:
-        """Initialize forum topics for allowed users' private chats."""
-        if self.topic_manager is None or not self.client:
-            return
-        if not self.cfg.telegram.allowed_user_ids:
-            return
-
-        for uid in self.cfg.telegram.allowed_user_ids:
-            try:
-                await self.topic_manager.ensure_default_topics(self.client, uid)
-            except Exception as exc:
-                logger.warning(
-                    "forum_topics_setup_failed",
                     extra={"user_id": uid, "error": str(exc)},
                 )
 

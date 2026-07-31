@@ -69,12 +69,6 @@ class ResponseSenderReplyFlow:
                     disable_web_page_preview=disable_web_page_preview,
                     silent=silent,
                 )
-                if message_thread_id is not None and self._state.telegram_client is not None:
-                    client = getattr(self._state.telegram_client, "client", None)
-                    chat_id = getattr(getattr(msg_any, "chat", None), "id", None)
-                    if client is not None and chat_id is not None:
-                        kwargs["message_thread_id"] = message_thread_id
-                        return await client.send_message(chat_id, text, **kwargs)
                 return await msg_any.reply_text(text, **kwargs)
 
             _, success = await retry_telegram_operation(send, operation_name="safe_reply")

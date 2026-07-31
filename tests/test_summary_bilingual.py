@@ -89,7 +89,6 @@ def _flow_with_lang(lang: str) -> tuple[StructuredSummaryFlow, Any, Any]:
         data_formatter=cast("Any", MagicMock()),
         verbosity_resolver=None,
         progress_tracker=None,
-        topic_manager=None,
         lang=lang,
     )
     flow = StructuredSummaryFlow(ctx, blocks=SummaryBlocksPresenter(ctx))

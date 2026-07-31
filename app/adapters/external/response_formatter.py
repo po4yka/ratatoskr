@@ -42,7 +42,6 @@ if TYPE_CHECKING:
         SummaryPresenter,
         TextProcessor,
     )
-    from app.adapters.telegram.topic_manager import TopicManager
     from app.application.services.topic_search import TopicArticle
     from app.core.telegram_progress_message import TelegramProgressMessage
     from app.core.verbosity import VerbosityResolver
@@ -66,7 +65,6 @@ class ResponseFormatter:
         telegram_config: Any = None,
         verbosity_resolver: VerbosityResolver | None = None,
         admin_log_chat_id: int | None = None,
-        topic_manager: TopicManager | None = None,
         lang: str = "en",
     ) -> None:
         self._verbosity_resolver = verbosity_resolver
@@ -129,7 +127,6 @@ class ResponseFormatter:
             data_formatter,
             verbosity_resolver=verbosity_resolver,
             progress_tracker=progress_tracker,
-            topic_manager=topic_manager,
             lang=lang,
         )
 
@@ -202,10 +199,6 @@ class ResponseFormatter:
             safe_reply_func=safe_reply_func,
             reply_json_func=reply_json_func,
         )
-
-    def set_topic_manager(self, topic_manager: TopicManager | None) -> None:
-        """Rebind forum-topic routing without mutating presenter internals."""
-        self._summary_presenter.set_topic_manager(topic_manager)
 
     # ======== Async public methods ========
 

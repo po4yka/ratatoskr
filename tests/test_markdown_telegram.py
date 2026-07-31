@@ -108,7 +108,6 @@ def _field_context() -> SummaryPresenterContext:
         data_formatter=cast("DataFormatter", None),
         verbosity_resolver=None,
         progress_tracker=None,
-        topic_manager=None,
         lang="en",
     )
 

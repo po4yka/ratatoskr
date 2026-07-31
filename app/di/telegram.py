@@ -397,11 +397,6 @@ def _build_telegram_interface_stack(
 ) -> _TelegramInterfaceStack:
     telegram_client = TelegramClient(cfg=cfg)
     core.response_formatter.set_telegram_client(telegram_client)
-    _configure_forum_topics(
-        cfg=cfg,
-        response_formatter=core.response_formatter,
-        telegram_client=telegram_client,
-    )
 
     adaptive_timeout_service = _create_adaptive_timeout_service(cfg=cfg, db=db)
     task_manager = UserTaskManager()
@@ -599,22 +594,6 @@ def _build_command_dispatcher(
         backup_handler=dispatcher_deps.backup_handler,
         transcribe_handler=dispatcher_deps.transcribe_handler,
     )
-
-
-def _configure_forum_topics(
-    *,
-    cfg: AppConfig,
-    response_formatter: Any,
-    telegram_client: TelegramClient,
-) -> None:
-    if not cfg.telegram.forum_topics_enabled:
-        return
-    from app.adapters.telegram.topic_manager import TopicManager
-
-    topic_manager = TopicManager()
-    response_formatter.set_topic_manager(topic_manager)
-    telegram_client.topic_manager = topic_manager
-    logger.info("forum_topic_manager_initialized")
 
 
 def _build_url_media_downloader() -> Any:

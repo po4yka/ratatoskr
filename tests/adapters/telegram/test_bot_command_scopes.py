@@ -66,7 +66,6 @@ def _make_client(allowed_user_ids: tuple[int, ...]) -> TelegramClient:
     tc = TelegramClient.__new__(TelegramClient)
     tc.cfg = _CfgStub(allowed_user_ids)  # type: ignore[assignment]
     tc.client = _RecordingClient()  # type: ignore[assignment]
-    tc.topic_manager = None
     return tc
 
 

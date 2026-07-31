@@ -9,10 +9,8 @@ from app.adapters.external.formatting.html_repair import repair_html_chunk
 from app.adapters.external.formatting.summary.action_buttons import create_inline_keyboard
 from app.adapters.external.formatting.summary.card_renderer import (
     build_card_sections,
-    build_compact_card_html,
     truncate_plain_text,
 )
-from app.adapters.external.formatting.summary.crosspost_publisher import crosspost_to_topic
 from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import get_logger
 from app.core.ui_strings import t
@@ -35,19 +33,6 @@ class StructuredSummaryFlow:
     ) -> None:
         self._context = context
         self._blocks = blocks
-
-    def _build_compact_card_html(
-        self, summary_shaped: dict[str, Any], llm: Any, chunks: int | None, *, reader: bool
-    ) -> str:
-        return build_compact_card_html(
-            summary_shaped,
-            llm,
-            chunks,
-            reader=reader,
-            text_processor=self._context.text_processor,
-            data_formatter=self._context.data_formatter,
-            lang=self._context.lang,
-        )
 
     def _create_inline_keyboard(
         self,
@@ -135,19 +120,15 @@ class StructuredSummaryFlow:
         summary_id: int | str | None,
         *,
         reader: bool,
-    ) -> tuple[bool, str | None]:
+    ) -> bool:
         """Finalize progress message with header section, send remaining sections separately."""
-        card_text: str | None = None
         try:
             sections = self._build_card_sections(summary_shaped, llm, chunks, reader=reader)
-            # card_text = full joined card for crosspost / fallback
-            card_text = "\n\n".join(sections).strip() or None
-
             if not sections:
-                return False, card_text
+                return False
 
             if self._context.progress_tracker is None:
-                return False, card_text
+                return False
 
             header_section = sections[0]
             remaining_sections = sections[1:]
@@ -182,7 +163,7 @@ class StructuredSummaryFlow:
                         "progress_finalize_failed_fallback",
                         extra={"request_message_id": getattr(message, "id", None)},
                     )
-                    return False, card_text
+                    return False
             else:
                 # Header too long (very long TLDR): finalize with just title,
                 # send full TLDR separately
@@ -273,7 +254,7 @@ class StructuredSummaryFlow:
                             extra={"error": str(kb_exc)},
                         )
 
-            return True, card_text
+            return True
         except Exception as exc:
             raise_if_cancelled(exc)
             logger.warning(
@@ -284,7 +265,7 @@ class StructuredSummaryFlow:
                     "request_message_id": getattr(message, "id", None),
                 },
             )
-        return False, card_text
+        return False
 
     async def send_structured_summary_response(
         self,
@@ -299,7 +280,7 @@ class StructuredSummaryFlow:
             reader = await self._is_reader_mode(message)
             if not reader:
                 await self._maybe_send_cover(message, summary_shaped)
-            job_card_finalized, card_text = await self._finalize_compact_card(
+            job_card_finalized = await self._finalize_compact_card(
                 message,
                 summary_shaped,
                 llm,
@@ -347,15 +328,6 @@ class StructuredSummaryFlow:
                     message, summary_id, correlation_id, summary_shaped.get("canonical_url")
                 )
 
-            await self._crosspost_to_topic(
-                message,
-                summary_shaped,
-                llm,
-                chunks,
-                summary_id,
-                correlation_id,
-                card_text,
-            )
             return bot_reply_id
         except Exception as exc:
             raise_if_cancelled(exc)
@@ -493,28 +465,3 @@ class StructuredSummaryFlow:
             await self._send_action_buttons(
                 message, summary_id, source_url=forward_shaped.get("canonical_url")
             )
-
-    async def _crosspost_to_topic(
-        self,
-        message: Any,
-        summary_shaped: dict[str, Any],
-        llm: Any,
-        chunks: int | None,
-        summary_id: int | str | None,
-        correlation_id: str | None,
-        card_text: str | None = None,
-    ) -> None:
-        if self._context.topic_manager is None:
-            return
-        if card_text is None:
-            card_text = self._build_compact_card_html(summary_shaped, llm, chunks, reader=True)
-        await crosspost_to_topic(
-            topic_manager=self._context.topic_manager,
-            response_sender=self._context.response_sender,
-            message=message,
-            summary_shaped=summary_shaped,
-            summary_id=summary_id,
-            correlation_id=correlation_id,
-            card_text=card_text,
-            create_keyboard_fn=self._create_inline_keyboard,
-        )

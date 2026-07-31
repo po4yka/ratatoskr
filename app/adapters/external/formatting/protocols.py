@@ -480,10 +480,6 @@ class ResponseFormatterFacade(
         """Return whether the user prefers reader-mode progress updates."""
         ...
 
-    def set_topic_manager(self, topic_manager: Any | None) -> None:
-        """Update topic routing without rebuilding the formatter."""
-        ...
-
     def set_reply_callbacks(
         self,
         *,

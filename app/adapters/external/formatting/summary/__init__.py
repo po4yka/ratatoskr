@@ -8,7 +8,6 @@ from .card_renderer import (
     sanitize_tldr,
     truncate_plain_text,
 )
-from .crosspost_publisher import crosspost_to_topic
 from .related_reads_presenter import build_related_reads_keyboard, send_related_reads
 
 __all__ = [
@@ -17,7 +16,6 @@ __all__ = [
     "build_related_reads_keyboard",
     "create_action_buttons",
     "create_inline_keyboard",
-    "crosspost_to_topic",
     "extract_domain_from_url",
     "sanitize_tldr",
     "send_related_reads",

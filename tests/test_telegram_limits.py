@@ -40,7 +40,6 @@ def _presenter_with_ceiling(ceiling: int) -> SummaryBlocksPresenter:
         data_formatter=cast("DataFormatter", None),
         verbosity_resolver=None,
         progress_tracker=None,
-        topic_manager=None,
         lang="en",
     )
     return SummaryBlocksPresenter(ctx)

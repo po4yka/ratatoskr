@@ -11,7 +11,6 @@ if TYPE_CHECKING:
         ResponseSender,
         TextProcessor,
     )
-    from app.adapters.telegram.topic_manager import TopicManager
     from app.core.telegram_progress_message import TelegramProgressMessage
     from app.core.verbosity import VerbosityResolver
 
@@ -25,5 +24,4 @@ class SummaryPresenterContext:
     data_formatter: DataFormatter
     verbosity_resolver: VerbosityResolver | None
     progress_tracker: TelegramProgressMessage | None
-    topic_manager: TopicManager | None
     lang: str

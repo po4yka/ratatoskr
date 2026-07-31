@@ -19,7 +19,6 @@ if TYPE_CHECKING:
         ResponseSender,
         TextProcessor,
     )
-    from app.adapters.telegram.topic_manager import TopicManager
     from app.application.services.related_reads_service import RelatedReadItem
     from app.core.telegram_progress_message import TelegramProgressMessage
     from app.core.verbosity import VerbosityResolver
@@ -36,7 +35,6 @@ class SummaryPresenterImpl:
         *,
         verbosity_resolver: VerbosityResolver | None = None,
         progress_tracker: TelegramProgressMessage | None = None,
-        topic_manager: TopicManager | None = None,
         lang: str = "en",
     ) -> None:
         self._context = SummaryPresenterContext(
@@ -45,15 +43,11 @@ class SummaryPresenterImpl:
             data_formatter=data_formatter,
             verbosity_resolver=verbosity_resolver,
             progress_tracker=progress_tracker,
-            topic_manager=topic_manager,
             lang=lang,
         )
         self._blocks = SummaryBlocksPresenter(self._context)
         self._structured = StructuredSummaryFlow(self._context, blocks=self._blocks)
         self._followups = SummaryFollowupPresenters(self._context)
-
-    def set_topic_manager(self, topic_manager: TopicManager | None) -> None:
-        self._context.topic_manager = topic_manager
 
     async def send_structured_summary_response(
         self,

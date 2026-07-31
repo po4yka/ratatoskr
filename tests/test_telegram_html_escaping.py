@@ -44,7 +44,6 @@ def _presenter() -> SummaryBlocksPresenter:
         data_formatter=cast("DataFormatter", data_formatter),
         verbosity_resolver=None,
         progress_tracker=None,
-        topic_manager=None,
         lang="en",
     )
     return SummaryBlocksPresenter(context)
@@ -213,7 +212,6 @@ async def test_russian_translation_body_is_escaped() -> None:
         data_formatter=cast("DataFormatter", SimpleNamespace()),
         verbosity_resolver=None,
         progress_tracker=None,
-        topic_manager=None,
         lang="ru",
     )
 

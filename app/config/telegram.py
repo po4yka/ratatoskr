@@ -46,11 +46,6 @@ class TelegramConfig(BaseModel):
         validation_alias=AliasChoices("ADMIN_LOG_CHAT_ID", "TELEGRAM_ADMIN_LOG_CHAT_ID"),
         description="Chat ID to send debug-level notifications to (optional)",
     )
-    forum_topics_enabled: bool = Field(
-        default=False,
-        validation_alias=AliasChoices("FORUM_TOPICS_ENABLED", "TELEGRAM_FORUM_TOPICS_ENABLED"),
-        description="Enable forum topics in private chats to organize summaries by category",
-    )
     api_base_url: str = Field(
         default="",
         validation_alias=AliasChoices("API_BASE_URL", "TELEGRAM_API_BASE_URL"),
