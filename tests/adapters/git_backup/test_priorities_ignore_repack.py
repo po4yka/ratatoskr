@@ -406,7 +406,7 @@ class _RecordingMaintenance:
     def run_post_sync_maintenance(self, repo_path: Path) -> None:
         pass  # no-op
 
-    def register_sync_and_check_repack(self) -> bool:
+    def register_sync_and_check_repack(self, destination_path: Path) -> bool:
         self.register_calls += 1
         return self._repack_due
 

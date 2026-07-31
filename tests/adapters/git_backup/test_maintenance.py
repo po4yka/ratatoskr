@@ -4,7 +4,9 @@ plus git-argv coverage via an injected command runner)."""
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
+import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -33,29 +35,89 @@ def _make(config: Maintenance) -> tuple[RepositoryMaintenance, RecordingRunner]:
     return RepositoryMaintenance(config, run_git=runner), runner
 
 
-# --- shouldRunFullRepack counters (ported from RepositoryMaintenanceTest.kt) ---
+# --- full-repack cadence (on-disk marker, survives the worker process) ---
+
+MARKER = ".ratatoskr-last-full-repack"
 
 
-def test_full_repack_disabled() -> None:
+def _fresh(interval: str) -> RepositoryMaintenance:
+    """A new object per call -- the Taskiq task rebuilds the service every run."""
+    return RepositoryMaintenance(
+        Maintenance(enabled=True, full_repack_interval=interval), run_git=RecordingRunner()
+    )
+
+
+def _age_marker(path: Path, days: float) -> None:
+    stamp = time.time() - days * 86400
+    os.utime(path, (stamp, stamp))
+
+
+def test_full_repack_disabled(tmp_path: Path) -> None:
     m, _ = _make(Maintenance(enabled=False))
-    assert m.register_sync_and_check_repack() is False
+    assert m.register_sync_and_check_repack(tmp_path) is False
+    assert not (tmp_path / MARKER).exists()
 
 
-def test_full_repack_never() -> None:
+def test_full_repack_never_leaves_no_marker(tmp_path: Path) -> None:
     m, _ = _make(Maintenance(enabled=True, full_repack_interval="never"))
-    assert all(m.register_sync_and_check_repack() is False for _ in range(100))
+    assert all(m.register_sync_and_check_repack(tmp_path) is False for _ in range(100))
+    assert not (tmp_path / MARKER).exists()
 
 
-def test_full_repack_weekly_every_7() -> None:
-    m, _ = _make(Maintenance(enabled=True, full_repack_interval="weekly"))
-    results = [m.register_sync_and_check_repack() for _ in range(14)]
-    assert [i + 1 for i, r in enumerate(results) if r] == [7, 14]
+def test_first_run_arms_the_timer_without_firing(tmp_path: Path) -> None:
+    assert _fresh("weekly").register_sync_and_check_repack(tmp_path) is False
+    assert (tmp_path / MARKER).exists()
 
 
-def test_full_repack_monthly_every_30() -> None:
-    m, _ = _make(Maintenance(enabled=True, full_repack_interval="monthly"))
-    results = [m.register_sync_and_check_repack() for _ in range(30)]
-    assert [i + 1 for i, r in enumerate(results) if r] == [30]
+def test_a_not_due_run_does_not_restamp_the_marker(tmp_path: Path) -> None:
+    """The bug this replaces, in its second form.
+
+    An unconditional touch() would push the deadline forward on every sync, so
+    the interval is never reached -- exactly what the in-memory counter did.
+    """
+    marker = tmp_path / MARKER
+    assert _fresh("weekly").register_sync_and_check_repack(tmp_path) is False
+    _age_marker(marker, 6)
+    before = marker.stat().st_mtime
+
+    assert _fresh("weekly").register_sync_and_check_repack(tmp_path) is False
+    assert marker.stat().st_mtime == before
+
+
+def test_weekly_fires_once_the_interval_elapses(tmp_path: Path) -> None:
+    """A fresh object every run: the whole point is that state is not in memory."""
+    marker = tmp_path / MARKER
+    assert _fresh("weekly").register_sync_and_check_repack(tmp_path) is False
+    _age_marker(marker, 7.1)
+    assert _fresh("weekly").register_sync_and_check_repack(tmp_path) is True
+    # Firing re-arms, so the next night is quiet again.
+    assert _fresh("weekly").register_sync_and_check_repack(tmp_path) is False
+
+
+def test_monthly_ignores_a_week_old_marker(tmp_path: Path) -> None:
+    marker = tmp_path / MARKER
+    assert _fresh("monthly").register_sync_and_check_repack(tmp_path) is False
+    _age_marker(marker, 8)
+    assert _fresh("monthly").register_sync_and_check_repack(tmp_path) is False
+    _age_marker(marker, 31)
+    assert _fresh("monthly").register_sync_and_check_repack(tmp_path) is True
+
+
+def test_an_unwritable_store_does_not_fire(tmp_path: Path) -> None:
+    """Better to skip the repack than to repack every night with no memory of it."""
+    store = tmp_path / "ro"
+    store.mkdir()
+    store.chmod(0o500)
+    try:
+        assert _fresh("weekly").register_sync_and_check_repack(store) is False
+    finally:
+        store.chmod(0o700)
+
+
+def test_the_marker_is_not_mistaken_for_a_repo(tmp_path: Path) -> None:
+    """find_git_repos walks the same root the marker lives in."""
+    _fresh("weekly").register_sync_and_check_repack(tmp_path)
+    assert RepositoryMaintenance.find_git_repos(tmp_path) == []
 
 
 # --- post-sync maintenance argv ---

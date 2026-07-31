@@ -27,6 +27,41 @@ _GIT_BACKUP_SYNC_LOCK_KEY = "task_lock:git_backup_sync"
 _GIT_BACKUP_SYNC_LOCK_TTL = 3600
 
 
+async def _upsert_extra_repos(cfg: AppConfig, db: Database, owner_id: int) -> int:
+    """Give every GIT_BACKUP_EXTRA_REPOS entry a real GitMirror row.
+
+    Without a row these targets ran on synthetic stubs (id=-1, user_id=0), which
+    meant no failure counters, no backoff, no status and no visibility in
+    /mirrors or GET /v1/git-mirrors -- a permanently failing extra repo retried
+    at full rate every night and left no trace. As ordinary manual mirrors they
+    inherit all of that machinery for free.
+
+    Per-entry failures are logged and skipped: git_mirrors.user_id is a foreign
+    key, so an owner with no users row raises IntegrityError, and one bad entry
+    must not abort the sync.
+    """
+    from app.adapters.git_backup.repository import GitMirrorRepository
+    from app.db.models.git_backup import GitMirrorSource
+
+    repo = GitMirrorRepository(db=db, config=cfg.git_backup)
+    upserted = 0
+    for name, url in cfg.git_backup.extra_repos.items():
+        try:
+            await repo.upsert_target(
+                user_id=owner_id,
+                source=GitMirrorSource.MANUAL,
+                clone_url=url,
+                name=name,
+            )
+            upserted += 1
+        except Exception as exc:
+            logger.warning(
+                "git_backup_extra_repo_upsert_failed",
+                extra={"name": name, "error": str(exc)},
+            )
+    return upserted
+
+
 async def _enumerate_and_upsert_gists(cfg: AppConfig, db: Database) -> int:
     """Enumerate GitHub gists for all active integrations and upsert GitMirror rows.
 
@@ -677,6 +712,14 @@ async def sync_git_backup(
                         )
                 except Exception:
                     logger.warning("git_backup_release_unstarred_failed")
+
+            if cfg.git_backup.extra_repos:
+                owner_id = next(iter(cfg.telegram.allowed_user_ids), None)
+                if owner_id is None:
+                    logger.warning("git_backup_extra_repos_no_owner")
+                else:
+                    upserted = await _upsert_extra_repos(cfg, db, owner_id)
+                    logger.debug("git_backup_extra_repos_upserted", extra={"count": upserted})
 
             runtime = build_git_backup_task_runtime(cfg, db)
             _sync_start = time.perf_counter()

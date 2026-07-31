@@ -435,7 +435,7 @@ class GitMirrorService:
 
         Steps:
         1. Preflight storage check (unless dry_run).
-        2. Collect mirror tasks from the DB + extra_repos config.
+        2. Collect mirror tasks from the DB.
         3. Run tasks in parallel under Semaphore(workers).
         4. Persist outcomes.
         """
@@ -449,7 +449,9 @@ class GitMirrorService:
                 logger.error("git_mirror_preflight_failed: %s", error_msg)
                 raise RuntimeError(f"Storage pre-flight check failed: {error_msg}")
 
-        # Collect tasks: DB mirrors + static extra_repos
+        # Collect tasks from the DB. Static GIT_BACKUP_EXTRA_REPOS entries are
+        # upserted into git_mirrors by the sync task before this runs, so they
+        # arrive here as ordinary rows.
         tasks = await self._collect_tasks(user_id, data_path)
 
         if dry_run:
@@ -586,7 +588,9 @@ class GitMirrorService:
         # Finalize: check whether a periodic full repack is now due (once per run,
         # not once per repo). This is the port of Engine._finalize's
         # register_sync_and_check_repack call in gitout.
-        if self._maintenance is not None and self._maintenance.register_sync_and_check_repack():
+        if self._maintenance is not None and self._maintenance.register_sync_and_check_repack(
+            data_path
+        ):
             logger.info(
                 "git_mirror_full_repack_due: running full repack of %s",
                 cfg.data_path,
@@ -604,7 +608,7 @@ class GitMirrorService:
         user_id: int | None,
         data_path: Path,
     ) -> list[MirrorTask]:
-        """Build the list of work items from the DB and extra_repos config.
+        """Build the list of work items from the DB.
 
         Applies the ignore list (cfg.ignore) to filter out matching targets, then
         applies priority rules (cfg.priorities) to reorder the task list and assign
@@ -656,61 +660,6 @@ class GitMirrorService:
                     credentials_token=credentials_token,
                 )
             )
-
-        # Static extra_repos (not in DB; we create ephemeral GitMirror-like stubs
-        # as MANUAL mirrors, upserting them so they get a real DB row and outcomes
-        # are persisted).
-        for name, url in cfg.extra_repos.items():
-            # Apply ignore filter before any upsert.
-            if ignore_patterns and _is_ignored(name, url, ignore_patterns):
-                logger.debug(
-                    "git_mirror_ignored name=%s url=%s (matches ignore list, extra_repos)",
-                    name,
-                    url,
-                )
-                continue
-            # If we already have this URL from the DB list, skip.
-            if any(t.mirror.clone_url == url for t in tasks):
-                continue
-            # Upsert to ensure a row exists.
-            if user_id is not None:
-                mirror = await self._mirror_repo.upsert_target(
-                    user_id=user_id,
-                    source=GitMirrorSource.MANUAL,
-                    clone_url=url,
-                    name=name,
-                )
-                dest = self._mirror_destination(data_path, mirror)
-                is_large = bool(mirror.size_kb and mirror.size_kb >= threshold_kb)
-                tasks.append(
-                    MirrorTask(
-                        mirror=mirror,
-                        effective_url=url,
-                        name=name,
-                        destination=dest,
-                        is_large_repo=is_large,
-                    )
-                )
-            else:
-                # No user_id: no DB row possible; run without persistence.
-                # Create a minimal synthetic GitMirror so MirrorTask has a mirror field.
-                synthetic = GitMirror(
-                    id=-1,
-                    user_id=0,
-                    source=GitMirrorSource.MANUAL,
-                    clone_url=url,
-                    name=name,
-                    consecutive_failures=0,
-                )
-                dest = data_path / "extra" / name
-                tasks.append(
-                    MirrorTask(
-                        mirror=synthetic,
-                        effective_url=url,
-                        name=name,
-                        destination=dest,
-                    )
-                )
 
         # Apply priority rules: reorder and assign per-task timeout overrides.
         if priority_rules:
@@ -897,7 +846,7 @@ class GitMirrorService:
         # SSRF guard (authoritative, clone time): resolve the target host and
         # refuse to clone from private / loopback / link-local / reserved
         # addresses. Enforced here -- not only at registration -- so DB-sourced
-        # rows and config extra_repos are covered and the DNS-rebinding window
+        # rows are covered and the DNS-rebinding window
         # is narrowed. Blocking DNS is offloaded to a thread.
         host = extract_git_host(task.effective_url)
         if host is None:
@@ -1080,7 +1029,38 @@ class GitMirrorService:
             if isinstance(self._lfs, _Unset):
                 self._lfs = await asyncio.to_thread(self._build_lfs)
             if self._lfs is not None:
-                await asyncio.to_thread(self._lfs.sync_lfs_if_needed, dest)
+                # git-lfs issues its own HTTP requests and does not inherit the
+                # clone's credentials. The clone's credential file is already gone
+                # by now -- it is unlinked in operation()'s finally, which ran when
+                # the retry policy returned -- so write a fresh short-lived one.
+                lfs_credentials: str | None = None
+                if task.credentials_token:
+                    lfs_credentials = await asyncio.to_thread(
+                        _write_credential_file, task.effective_url, task.credentials_token
+                    )
+                try:
+                    lfs_ok = await asyncio.to_thread(
+                        self._lfs.sync_lfs_if_needed, dest, credentials_path=lfs_credentials
+                    )
+                finally:
+                    if lfs_credentials is not None:
+                        with contextlib.suppress(FileNotFoundError):
+                            os.unlink(lfs_credentials)
+                if not lfs_ok:
+                    # The refs are mirrored but the large files are pointers only.
+                    # Reporting success here is how a backup silently loses data,
+                    # so this is a failure even though the git part worked.
+                    message = "git lfs fetch failed; large-file content is missing"
+                    logger.warning("git_mirror_lfs_failed name=%s", task.name)
+                    breaker.record_failure(ErrorCategory.UNKNOWN)
+                    return MirrorOutcome(
+                        mirror=task.mirror,
+                        ok=False,
+                        error=message,
+                        error_category=ErrorCategory.UNKNOWN,
+                        attempts=1,
+                        clone_strategy=clone_strategy if is_clone else None,
+                    )
 
             return MirrorOutcome(
                 mirror=task.mirror,

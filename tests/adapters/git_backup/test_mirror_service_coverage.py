@@ -445,13 +445,36 @@ class TestCircuitBreakerOpenSkip:
 
 
 # ---------------------------------------------------------------------------
-# extra_repos iteration: upsert, duplicate-skip, synthetic mirror
+# extra_repos: upserted into git_mirrors by the sync task, collected as DB rows
 # ---------------------------------------------------------------------------
 
 
 class TestExtraRepos:
+    """The collector no longer special-cases GIT_BACKUP_EXTRA_REPOS.
+
+    It used to build a synthetic GitMirror(id=-1, user_id=0) whenever perform_sync
+    ran without a user_id -- which is every production call, since the Taskiq task
+    invokes perform_sync() with the default. Those stubs carried no failure
+    counters, no backoff and no queryable row, and their destination was the one
+    path never passed through _assert_inside_data_path. The task now upserts a
+    real manual mirror per entry before syncing, so they arrive here as DB rows.
+    """
+
     @pytest.mark.asyncio
-    async def test_extra_repo_upsertion_when_user_id_provided(self) -> None:
+    async def test_an_entry_without_a_db_row_produces_no_task(self) -> None:
+        """The synthetic-stub path is gone: config alone no longer schedules work."""
+        cfg = _make_config(
+            GIT_BACKUP_EXTRA_REPOS={"myorg/extra": "https://git.example.com/extra.git"}
+        )
+        service = _make_service(_FakeMirrorRepo([]), cfg)
+
+        tasks = await service._collect_tasks(cfg, Path("/data"))
+
+        assert tasks == []
+
+    @pytest.mark.asyncio
+    async def test_the_collector_no_longer_upserts_during_a_sync(self) -> None:
+        """Upserting is the task's job now, and it happens before perform_sync."""
         cfg = _make_config(
             GIT_BACKUP_EXTRA_REPOS={"myorg/extra": "https://git.example.com/extra.git"}
         )
@@ -469,95 +492,46 @@ class TestExtraRepos:
         ):
             await service.perform_sync(user_id=42)
 
-        # upsert_target must have been called for the extra repo.
-        assert len(fake_repo.upsert_calls) == 1
-        assert fake_repo.upsert_calls[0]["user_id"] == 42
-        assert fake_repo.upsert_calls[0]["clone_url"] == "https://git.example.com/extra.git"
+        assert fake_repo.upsert_calls == []
 
     @pytest.mark.asyncio
-    async def test_extra_repo_skipped_when_already_in_db(self) -> None:
-        db_mirror = _make_mirror(
-            mirror_id=99,
+    async def test_an_upserted_entry_is_collected_like_any_other_mirror(self) -> None:
+        cfg = _make_config(
+            GIT_BACKUP_EXTRA_REPOS={"myorg/extra": "https://git.example.com/extra.git"}
+        )
+        mirror = _make_mirror(
+            mirror_id=7,
             name="myorg/extra",
             clone_url="https://git.example.com/extra.git",
+            source=GitMirrorSource.MANUAL,
         )
-        cfg = _make_config(
-            GIT_BACKUP_EXTRA_REPOS={"myorg/extra": "https://git.example.com/extra.git"}
-        )
-        fake_repo = _FakeMirrorRepo([db_mirror])
-        service = _make_service(fake_repo, cfg)
+        service = _make_service(_FakeMirrorRepo([mirror]), cfg)
 
-        with (
-            patch(
-                "app.adapters.git_backup.mirror_service._preflight_storage_check",
-                return_value=None,
-            ),
-            patch.object(service, "_resolve_url", side_effect=lambda m: (m.clone_url, None)),
-            patch("app.adapters.git_backup.mirror_service.assert_resolved_public_host"),
-            patch("pathlib.Path.exists", return_value=True),
-        ):
-            await service.perform_sync(user_id=42)
+        tasks = await service._collect_tasks(cfg, Path("/data"))
 
-        # No upsert because the DB already has that URL.
-        assert len(fake_repo.upsert_calls) == 0
+        assert len(tasks) == 1
+        assert tasks[0].mirror.id == 7
+        # A real row means the containment-checked manual/ destination, never
+        # the unchecked data/extra/<name> the stub used.
+        assert "/extra/" not in str(tasks[0].destination)
 
     @pytest.mark.asyncio
-    async def test_extra_repo_synthetic_mirror_when_no_user_id(self) -> None:
-        """Without user_id, a synthetic GitMirror (id=-1) is created for extra repos."""
+    async def test_the_ignore_list_still_applies(self) -> None:
         cfg = _make_config(
-            GIT_BACKUP_EXTRA_REPOS={"myorg/extra": "https://git.example.com/extra.git"}
+            GIT_BACKUP_EXTRA_REPOS={"myorg/extra": "https://git.example.com/extra.git"},
+            GIT_BACKUP_IGNORE=["myorg/*"],
         )
-        fake_repo = _FakeMirrorRepo([])
-        service = _make_service(fake_repo, cfg)
-
-        collected_tasks: list[MirrorTask] = []
-        original_collect = service._collect_tasks
-
-        async def spy_collect(user_id: int | None, data_path: Path) -> list[MirrorTask]:
-            tasks = await original_collect(user_id, data_path)
-            collected_tasks.extend(tasks)
-            return tasks
-
-        service._collect_tasks = spy_collect  # type: ignore[method-assign]
-
-        with (
-            patch(
-                "app.adapters.git_backup.mirror_service._preflight_storage_check",
-                return_value=None,
-            ),
-            patch.object(service, "_resolve_url", side_effect=lambda m: (m.clone_url, None)),
-            patch("app.adapters.git_backup.mirror_service.assert_resolved_public_host"),
-        ):
-            await service.perform_sync(user_id=None)
-
-        # No upsert — synthetic path.
-        assert len(fake_repo.upsert_calls) == 0
-        # The task should exist with id=-1 (synthetic).
-        assert len(collected_tasks) == 1
-        assert collected_tasks[0].mirror.id == -1
-
-    @pytest.mark.asyncio
-    async def test_extra_repo_synthetic_persisted_outcome_skipped(self) -> None:
-        """_persist_outcome must skip synthetic mirrors (id=-1) without calling record_*."""
-        cfg = _make_config(
-            GIT_BACKUP_EXTRA_REPOS={"myorg/extra": "https://git.example.com/extra.git"}
+        mirror = _make_mirror(
+            mirror_id=7,
+            name="myorg/extra",
+            clone_url="https://git.example.com/extra.git",
+            source=GitMirrorSource.MANUAL,
         )
-        fake_repo = _FakeMirrorRepo([])
-        service = _make_service(fake_repo, cfg)
+        service = _make_service(_FakeMirrorRepo([mirror]), cfg)
 
-        with (
-            patch(
-                "app.adapters.git_backup.mirror_service._preflight_storage_check",
-                return_value=None,
-            ),
-            patch.object(service, "_resolve_url", side_effect=lambda m: (m.clone_url, None)),
-            patch("app.adapters.git_backup.mirror_service.assert_resolved_public_host"),
-        ):
-            await service.perform_sync(user_id=None)
+        tasks = await service._collect_tasks(cfg, Path("/data"))
 
-        # record_success/record_failure must not have been called for the synthetic mirror.
-        assert len(fake_repo.success_calls) == 0
-        assert len(fake_repo.failure_calls) == 0
+        assert tasks == []
 
 
 # ---------------------------------------------------------------------------
@@ -921,7 +895,7 @@ class TestPostSyncHooks:
             def run_post_sync_maintenance(self, repo_path: Path) -> None:
                 maintenance_calls.append(repo_path)
 
-            def register_sync_and_check_repack(self) -> bool:
+            def register_sync_and_check_repack(self, destination_path: Path) -> bool:
                 return False
 
             def run_full_repack(self, destination_path: Path) -> None:
@@ -964,7 +938,9 @@ class TestPostSyncHooks:
         lfs_calls: list[Path] = []
 
         class _RecordingLfs:
-            def sync_lfs_if_needed(self, repo_path: Path) -> bool:
+            def sync_lfs_if_needed(
+                self, repo_path: Path, *, credentials_path: str | None = None
+            ) -> bool:
                 lfs_calls.append(repo_path)
                 return True
 

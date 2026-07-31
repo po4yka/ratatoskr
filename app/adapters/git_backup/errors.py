@@ -46,6 +46,14 @@ def classify(error_message: str | None) -> ErrorCategory:
     ):
         return ErrorCategory.HTTP2_ERROR
 
+    # A full disk must beat "fetch-pack" below. git reports ENOSPC during
+    # index-pack as "fatal: fetch-pack: invalid index-pack output", which
+    # classified as NETWORK_ERROR -- retryable, so a doomed clone burned every
+    # retry, and it never tripped the storage circuit breaker. The generic
+    # storage block further down never got the chance to match.
+    if _contains_any(lower, ("no space left", "disk quota")):
+        return ErrorCategory.STORAGE_ERROR
+
     # Connection timeout is a network error - check before generic timeout.
     if "connection timed out" in lower:
         return ErrorCategory.NETWORK_ERROR

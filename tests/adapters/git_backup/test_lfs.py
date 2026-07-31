@@ -81,3 +81,46 @@ def test_sync_lfs_if_needed_fetches_for_lfs_repo(tmp_path: Path) -> None:
 def test_is_lfs_available(tmp_path: Path) -> None:
     assert LfsSupport(run_git=FakeGit(code=0, stdout="git-lfs/3.5.1")).is_lfs_available() is True
     assert LfsSupport(run_git=FakeGit(code=127)).is_lfs_available() is False
+
+
+class TestLfsCredentials:
+    """git-lfs makes its own HTTP requests and inherits nothing from the clone.
+
+    Without the credential helper a private repo backs up its LFS pointers and
+    none of the content they point at -- and the mirror used to be recorded as a
+    complete success, which is how a backup silently loses data.
+    """
+
+    def test_the_credential_helper_is_passed_to_the_fetch(self, tmp_path: Path) -> None:
+        repo = tmp_path / "repo.git"
+        repo.mkdir()
+        runner = FakeGit()
+        lfs = LfsSupport(run_git=runner)
+
+        assert lfs.fetch_lfs_objects(repo, credentials_path="/tmp/cred.store") is True
+
+        argv = runner.calls[-1]
+        assert "-c" in argv
+        assert "credential.helper=store --file=/tmp/cred.store" in argv
+        # The helper must precede the subcommand, or git ignores it.
+        assert argv.index("-c") < argv.index("lfs")
+
+    def test_no_helper_is_added_without_a_token(self, tmp_path: Path) -> None:
+        repo = tmp_path / "repo.git"
+        repo.mkdir()
+        runner = FakeGit()
+        lfs = LfsSupport(run_git=runner)
+
+        lfs.fetch_lfs_objects(repo)
+
+        assert "-c" not in runner.calls[-1]
+
+    def test_the_helper_reaches_the_fetch_through_sync_if_needed(self, tmp_path: Path) -> None:
+        repo = tmp_path / "repo.git"
+        (repo / "lfs").mkdir(parents=True)  # marks it an LFS repo
+        runner = FakeGit()
+        lfs = LfsSupport(run_git=runner)
+
+        lfs.sync_lfs_if_needed(repo, credentials_path="/tmp/cred.store")
+
+        assert "credential.helper=store --file=/tmp/cred.store" in runner.calls[-1]

@@ -4,6 +4,11 @@
 follow-up ``git lfs fetch --all`` to back up the real content. Detection checks for a
 bare-repo ``lfs/`` directory or a ``filter=lfs`` entry in ``HEAD:.gitattributes``.
 Commands use the resolved git path; the runner is injectable for hermetic tests.
+
+git-lfs makes its own HTTP requests to the LFS endpoint and does not inherit the
+clone's credentials, so a private repo needs the same credential-store helper the
+mirror clone uses. Without it the pointers are backed up and the actual content
+is not -- the worst outcome for a backup, because it looks complete.
 """
 
 from __future__ import annotations
@@ -78,15 +83,19 @@ class LfsSupport:
             return code == 0 and "filter=lfs" in stdout
         return False
 
-    def fetch_lfs_objects(self, repo_path: Path) -> bool:
+    def fetch_lfs_objects(self, repo_path: Path, *, credentials_path: str | None = None) -> bool:
         if not repo_path.is_dir():
             return False
+        argv = [self._git, "-C", str(repo_path)]
+        if credentials_path:
+            argv += ["-c", f"credential.helper=store --file={credentials_path}"]
+        argv += ["lfs", "fetch", "--all"]
         with contextlib.suppress(Exception):
-            code, _ = self._run_git([self._git, "-C", str(repo_path), "lfs", "fetch", "--all"])
+            code, _ = self._run_git(argv)
             return code == 0
         return False
 
-    def sync_lfs_if_needed(self, repo_path: Path) -> bool:
+    def sync_lfs_if_needed(self, repo_path: Path, *, credentials_path: str | None = None) -> bool:
         if not self.is_lfs_repo(repo_path):
             return True  # not an LFS repo, nothing to do
-        return self.fetch_lfs_objects(repo_path)
+        return self.fetch_lfs_objects(repo_path, credentials_path=credentials_path)

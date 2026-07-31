@@ -2,8 +2,8 @@
 
 Strategies: ``gc-auto`` (``git gc --auto``), ``geometric`` (``git repack
 --geometric=2 -d``), or ``none``. Optionally writes a commit-graph after every sync
-and runs a periodic full repack (``git repack -a -d``) on a weekly/monthly cadence
-(~1 sync/day -> 7 / 30 syncs). Maintenance commands use the literal ``git`` (matching
+and runs a periodic full repack (``git repack -a -d``) on a weekly/monthly cadence,
+tracked by an on-disk marker so it survives the worker process. Maintenance commands use the literal ``git`` (matching
 Kotlin). The command runner is injectable so tests assert argv without spawning git.
 """
 
@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +25,18 @@ GitCommandRunner = Callable[[list[str], Path], None]
 # Max characters of captured git stderr surfaced in a failure log line (avoids
 # flooding logs with a full repack/gc dump while keeping the actionable tail).
 _STDERR_LOG_LIMIT = 2000
+
+# The sync service, and with it this object, is rebuilt on every Taskiq run
+# (app/di/tasks.py::build_git_backup_task_runtime is an uncached factory called
+# inside the task body). An in-memory sync counter therefore reset to 0 each run,
+# stayed at 1 at the check, and neither 1 % 7 nor 1 % 30 is ever 0 -- so the full
+# repack never ran at all. The cadence lives on disk instead: a marker file at the
+# root of the mirror store whose mtime is the last full-repack time. It shares the
+# volume it describes, so wiping the store re-arms the timer against a store that
+# needs no repack. Elapsed time also makes "weekly" honest under any sync cron; the
+# old counter only approximated a week because the default schedule is daily.
+_FULL_REPACK_MARKER = ".ratatoskr-last-full-repack"
+_FULL_REPACK_INTERVAL_SECONDS = {"weekly": 7 * 86400, "monthly": 30 * 86400}
 
 
 def _decode_stderr(raw: bytes | str | None) -> str:
@@ -103,7 +116,6 @@ class RepositoryMaintenance:
     ) -> None:
         self._config = config
         self._run_git = run_git or _default_runner(timeout_seconds)
-        self._sync_count = 0
 
     def run_post_sync_maintenance(self, repo_path: Path) -> None:
         if not self._config.enabled:
@@ -124,17 +136,41 @@ class RepositoryMaintenance:
                 ["git", "-C", abs_path, "commit-graph", "write", "--reachable"], repo_path
             )
 
-    def register_sync_and_check_repack(self) -> bool:
-        """Record that a sync completed and return whether a periodic full repack is now due."""
+    def register_sync_and_check_repack(self, destination_path: Path) -> bool:
+        """Return whether a periodic full repack is now due, per the on-disk marker."""
         if not self._config.enabled:
             return False
-        self._sync_count += 1
-        interval = self._config.full_repack_interval
-        if interval == "weekly":
-            return self._sync_count % 7 == 0
-        if interval == "monthly":
-            return self._sync_count % 30 == 0
-        return False  # "never" or unknown
+        interval = _FULL_REPACK_INTERVAL_SECONDS.get(self._config.full_repack_interval)
+        if interval is None:
+            return False  # "never" or unknown -- never touches the marker
+        marker = destination_path / _FULL_REPACK_MARKER
+        try:
+            last_repack = marker.stat().st_mtime
+        except FileNotFoundError:
+            # First run after the feature is enabled: arm the timer, do not fire.
+            self._touch_marker(marker)
+            return False
+        except OSError as exc:
+            logger.warning("git_full_repack_marker_unreadable path=%s error=%s", marker, exc)
+            return False
+
+        if (time.time() - last_repack) < interval:
+            # Deliberately no touch here. Re-stamping on a not-due run would push
+            # the deadline forward every sync and reproduce the counter bug.
+            return False
+
+        # Stamp on the attempt, not on success: a repack that crashes or overruns
+        # must not re-arm itself every night.
+        return self._touch_marker(marker)
+
+    @staticmethod
+    def _touch_marker(marker: Path) -> bool:
+        try:
+            marker.touch()
+        except OSError as exc:
+            logger.warning("git_full_repack_marker_unwritable path=%s error=%s", marker, exc)
+            return False
+        return True
 
     def run_full_repack(self, destination_path: Path) -> None:
         if not self._config.enabled:
