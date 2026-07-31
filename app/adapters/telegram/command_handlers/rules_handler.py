@@ -2,6 +2,11 @@
 
 Read-only listing of user automation rules via Telegram.
 Rules are managed via the web UI.
+
+Rules are stored but nothing executes them. The engine was removed in dd46ff80
+because it had never run once: its only trigger was an event no production code
+ever published. Every reply here says so, because "3 runs" reads as a working
+automation and this one has always shown 0.
 """
 
 from __future__ import annotations
@@ -21,6 +26,10 @@ if TYPE_CHECKING:
     )
 
 logger = get_logger(__name__)
+
+# Repeated in every /rules reply. A run count that is structurally always zero is
+# worse than no count at all: it looks like a rule that simply has not matched yet.
+_NOT_EXECUTED_NOTE = "Note: rules are stored but not executed - run counts stay at 0."
 
 
 class RulesHandler(HandlerDependenciesMixin):
@@ -71,11 +80,16 @@ class RulesHandler(HandlerDependenciesMixin):
         if not lines:
             await ctx.response_formatter.safe_reply(
                 ctx.message,
-                "No automation rules yet. Create rules at: /web/rules",
+                "No automation rules yet. Create rules at: /web/rules\n\n" + _NOT_EXECUTED_NOTE,
             )
             return
 
-        text = "Your automation rules:\n\n" + "\n".join(lines) + "\n\nManage rules at: /web/rules"
+        text = (
+            "Your automation rules:\n\n"
+            + "\n".join(lines)
+            + "\n\nManage rules at: /web/rules"
+            + f"\n{_NOT_EXECUTED_NOTE}"
+        )
         await ctx.response_formatter.safe_reply(ctx.message, text)
 
     async def _show_rule_detail(self, ctx: CommandExecutionContext, rule_id_str: str) -> None:
@@ -139,6 +153,7 @@ class RulesHandler(HandlerDependenciesMixin):
         parts.append("Status: " + " | ".join(status_parts))
 
         parts.append("\nManage at: /web/rules")
+        parts.append(_NOT_EXECUTED_NOTE)
 
         text = "\n".join(parts)
         await ctx.response_formatter.safe_reply(ctx.message, text)
