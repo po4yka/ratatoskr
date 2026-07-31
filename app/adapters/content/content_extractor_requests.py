@@ -16,6 +16,7 @@ if TYPE_CHECKING:
         MessagePersistencePort as MessagePersistence,
     )
 
+from app.adapters.telegram_source_helpers import telegram_message_user_id
 from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import get_logger
 
@@ -198,7 +199,9 @@ class ContentExtractorRequestsMixin:
             return req_id
         except Exception as create_error:
             existing_req = (
-                await self.message_persistence.request_repo.async_get_request_by_dedupe_hash(dedupe)
+                await self.message_persistence.request_repo.async_get_request_by_dedupe_hash(
+                    dedupe, user_id=telegram_message_user_id(message)
+                )
             )
             if existing_req:
                 req_id = int(existing_req["id"])

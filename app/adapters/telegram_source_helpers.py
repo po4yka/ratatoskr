@@ -206,3 +206,20 @@ def telegram_media_size(message: Any) -> int | None:
         if isinstance(candidate, int) and candidate > 0:
             return candidate
     return None
+
+
+def telegram_message_user_id(message: Any) -> int | None:
+    """Resolve the sender's user id across Telethon and adapter message shapes.
+
+    Used to scope dedupe lookups to their owner. Returns None when the sender
+    cannot be determined, which callers pass through as "owner unknown" rather
+    than guessing.
+    """
+    from_user = getattr(message, "from_user", None) or getattr(message, "sender", None)
+    raw = getattr(from_user, "id", None)
+    if raw is None:
+        raw = getattr(message, "sender_id", None)
+    try:
+        return int(raw) or None if raw is not None else None
+    except (TypeError, ValueError):
+        return None

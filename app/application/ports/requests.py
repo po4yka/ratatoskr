@@ -61,7 +61,9 @@ class RequestRepositoryPort(Protocol):
     async def async_get_request_context(self, request_id: int) -> dict[str, Any] | None:
         """Return request joined with its crawl result and summary."""
 
-    async def async_get_request_by_dedupe_hash(self, dedupe_hash: str) -> dict[str, Any] | None:
+    async def async_get_request_by_dedupe_hash(
+        self, dedupe_hash: str, *, user_id: int | None
+    ) -> dict[str, Any] | None:
         """Return request by dedupe hash."""
 
     async def async_get_request_by_paper_canonical_id(

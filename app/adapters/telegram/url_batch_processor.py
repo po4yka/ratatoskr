@@ -208,7 +208,7 @@ class URLBatchProcessor:
                     grace_sec = 60
                     existing = await _await_if_needed(
                         self._request_repo.async_find_recent_request_by_dedupe(
-                            dedupe_hash, max_age_sec=grace_sec
+                            dedupe_hash, user_id=state.request.uid, max_age_sec=grace_sec
                         )
                     )
                     if existing:
@@ -270,7 +270,9 @@ class URLBatchProcessor:
         dedupe_hash: str,
     ) -> bool:
         existing_request = await _await_if_needed(
-            self._request_repo.async_get_request_by_dedupe_hash(dedupe_hash)
+            self._request_repo.async_get_request_by_dedupe_hash(
+                dedupe_hash, user_id=state.request.uid
+            )
         )
         if not existing_request or existing_request.get("status") != RequestStatus.COMPLETED:
             return False

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+from app.adapters.telegram_source_helpers import telegram_message_user_id
 from app.core.logging_utils import get_logger, redact_url_for_logging
 
 if TYPE_CHECKING:
@@ -52,7 +53,14 @@ class CachedSummaryResponder:
         """Reply with a cached summary when a matching request already exists."""
         try:
             dedupe_hash = compute_dedupe_hash(url_text)
-            request_row = await self._request_repo.async_get_request_by_dedupe_hash(dedupe_hash)
+            # Same reader the enqueue path uses. Without the owner predicate this
+            # lookup could land on an x_bookmarks row (dedupe_hash set, user_id
+            # NULL, no summary) and report a cache miss for a URL the owner had
+            # already had summarized.
+            owner_id = telegram_message_user_id(message)
+            request_row = await self._request_repo.async_get_request_by_dedupe_hash(
+                dedupe_hash, user_id=owner_id
+            )
             request_id = request_row.get("id") if isinstance(request_row, dict) else None
             if not isinstance(request_id, int):
                 return None

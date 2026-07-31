@@ -79,7 +79,7 @@ async def test_request_repository_create_update_and_read(database: Database) -> 
     assert row is not None
     assert row["status"] == RequestStatus.PENDING.value
     assert row["correlation_id"] == "repo-request"
-    assert await repo.async_get_request_by_dedupe_hash("repo-request-hash") == row
+    assert await repo.async_get_request_by_dedupe_hash("repo-request-hash", user_id=42) == row
 
     await repo.async_update_request_error(
         request_id,

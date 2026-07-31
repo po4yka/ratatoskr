@@ -65,8 +65,11 @@ class RequestService:
         """Return duplicate request metadata for a normalized URL, if present."""
         normalized = self._normalize_url(url)
         existing = await self._request_repo.async_get_request_by_dedupe_hash(
-            compute_dedupe_hash(normalized)
+            compute_dedupe_hash(normalized), user_id=user_id
         )
+        # The ownership check stays as belt-and-braces; the SQL predicate is what
+        # makes the lookup return the owner's row rather than merely reject a
+        # foreign one it should never have fetched.
         if not existing or existing.get("user_id") != user_id:
             return None
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
+from app.adapters.telegram_source_helpers import telegram_message_user_id
 from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:
@@ -88,7 +89,9 @@ class PlatformRequestLifecycle:
             if existing_req is None:
                 existing_req = (
                     await self._message_persistence.request_repo.async_get_request_by_dedupe_hash(
-                        dedupe_hash
+                        dedupe_hash,
+                        user_id=getattr(request, "user_id", None)
+                        or telegram_message_user_id(request.message),
                     )
                 )
             if existing_req:

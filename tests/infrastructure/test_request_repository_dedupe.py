@@ -62,7 +62,9 @@ async def test_find_recent_returns_processing_row(database: Database) -> None:
         input_url="https://example.com/proc",
     )
 
-    result = await repo.async_find_recent_request_by_dedupe("hash-proc-1", max_age_sec=300)
+    result = await repo.async_find_recent_request_by_dedupe(
+        "hash-proc-1", user_id=1, max_age_sec=300
+    )
 
     assert result is not None
     assert result["status"] == "processing"
@@ -83,7 +85,9 @@ async def test_find_recent_returns_pending_row(database: Database) -> None:
         input_url="https://example.com/pend",
     )
 
-    result = await repo.async_find_recent_request_by_dedupe("hash-pend-1", max_age_sec=300)
+    result = await repo.async_find_recent_request_by_dedupe(
+        "hash-pend-1", user_id=1, max_age_sec=300
+    )
 
     assert result is not None
     assert result["status"] == "pending"
@@ -104,7 +108,9 @@ async def test_find_recent_returns_none_for_completed(database: Database) -> Non
     )
     await repo.async_update_request_status(req_id, "completed")
 
-    result = await repo.async_find_recent_request_by_dedupe("hash-done-1", max_age_sec=300)
+    result = await repo.async_find_recent_request_by_dedupe(
+        "hash-done-1", user_id=1, max_age_sec=300
+    )
 
     assert result is None
 
@@ -125,7 +131,7 @@ async def test_find_recent_returns_none_for_old_error(database: Database) -> Non
     await repo.async_update_request_error(req_id, status="error", error_type="timeout")
 
     # max_age_sec=0 means even a just-created row is too old
-    result = await repo.async_find_recent_request_by_dedupe("hash-old-1", max_age_sec=0)
+    result = await repo.async_find_recent_request_by_dedupe("hash-old-1", user_id=1, max_age_sec=0)
 
     assert result is None
 
@@ -135,6 +141,50 @@ async def test_find_recent_returns_none_for_unknown_hash(database: Database) -> 
     """Returns None when no row matches the dedupe_hash."""
     repo = RequestRepositoryAdapter(database)
 
-    result = await repo.async_find_recent_request_by_dedupe("hash-nonexistent-xyz", max_age_sec=300)
+    result = await repo.async_find_recent_request_by_dedupe(
+        "hash-nonexistent-xyz", user_id=1, max_age_sec=300
+    )
 
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_lookup_does_not_cross_owners(database: Database) -> None:
+    """The predicate must run in SQL, against a real database.
+
+    The x_bookmarks ingestor writes rows with a dedupe_hash and a NULL user_id,
+    so an unscoped lookup could return one of those -- status X_IMPORTED, no
+    summary -- instead of the owner's completed request, and the URL was
+    summarized again. Rejecting the wrong row after the fact cannot recover the
+    right one.
+    """
+    repo = RequestRepositoryAdapter(database)
+
+    owner_id = await repo.async_create_request(
+        type_="url",
+        status=cast("RequestStatus", "pending"),
+        correlation_id="owner-req",
+        user_id=1,
+        input_url="https://example.com/shared",
+        normalized_url="https://example.com/shared",
+        dedupe_hash="shared-hash",
+    )
+    # A bookmark-shaped row: same hash, no owner, terminal and summary-less.
+    await repo.async_create_request(
+        type_="x_bookmark",
+        status=cast("RequestStatus", "x_imported"),
+        correlation_id="bookmark-req",
+        user_id=None,
+        input_url="https://example.com/shared",
+        normalized_url="https://example.com/shared",
+        dedupe_hash="shared-hash",
+    )
+
+    found = await repo.async_get_request_by_dedupe_hash("shared-hash", user_id=1)
+
+    assert found is not None
+    assert found["id"] == owner_id
+    assert found["user_id"] == 1
+
+    # A different owner sees nothing rather than the other user's row.
+    assert await repo.async_get_request_by_dedupe_hash("shared-hash", user_id=999) is None

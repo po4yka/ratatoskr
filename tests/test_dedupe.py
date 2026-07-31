@@ -255,7 +255,7 @@ async def test_dedupe_and_summary_version_increment(
     version1 = int(s1["version"])
     assert version1 > 0
 
-    row = await request_repo.async_get_request_by_dedupe_hash(dedupe)
+    row = await request_repo.async_get_request_by_dedupe_hash(dedupe, user_id=1)
     assert row is not None
     assert row["correlation_id"] == "cid1"
     first_pass_calls = fake_or.calls
@@ -279,7 +279,7 @@ async def test_dedupe_and_summary_version_increment(
     assert s2 is not None
     assert int(s2["version"]) >= version1
 
-    row2 = await request_repo.async_get_request_by_dedupe_hash(dedupe)
+    row2 = await request_repo.async_get_request_by_dedupe_hash(dedupe, user_id=1)
     assert row2 is not None
     assert row2["correlation_id"] == "cid2"
     assert fake_or.calls == first_pass_calls

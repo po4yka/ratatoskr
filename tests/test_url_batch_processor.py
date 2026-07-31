@@ -166,9 +166,11 @@ async def test_batch_pre_registration_uses_normalized_dedupe_hash() -> None:
 
     normalized = normalize_url(url)
     expected_hash = compute_dedupe_hash(normalized)
-    request_repo.async_get_request_by_dedupe_hash.assert_awaited_once_with(expected_hash)
+    # The owner predicate is part of the contract: an unscoped lookup could
+    # land on an x_bookmarks row (dedupe_hash set, user_id NULL, no summary).
+    request_repo.async_get_request_by_dedupe_hash.assert_awaited_once_with(expected_hash, user_id=9)
     request_repo.async_find_recent_request_by_dedupe.assert_awaited_once_with(
-        expected_hash, max_age_sec=60
+        expected_hash, user_id=9, max_age_sec=60
     )
     _, kwargs = request_repo.async_create_minimal_request.await_args
     assert kwargs["normalized_url"] == normalized

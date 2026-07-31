@@ -51,11 +51,27 @@ class RequestRepositoryAdapter:
                 "summary": model_to_dict(summary),
             }
 
-    async def async_get_request_by_dedupe_hash(self, dedupe_hash: str) -> dict[str, Any] | None:
+    async def async_get_request_by_dedupe_hash(
+        self, dedupe_hash: str, *, user_id: int | None
+    ) -> dict[str, Any] | None:
+        """Look up a request by dedupe hash, scoped to its owner.
+
+        ``user_id`` is keyword-only and has no default so a caller cannot omit
+        it by accident. The unique index is ``(user_id, dedupe_hash)``, and the
+        x_bookmarks ingestor writes rows carrying a dedupe_hash with a NULL
+        user_id, so an unscoped lookup could return an x_imported row that has
+        no summary -- the owner's real request was then never seen and the URL
+        was summarized again. A post-fetch check cannot repair that: it can only
+        reject the wrong row, not find the right one.
+
+        Pass ``user_id=None`` deliberately when the owner is genuinely unknown;
+        the ordering below keeps that case at least deterministic.
+        """
         async with self._database.session() as session:
-            request = await session.scalar(
-                select(Request).where(Request.dedupe_hash == dedupe_hash)
-            )
+            stmt = select(Request).where(Request.dedupe_hash == dedupe_hash)
+            if user_id is not None:
+                stmt = stmt.where(Request.user_id == user_id)
+            request = await session.scalar(stmt.order_by(Request.id.desc()).limit(1))
             return model_to_dict(request)
 
     async def async_get_request_by_paper_canonical_id(
@@ -74,23 +90,26 @@ class RequestRepositoryAdapter:
             return model_to_dict(request)
 
     async def async_find_recent_request_by_dedupe(
-        self, dedupe_hash: str, *, max_age_sec: int = 300
+        self, dedupe_hash: str, *, user_id: int | None, max_age_sec: int = 300
     ) -> dict[str, Any] | None:
-        """Return newest processing, pending, or recently-failed request for this dedupe_hash."""
+        """Return newest processing, pending, or recently-failed request for this dedupe_hash.
+
+        Scoped to ``user_id`` for the same reason as
+        :meth:`async_get_request_by_dedupe_hash`; keyword-only and without a
+        default so it cannot be dropped silently.
+        """
         from datetime import timedelta
 
         cutoff = _utcnow() - timedelta(seconds=max_age_sec)
         async with self._database.session() as session:
-            request = await session.scalar(
-                select(Request)
-                .where(
-                    Request.dedupe_hash == dedupe_hash,
-                    Request.status.in_(["processing", "pending", "error"]),
-                    Request.updated_at >= cutoff,
-                )
-                .order_by(Request.updated_at.desc())
-                .limit(1)
+            stmt = select(Request).where(
+                Request.dedupe_hash == dedupe_hash,
+                Request.status.in_(["processing", "pending", "error"]),
+                Request.updated_at >= cutoff,
             )
+            if user_id is not None:
+                stmt = stmt.where(Request.user_id == user_id)
+            request = await session.scalar(stmt.order_by(Request.updated_at.desc()).limit(1))
             return model_to_dict(request)
 
     async def async_get_latest_request_by_correlation_id(

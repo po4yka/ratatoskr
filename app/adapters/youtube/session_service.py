@@ -520,7 +520,9 @@ class YouTubeDownloadSessionService:
         if request.request_id_override is not None:
             return request.request_id_override
 
-        existing_req = await self.request_repo.async_get_request_by_dedupe_hash(dedupe)
+        existing_req = await self.request_repo.async_get_request_by_dedupe_hash(
+            dedupe, user_id=request.user_id
+        )
         if isinstance(existing_req, Mapping):
             req_id = int(existing_req["id"])
             logger.info(

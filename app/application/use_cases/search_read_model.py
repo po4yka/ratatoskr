@@ -76,7 +76,9 @@ class SearchReadModelUseCase:
         self, *, user_id: int, dedupe_hash: str
     ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         with use_case_span("search_read_model.get_duplicate_request_and_summary", user_id=user_id):
-            request = await self._request_repo.async_get_request_by_dedupe_hash(dedupe_hash)
+            request = await self._request_repo.async_get_request_by_dedupe_hash(
+                dedupe_hash, user_id=user_id
+            )
             if not request or request.get("user_id") != user_id:
                 return None, None
 
