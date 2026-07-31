@@ -32,7 +32,6 @@ from app.adapters.telegram.command_handlers.settings_handler import SettingsHand
 from app.adapters.telegram.command_handlers.tag_handler import TagHandler
 from app.adapters.telegram.command_handlers.transcribe_handler import TranscribeHandler
 from app.adapters.telegram.command_handlers.url_commands_handler import URLCommandsHandler
-from app.adapters.telegram.command_handlers.utils import maybe_load_json
 
 
 class TelegramCommandDispatcher:
@@ -308,10 +307,6 @@ class TelegramCommandDispatcher:
 
     def has_active_init_session(self, uid: int) -> bool:
         return self._init_session.has_active_session(uid)
-
-    @staticmethod
-    def _maybe_load_json(payload: Any) -> Any:
-        return maybe_load_json(payload)
 
     @staticmethod
     def _parse_unread_arguments(text: str | None) -> tuple[int, str | None]:

@@ -126,7 +126,7 @@ attachment:
 # ollama:
 #   base_url: http://localhost:11434/v1
 #   model: llama3.3
-#   enable_structured_outputs: false
+#   max_retries: 1
 
 # ---------------------------------------------------------------------------
 # Telegram

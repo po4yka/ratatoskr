@@ -46,23 +46,6 @@ class EmailDeliveryStore:
                 .all()
             )
 
-    async def async_get_address_for_user(
-        self,
-        *,
-        user_id: int,
-        address_id: int,
-    ) -> UserEmailAddress | None:
-        async with self._database().session() as session:
-            return cast(
-                "UserEmailAddress | None",
-                await session.scalar(
-                    select(UserEmailAddress).where(
-                        UserEmailAddress.id == address_id,
-                        UserEmailAddress.user_id == user_id,
-                    )
-                ),
-            )
-
     async def async_get_verified_address_for_user(
         self,
         *,

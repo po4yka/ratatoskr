@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from app.api.services._digest_api_categories import DigestCategoryService
 from app.api.services._digest_api_channels import DigestChannelService
 from app.api.services._digest_api_preferences import DigestPreferenceService
-from app.api.services._digest_api_shared import require_enabled, track_background_task
+from app.api.services._digest_api_shared import track_background_task
 from app.api.services._digest_api_triggers import DigestTriggerService
 
 if TYPE_CHECKING:
@@ -30,9 +30,6 @@ class DigestAPIService:
         self._preferences = DigestPreferenceService(digest_config)
         self._triggers = DigestTriggerService(digest_config)
         self._categories = DigestCategoryService(digest_config)
-
-    def _require_enabled(self) -> None:
-        require_enabled(self._cfg)
 
     def list_subscriptions(self, user_id: int) -> dict[str, Any]:
         return self._channels.list_subscriptions(user_id)

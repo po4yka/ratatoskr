@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import urllib.parse
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -334,11 +333,3 @@ def _list_of_dicts_or_none(value: Any) -> list[dict[str, Any]] | None:
     if not isinstance(value, list):
         return None
     return [item for item in value if isinstance(item, dict)]
-
-
-def redact_threads_url(url: str) -> str:
-    """Return a token-redacted URL for tests/debugging without logging secrets."""
-    parsed = urllib.parse.urlsplit(url)
-    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
-    redacted = [(key, "[REDACTED]" if key == "access_token" else value) for key, value in query]
-    return urllib.parse.urlunsplit(parsed._replace(query=urllib.parse.urlencode(redacted)))

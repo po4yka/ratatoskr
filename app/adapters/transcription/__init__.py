@@ -58,11 +58,6 @@ def get_or_create_transcription_service(cfg: TranscriptionConfig) -> Transcripti
     return service
 
 
-def _reset_transcription_service_cache() -> None:
-    """Test hook: clear the cache so a fresh config produces a fresh service."""
-    _SERVICE_CACHE.clear()
-
-
 __all__ = [
     "AudioDecodeError",
     "DiarizationApiUnavailableError",

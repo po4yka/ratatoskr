@@ -48,10 +48,6 @@ _VERSION_PATTERN = re.compile(r"^#\s*@version:\s*(.+)$", re.MULTILINE)
 _FIELDS_PATTERN = re.compile(r"^#\s*@fields:\s*(.+)$", re.MULTILINE)
 
 
-class PromptValidationError(Exception):
-    """Raised when a prompt fails validation."""
-
-
 class PromptManager:
     """Unified manager for loading and caching system prompts.
 

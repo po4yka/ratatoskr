@@ -12,13 +12,6 @@ from ._validators import _ensure_api_key, parse_fallback_models, validate_model_
 logger = get_logger(__name__)
 
 
-class _FallbackModelsMixin:
-    @field_validator("fallback_models", mode="before")
-    @classmethod
-    def _parse_fallback_models(cls, value: Any) -> tuple[str, ...]:
-        return parse_fallback_models(value)
-
-
 class LLMUsageBudgetConfig(BaseModel):
     """Operator-controlled limits for LLM consumption."""
 

@@ -23,9 +23,6 @@ from app.infrastructure.persistence.repositories.crawl_result_repository import 
 from app.infrastructure.persistence.repositories.embedding_repository import (
     EmbeddingRepositoryAdapter,
 )
-from app.infrastructure.persistence.repositories.import_job_repository import (
-    ImportJobRepositoryAdapter,
-)
 from app.infrastructure.persistence.repositories.llm_repository import (
     LLMRepositoryAdapter,
 )
@@ -56,26 +53,18 @@ from app.infrastructure.persistence.repositories.user_content_repository import 
 from app.infrastructure.persistence.repositories.user_repository import (
     UserRepositoryAdapter,
 )
-from app.infrastructure.persistence.repositories.video_download_repository import (
-    VideoDownloadRepositoryAdapter,
-)
-from app.infrastructure.persistence.repositories.webhook_repository import (
-    WebhookRepositoryAdapter,
-)
 
 if TYPE_CHECKING:
     from app.application.ports.aggregation_sessions import AggregationSessionRepositoryPort
     from app.application.ports.audit import AuditLogRepositoryPort
     from app.application.ports.backups import BackupRepositoryPort
     from app.application.ports.batch_sessions import BatchSessionRepositoryPort
-    from app.application.ports.imports import ImportJobRepositoryPort
     from app.application.ports.requests import (
         CrawlResultRepositoryPort,
         LLMRepositoryPort,
         RequestRepositoryPort,
-        VideoDownloadRepositoryPort,
     )
-    from app.application.ports.rules import RuleRepositoryPort, WebhookRepositoryPort
+    from app.application.ports.rules import RuleRepositoryPort
     from app.application.ports.search import EmbeddingRepositoryPort, TopicSearchRepositoryPort
     from app.application.ports.social_connections import SocialConnectionRepositoryPort
     from app.application.ports.summaries import SummaryRepositoryPort, TagRepositoryPort
@@ -118,10 +107,6 @@ def build_collection_repository(db: Database) -> Any:
     return CollectionRepositoryAdapter(db)
 
 
-def build_video_download_repository(db: Database) -> VideoDownloadRepositoryPort:
-    return VideoDownloadRepositoryAdapter(db)
-
-
 def build_audit_log_repository(db: Database) -> AuditLogRepositoryPort:
     return AuditLogRepositoryAdapter(db)
 
@@ -142,16 +127,8 @@ def build_tag_repository(db: Database) -> TagRepositoryPort:
     return TagRepositoryAdapter(db)
 
 
-def build_import_job_repository(db: Database) -> ImportJobRepositoryPort:
-    return ImportJobRepositoryAdapter(db)
-
-
 def build_rule_repository(db: Database) -> RuleRepositoryPort:
     return RuleRepositoryAdapter(db)
-
-
-def build_webhook_repository(db: Database) -> WebhookRepositoryPort:
-    return WebhookRepositoryAdapter(db)
 
 
 def build_backup_repository(db: Database) -> BackupRepositoryPort:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import urllib.parse
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -320,11 +319,3 @@ def _string_or_none(value: Any) -> str | None:
 
 def _dict_or_none(value: Any) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
-
-
-def redact_instagram_url(url: str) -> str:
-    """Return a token-redacted URL for tests/debugging without logging secrets."""
-    parsed = urllib.parse.urlsplit(url)
-    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
-    redacted = [(key, "[REDACTED]" if key == "access_token" else value) for key, value in query]
-    return urllib.parse.urlunsplit(parsed._replace(query=urllib.parse.urlencode(redacted)))

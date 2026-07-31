@@ -49,10 +49,6 @@ class AggregationSourceBundle(BaseModel):
     items: list[AggregationSourceItem] = Field(default_factory=list)
 
 
-class AggregationSessionPayload(BaseModel):
-    model_config = {"extra": "allow"}
-
-
 class AggregationCreateData(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

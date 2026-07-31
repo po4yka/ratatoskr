@@ -95,23 +95,9 @@ class Summary:
         tags = self.content.get("topic_tags", [])
         return tags if isinstance(tags, list) else []
 
-    def get_entities(self) -> list[dict[str, str]]:
-        """Return list of entity dictionaries, or empty list if not available."""
-        entities = self.content.get("entities", [])
-        return entities if isinstance(entities, list) else []
-
-    def get_seo_keywords(self) -> list[str]:
-        """Return list of SEO keywords, or empty list if not available."""
-        keywords = self.content.get("seo_keywords", [])
-        return keywords if isinstance(keywords, list) else []
-
     def has_minimum_content(self) -> bool:
         """Return True if at least one summary field (tldr, summary_250, summary_1000) exists."""
         return bool(self.get_tldr() or self.get_summary_250() or self.get_summary_1000())
-
-    def get_content_length(self) -> int:
-        """Return total character count across all summary fields."""
-        return len(self.get_tldr()) + len(self.get_summary_250()) + len(self.get_summary_1000())
 
     def __str__(self) -> str:
         """String representation of the summary."""

@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from app.adapters.external.formatting.html_repair import repair_html_chunk
-from app.adapters.external.formatting.markdown_telegram import render_markdown
 from app.core.logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -181,17 +180,6 @@ class TextProcessorImpl:
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         return f"{base}-{timestamp}.json"
 
-    def markdown_to_telegram_html(self, text: str) -> str:
-        """Convert Markdown to Telegram-supported HTML.
-
-        Delegates to :func:`render_markdown`, which parses with markdown-it-py
-        (CommonMark) and emits only Telegram's HTML whitelist -- bold, italic,
-        underline, strike, code/pre, links, lists, and (expandable) blockquotes.
-        Headings degrade to bold lines; unsupported constructs (tables, raw
-        HTML) degrade to escaped text. All text content is HTML-escaped.
-        """
-        return render_markdown(text)
-
     def linkify_urls(self, text: str) -> str:
         """Convert bare URLs in text to clickable HTML links.
 
@@ -246,12 +234,6 @@ class TextProcessorImpl:
                 parse_mode=parse_mode,
                 silent=silent_after_first and index > 0,
             )
-
-    async def send_markdown(self, message: Any, md_text: str) -> None:
-        """Render a Markdown string to Telegram HTML and send it (split if long)."""
-        rendered = render_markdown(md_text)
-        if rendered:
-            await self.send_long_text(message, rendered, parse_mode="HTML")
 
     async def send_labelled_text(self, message: Any, label: str, body: str) -> None:
         """Send labelled text, splitting into continuation messages when needed."""

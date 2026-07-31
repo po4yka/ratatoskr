@@ -453,25 +453,6 @@ class StoreVectorSearchService:
             has_more=has_more,
         )
 
-    async def find_duplicates(
-        self,
-        text: str,
-        *,
-        threshold: float = 0.95,
-        language: str | None = None,
-        user_scope: str | None = None,
-        user_id: int | None = None,
-    ) -> list[StoreVectorSearchResult]:
-        """Find content that is highly similar to the input text."""
-        results = await self.search(
-            text,
-            language=language,
-            user_scope=user_scope,
-            user_id=user_id,
-            limit=5,
-        )
-        return [r for r in results.results if r.similarity_score >= threshold]
-
     @staticmethod
     def _safe_int(value: Any) -> int | None:
         try:

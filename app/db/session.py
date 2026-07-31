@@ -177,13 +177,6 @@ class Database:
         return self._inspection.get_database_overview()
 
 
-@asynccontextmanager
-async def get_session(database: Database) -> AsyncIterator[AsyncSession]:
-    """Open a short-lived bot/CLI session."""
-    async with database.session() as session:
-        yield session
-
-
 async def get_session_for_request(database: Database) -> AsyncIterator[AsyncSession]:
     """FastAPI dependency that wraps each request in one transaction."""
     async with database.transaction() as session:

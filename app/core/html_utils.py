@@ -233,26 +233,6 @@ def normalize_text(text: str | None) -> str:
     return out.strip()
 
 
-def split_sentences(text: str, lang: str = "en") -> list[str]:
-    """Split text into sentences using spaCy if available, else regex fallback.
-
-    Uses a lightweight blank pipeline with a sentencizer to avoid heavy models.
-    """
-    text = text.strip()
-    if not text:
-        return []
-
-    try:  # pragma: no cover - optional dependency
-        nlp = _get_spacy_sentencizer(lang)
-        doc = nlp(text)
-        return [sent.text.strip() for sent in doc.sents if sent.text.strip()]
-    except Exception as exc:
-        logger.debug("spacy_sentence_split_fallback", extra={"error": str(exc), "lang": lang})
-        # Regex fallback: split on sentence punctuation followed by space/cap
-        parts = re.split(r"(?<=[\.!?])\s+", text)
-        return [p.strip() for p in parts if p.strip()]
-
-
 def chunk_sentences(sentences: list[str], max_chars: int = 2000) -> list[str]:
     """Group sentences into chunks under max_chars, preserving boundaries."""
     if not isinstance(sentences, list):

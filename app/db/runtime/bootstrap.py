@@ -16,10 +16,6 @@ class DatabaseBootstrapService:
         self._dsn = dsn
         self._logger = logger
 
-    def initialize_database_proxy(self) -> None:
-        """Compatibility no-op; SQLAlchemy does not use Peewee's proxy."""
-        self._logger.debug("db_proxy_initialization_skipped")
-
     def migrate(self) -> None:
         ini_path = Path(__file__).resolve().parents[3] / "alembic.ini"
         cfg = Config(str(ini_path))

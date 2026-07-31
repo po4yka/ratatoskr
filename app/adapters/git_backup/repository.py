@@ -105,10 +105,6 @@ class GitMirrorRepository:
             rows = (await session.scalars(stmt)).all()
         return list(rows)
 
-    async def get_by_id(self, mirror_id: int) -> GitMirror | None:
-        async with self._db.session() as session:
-            return await session.scalar(select(GitMirror).where(GitMirror.id == mirror_id))
-
     async def list_for_user(self, user_id: int) -> list[GitMirror]:
         async with self._db.session() as session:
             rows = (

@@ -162,22 +162,6 @@ class RSSDeliveryService:
         """Return (item, [subscriber_user_ids]) pairs that haven't been delivered yet."""
         return await self._rss_repo.async_list_delivery_targets(new_item_ids)
 
-    async def _deliver_one(
-        self,
-        item: dict[str, Any],
-        user_id: int,
-        send_func: Callable[[int, str], Awaitable[None]],
-        sem: asyncio.Semaphore,
-    ) -> None:
-        """Summarize a single RSS item and deliver to one user."""
-        prepared = await self._prepare_item(item, sem)
-        if prepared.skipped:
-            await self._rss_repo.async_mark_item_delivered(user_id=user_id, item_id=int(item["id"]))
-            return
-        if prepared.text is None:
-            return
-        await self._send_prepared_item(item, user_id, prepared.text, send_func)
-
     async def _prepare_item(
         self,
         item: dict[str, Any],

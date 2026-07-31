@@ -637,17 +637,9 @@ class ResponseFormatter:
     # Private methods exposed for tests
     # =========================================================================
 
-    def _validate_content(self, text: str) -> tuple[bool, str]:
-        """Validate content for security issues."""
-        return self._message_validator.validate_content(text)
-
     def _validate_url(self, url: str) -> tuple[bool, str]:
         """Validate URL for security."""
         return self._message_validator.validate_url(url)
-
-    async def _check_rate_limit(self) -> bool:
-        """Ensure replies respect the minimum delay between Telegram messages."""
-        return await self._message_validator.check_rate_limit()
 
     def _chunk_text(self, text: str, *, max_len: int) -> list[str]:
         """Split text into chunks respecting Telegram's message length limit."""
@@ -661,34 +653,6 @@ class ResponseFormatter:
         """Create a filesystem-friendly slug from text."""
         return self._text_processor.slugify(text, max_len=max_len)
 
-    def _build_json_filename(self, obj: dict[str, Any]) -> str:
-        """Build a descriptive filename for the JSON attachment."""
-        return self._text_processor.build_json_filename(obj)
-
-    async def _send_long_text(self, message: Any, text: str) -> None:
-        """Send text, splitting into multiple messages if too long for Telegram."""
-        await self._text_processor.send_long_text(message, text)
-
     async def _send_labelled_text(self, message: Any, label: str, body: str) -> None:
         """Send labelled text, splitting into continuation messages when needed."""
         await self._text_processor.send_labelled_text(message, label, body)
-
-    def _format_bytes(self, size: int) -> str:
-        """Convert byte count into a human-readable string."""
-        return self._data_formatter.format_bytes(size)
-
-    def _format_metric_value(self, value: Any) -> str | None:
-        """Format metric values, trimming insignificant decimals and booleans."""
-        return self._data_formatter.format_metric_value(value)
-
-    def _format_key_stats(self, key_stats: list[dict[str, Any]]) -> list[str]:
-        """Render key statistics into bullet-point lines."""
-        return self._data_formatter.format_key_stats(key_stats)
-
-    def _format_readability(self, readability: Any) -> str | None:
-        """Create a reader-friendly readability summary line."""
-        return self._data_formatter.format_readability(readability)
-
-    def _format_firecrawl_options(self, options: dict[str, Any] | None) -> str | None:
-        """Format Firecrawl options into a display string."""
-        return self._data_formatter.format_firecrawl_options(options)

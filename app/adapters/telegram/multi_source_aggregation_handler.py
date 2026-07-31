@@ -111,13 +111,6 @@ class MultiSourceAggregationHandler:
         )
         return True
 
-    async def is_enabled_for_user(self, uid: int) -> bool:
-        """Return whether bundle aggregation is enabled for one Telegram user."""
-        if self._rollout_gate is None:
-            return True
-        decision = await self._rollout_gate.evaluate(uid)
-        return decision.enabled
-
     async def ensure_enabled(
         self,
         *,

@@ -23,7 +23,6 @@ from argon2.exceptions import (
 )
 
 from app.api.exceptions import (
-    AuthenticationError,
     AuthorizationError,
     ConfigurationError,
     ValidationError,
@@ -272,17 +271,3 @@ def run_decoy_verify(password: str) -> None:
         _get_hasher().verify(_get_decoy_phc(), digest)
     except Exception:
         pass
-
-
-def lockout_seconds_remaining(locked_until: Any, now: Any) -> int:
-    """Return seconds until lockout expiry; 0 if unlocked or already past."""
-    if locked_until is None:
-        return 0
-    delta = locked_until - now
-    seconds = int(delta.total_seconds())
-    return max(seconds, 0)
-
-
-def auth_failure() -> AuthenticationError:
-    """Single chokepoint for the canonical 401 failure -- callers MUST use this."""
-    return AuthenticationError(GENERIC_AUTH_FAILURE_MESSAGE)

@@ -146,16 +146,3 @@ class SearchContextBuilder:
             parts.append(snippet)
 
         return "\n".join(parts)
-
-    def estimate_token_count(self, text: str) -> int:
-        """Estimate token count for text (rough approximation).
-
-        Uses a simple heuristic of ~4 characters per token for English text.
-
-        Args:
-            text: Text to estimate
-
-        Returns:
-            Estimated token count
-        """
-        return max(1, len(text) // 4)

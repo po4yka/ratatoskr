@@ -26,11 +26,6 @@ class CacheMetrics:
         """Return True if cache was used (read tokens > 0)."""
         return self.cache_read_tokens > 0
 
-    @property
-    def total_cached_tokens(self) -> int:
-        """Total tokens involved in caching (read + creation)."""
-        return self.cache_read_tokens + self.cache_creation_tokens
-
 
 class ResponseProcessor:
     """Processes and extracts content from OpenRouter API responses."""

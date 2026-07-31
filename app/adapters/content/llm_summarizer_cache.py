@@ -272,17 +272,3 @@ class LLMSummaryCache:
                 topics_key,
             ),
         )
-
-    def build_cache_stub(self, model_name: str) -> Any:
-        """LLM stub used when summary is served from cache."""
-        return type(
-            "LLMCacheStub",
-            (),
-            {
-                "status": "ok",
-                "latency_ms": 0,
-                "model": model_name,
-                "structured_output_used": True,
-                "structured_output_mode": self._cfg.openrouter.structured_output_mode,
-            },
-        )()

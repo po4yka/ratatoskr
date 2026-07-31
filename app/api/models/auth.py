@@ -227,12 +227,6 @@ class MagicLinkRequest(BaseModel):
     client_id: str = Field(..., min_length=1, max_length=100)
 
 
-class MagicLinkVerifyRequest(BaseModel):
-    """Query model for magic-link verification."""
-
-    token: str = Field(..., min_length=16, max_length=256)
-
-
 class ChangePasswordRequest(BaseModel):
     """Request body for owner-only password change."""
 

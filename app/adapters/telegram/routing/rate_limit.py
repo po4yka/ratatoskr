@@ -57,10 +57,6 @@ class MessageRateLimitCoordinator:
         return self._rate_limiter
 
     @property
-    def rate_limiter_config(self) -> RateLimitConfig:
-        return self._rate_limiter_config
-
-    @property
     def rate_limit_notified_until(self) -> dict[int, float]:
         return self._rate_limit_notified_until
 

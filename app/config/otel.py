@@ -49,10 +49,6 @@ class OtelConfig(BaseSettings):
         validation_alias="OTEL_EXPORTER_OTLP_INSECURE",
     )
 
-    @classmethod
-    def from_env(cls) -> OtelConfig:
-        return cls()
-
 
 class SentryConfig(BaseSettings):
     """Sentry error-monitoring configuration.

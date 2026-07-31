@@ -58,9 +58,3 @@ class UserTaskManager:
             task.cancel()
             cancelled += 1
         return cancelled
-
-    async def has_active_tasks(self, uid: int) -> bool:
-        """Return ``True`` if the user currently has active tracked tasks."""
-        async with self._lock:
-            tasks = self._tasks.get(uid)
-            return bool(tasks)

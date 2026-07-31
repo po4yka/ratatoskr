@@ -317,14 +317,3 @@ class TopicManager:
                 best_name = topic_name
 
         return topic_map.get(best_name)
-
-    def get_topic_id_by_name(self, chat_id: int, name: str) -> int | None:
-        """Get a specific topic ID by name."""
-        topic_map = self._topics.get(chat_id)
-        if not topic_map:
-            return None
-        return topic_map.get(name)
-
-    def is_initialized(self, chat_id: int) -> bool:
-        """Check if topics have been initialized for a chat."""
-        return chat_id in self._topics

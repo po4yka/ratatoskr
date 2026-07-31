@@ -77,16 +77,6 @@ class LLMInsightsGenerator:
         self._last_summary_shaped = None
         self._last_insights = None
 
-    def update_last_summary(self, summary: dict[str, Any]) -> None:
-        self._last_summary_shaped = summary
-        self._last_insights = self.insights_from_summary(summary)
-
-    def insights_from_summary(self, summary: dict[str, Any]) -> dict[str, Any] | None:
-        insights_payload = summary.get("insights")
-        if isinstance(insights_payload, dict) and insights_has_content(insights_payload):
-            return insights_payload
-        return None
-
     def has_content(self, payload: dict[str, Any]) -> bool:
         return insights_has_content(payload)
 

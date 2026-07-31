@@ -584,22 +584,3 @@ class RequestBuilder:
 
         # Return unchanged if content is neither string nor list
         return msg
-
-    def estimate_content_tokens(self, content: str | list[Any]) -> int:
-        """Estimate token count for content.
-
-        Args:
-            content: String or list of content parts
-
-        Returns:
-            Estimated token count (rough: ~4 chars per token)
-        """
-        if isinstance(content, str):
-            return len(content) // 4
-        if isinstance(content, list):
-            total = 0
-            for part in content:
-                if isinstance(part, dict) and isinstance(part.get("text"), str):
-                    total += len(part["text"]) // 4
-            return total
-        return 0

@@ -29,10 +29,6 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-class TopicSearchIndexRebuiltError(RuntimeError):
-    """Retained for compatibility with legacy callers."""
-
-
 class TopicSearchRepositoryAdapter:
     """Adapter for topic search index operations."""
 

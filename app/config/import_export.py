@@ -22,10 +22,3 @@ class ImportConfig(BaseModel):
         validation_alias="IMPORT_MAX_ITEMS",
         description="Maximum number of parsed bookmarks per import (default 10 000).",
     )
-
-
-def load_import_config() -> ImportConfig:
-    """Return ImportConfig from the current application settings (lazy, cached via load_config)."""
-    from app.config.settings import load_config
-
-    return load_config(allow_stub_telegram=True).import_export

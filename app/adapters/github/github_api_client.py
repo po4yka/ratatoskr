@@ -439,11 +439,6 @@ class GitHubAPIClient:
             raise last_exc
         raise GitHubServerError(f"All {self._max_retries} attempts failed for {url}")
 
-    async def get_authenticated_user(self) -> AuthenticatedUserDTO:
-        """GET /user -> AuthenticatedUserDTO."""
-        response = await self._request("GET", "/user")
-        return AuthenticatedUserDTO.model_validate(response.json())
-
     async def get_user_with_scopes(self) -> tuple[AuthenticatedUserDTO, list[str]]:
         """GET /user and return (user, scopes).
 

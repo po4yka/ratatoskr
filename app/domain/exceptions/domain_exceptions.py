@@ -22,18 +22,6 @@ class InvalidRequestError(DomainException):
     """Raised when a request violates business rules."""
 
 
-class InvalidSummaryError(DomainException):
-    """Raised when a summary violates business rules."""
-
-
-class ContentFetchError(DomainException):
-    """Raised when content cannot be fetched."""
-
-
-class SummaryGenerationError(DomainException):
-    """Raised when summary generation fails."""
-
-
 class InvalidStateTransitionError(DomainException):
     """Raised when an invalid state transition is attempted."""
 

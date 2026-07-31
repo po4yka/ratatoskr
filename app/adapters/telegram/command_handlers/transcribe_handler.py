@@ -40,7 +40,6 @@ from app.adapters.transcription import (
     FfmpegNotInstalledError,
     MediaFetchError,
     NoAudioStreamError,
-    Sentence,
     TimestampsUnavailableError,
     TranscribeOptions,
     TranscriptionDisabledError,
@@ -445,13 +444,3 @@ def _format_diarized(result: TranscriptionResult) -> str:
         label = f"SPEAKER_{speaker:02d}" if speaker is not None else "SPEAKER_??"
         lines.append(f"{label} [{format_mmss(sentence.start_sec)}]: {sentence.text}")
     return "\n".join(lines)
-
-
-def _sentence_speaker_pairs(
-    result: TranscriptionResult,
-) -> list[tuple[int | None, Sentence]]:
-    """Helper exposed for tests: pair each sentence with its speaker index."""
-    return [
-        (speaker_at(result.speaker_turns, sentence.start_sec), sentence)
-        for sentence in result.sentences
-    ]

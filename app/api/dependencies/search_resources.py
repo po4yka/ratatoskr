@@ -27,18 +27,3 @@ async def get_vector_search_service(
 
     msg = "Vector search service is unavailable"
     raise RuntimeError(msg)
-
-
-async def shutdown_vector_search_resources() -> None:
-    """Release only API search resources without tearing down the whole runtime."""
-    from app.di.api import get_current_api_runtime
-
-    try:
-        runtime = get_current_api_runtime()
-    except RuntimeError:
-        runtime = None
-
-    if runtime is not None:
-        if runtime.search.vector_store is not None:
-            await runtime.search.vector_store.aclose()
-        await runtime.search.embedding_service.aclose()

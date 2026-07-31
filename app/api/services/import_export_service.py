@@ -12,8 +12,6 @@ from app.api.dependencies.database import (
 from app.api.exceptions import ResourceNotFoundError
 from app.api.models.responses import ImportJobResponse
 from app.api.search_helpers import isotime
-from app.application.dto.import_bookmarks import ImportBookmarksCommand
-from app.application.use_cases.import_pipeline import ImportBookmarksUseCase
 from app.db.session import Database  # noqa: TC001  # used at runtime in __init__ signature
 from app.infrastructure.persistence.repositories.user_content_repository import (
     UserContentRepositoryAdapter,
@@ -46,27 +44,6 @@ class ImportExportService:
             options=options,
         )
         return self._job_to_response(job).model_dump(by_alias=True)
-
-    async def process_import(
-        self,
-        *,
-        job_id: int,
-        bookmarks: list[Any],
-        options: dict[str, Any],
-        user_id: int,
-    ) -> None:
-        use_case = ImportBookmarksUseCase(
-            import_job_repository=self._import_job_repo,
-            bookmark_import_repository=self._bookmark_import_repo,
-        )
-        await use_case.execute(
-            ImportBookmarksCommand(
-                job_id=job_id,
-                bookmarks=bookmarks,
-                user_id=user_id,
-                options=options,
-            )
-        )
 
     async def get_import_job(self, *, job_id: int, user_id: int) -> dict[str, Any]:
         job = await self._verify_job_ownership(job_id=job_id, user_id=user_id)
