@@ -99,6 +99,19 @@ else:
 try:
     from taskiq import TaskiqEvents as _TaskiqEvents
 
+    @broker.on_event(_TaskiqEvents.WORKER_STARTUP)
+    async def _size_offload_pool(_state: object) -> None:
+        """Size the shared thread pool before any task offloads.
+
+        This process loads every task module, so git backup, RSS polling and URL
+        processing share one default executor whose size none of their knobs
+        account for.
+        """
+        from app.config import load_config
+        from app.core.offload import install_default_executor
+
+        install_default_executor(load_config().runtime.offload_max_threads)
+
     @broker.on_event(_TaskiqEvents.WORKER_SHUTDOWN)
     async def _shutdown_tracing_on_worker_exit(_state: object) -> None:
         """Flush the span buffer before the worker process goes away."""

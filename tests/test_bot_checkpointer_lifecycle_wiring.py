@@ -29,7 +29,7 @@ async def test_bot_main_starts_checkpointer_before_constructing_runtime(monkeypa
             long_context_model="model",
         ),
         attachment=SimpleNamespace(vision_model=None),
-        runtime=SimpleNamespace(db_path="/data/ratatoskr.db"),
+        runtime=SimpleNamespace(db_path="/data/ratatoskr.db", offload_max_threads=32),
         langgraph_checkpoint=SimpleNamespace(enabled=True),
     )
 

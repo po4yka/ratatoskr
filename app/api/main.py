@@ -113,6 +113,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         _cfg = _load_config(allow_stub_telegram=True)
         init_tracing(_cfg, fastapi_app=app)
 
+        # Size the shared offload pool before anything can use it.
+        from app.core.offload import install_default_executor
+
+        install_default_executor(_cfg.runtime.offload_max_threads)
+
         # Initialize Sentry when DSN is configured; no-op otherwise.
         if _cfg.sentry.sentry_dsn:
             try:

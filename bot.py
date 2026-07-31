@@ -30,6 +30,11 @@ async def main() -> None:
 
     init_tracing(cfg)
 
+    # Size the shared offload pool before anything can use it.
+    from app.core.offload import install_default_executor
+
+    install_default_executor(cfg.runtime.offload_max_threads)
+
     # Docker stops a container with SIGTERM, and Python leaves it at SIG_DFL --
     # the interpreter dies on the spot. Nothing below this line ran on a deploy:
     # not the finally block's db_write_queue.stop(), not broker.shutdown(), not

@@ -264,6 +264,23 @@ class RuntimeConfig(BaseModel):
         ),
     )
 
+    offload_max_threads: int = Field(
+        default=32,
+        ge=8,
+        le=128,
+        validation_alias="OFFLOAD_MAX_THREADS",
+        description=(
+            "Size of the process-wide thread executor behind every "
+            "asyncio.to_thread call. CPython defaults it to min(32, cpu_count+4) "
+            "-- 8 on a 4-core Pi -- which is smaller than the sum of the "
+            "per-subsystem budgets that share one Taskiq worker process "
+            "(GIT_BACKUP_WORKERS + RSS_POLL_CONCURRENCY + "
+            "TASKIQ_MAX_ASYNC_TASKS_PER_PROCESS). Raise this above that sum, or "
+            "those subsystems queue behind each other -- including the DNS "
+            "resolves that gate every scrape. Idle threads cost no CPU."
+        ),
+    )
+
     @field_validator("llm_provider", mode="before")
     @classmethod
     def _validate_llm_provider(cls, value: Any) -> str:

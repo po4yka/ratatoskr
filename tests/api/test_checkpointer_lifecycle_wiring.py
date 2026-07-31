@@ -82,10 +82,13 @@ async def test_lifespan_starts_checkpointer_before_building_api_runtime(monkeypa
     config = SimpleNamespace(
         sentry=SimpleNamespace(sentry_dsn=None),
         langgraph_checkpoint=SimpleNamespace(enabled=True),
+        runtime=SimpleNamespace(offload_max_threads=32),
     )
     runtime = SimpleNamespace(
         cfg=SimpleNamespace(
-            runtime=SimpleNamespace(log_level="INFO", llm_provider="openrouter"),
+            runtime=SimpleNamespace(
+                log_level="INFO", llm_provider="openrouter", offload_max_threads=32
+            ),
             retention=SimpleNamespace(export_temp_file_max_age_seconds=0),
             background=SimpleNamespace(durable_worker_enabled=False),
             deployment=SimpleNamespace(
@@ -153,6 +156,7 @@ async def test_lifespan_import_error_falls_back_without_partial_runtime(monkeypa
     config = SimpleNamespace(
         sentry=SimpleNamespace(sentry_dsn=None),
         langgraph_checkpoint=SimpleNamespace(enabled=True),
+        runtime=SimpleNamespace(offload_max_threads=32),
     )
 
     async def build_runtime(*args: object, **kwargs: object) -> object:
