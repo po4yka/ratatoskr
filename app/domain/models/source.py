@@ -70,61 +70,6 @@ class AggregationItemStatus(StrEnum):
     SKIPPED = "skipped"
 
 
-class UserSignalStatus(StrEnum):
-    """Lifecycle states for proactive feed-item signals."""
-
-    CANDIDATE = "candidate"
-    QUEUED = "queued"
-    DELIVERED = "delivered"
-    DISMISSED = "dismissed"
-    LIKED = "liked"
-    ARCHIVED = "archived"
-
-
-class SignalFilterStage(StrEnum):
-    """Highest-cost stage reached by a signal candidate."""
-
-    HEURISTIC = "heuristic"
-    EMBEDDING = "embedding"
-    LLM_JUDGE = "llm_judge"
-
-
-@dataclass(slots=True, frozen=True)
-class SignalSource:
-    """Domain representation of a source that emits feed items."""
-
-    id: int
-    kind: SourceKind
-    external_id: str | None = None
-    url: str | None = None
-    title: str | None = None
-    is_active: bool = True
-
-
-@dataclass(slots=True, frozen=True)
-class SignalFeedItem:
-    """Domain representation of an ingested item before scoring."""
-
-    id: int
-    source_id: int
-    external_id: str
-    canonical_url: str | None = None
-    title: str | None = None
-    content_text: str | None = None
-
-
-@dataclass(slots=True, frozen=True)
-class UserSignal:
-    """Domain representation of a user's scored candidate item."""
-
-    id: int
-    user_id: int
-    feed_item_id: int
-    status: UserSignalStatus
-    final_score: float | None = None
-    filter_stage: SignalFilterStage = SignalFilterStage.HEURISTIC
-
-
 @dataclass(slots=True, frozen=True)
 class SourceItem:
     """Normalized representation of one source inside an aggregation bundle."""

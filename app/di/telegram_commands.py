@@ -620,7 +620,6 @@ def build_command_dispatcher_deps(
         context_factory=context_factory,
         onboarding_handler=onboarding_handler,
         admin_handler=admin_handler,
-        aggregation_commands_handler=aggregation_commands_handler,
         url_commands_handler=url_commands_handler,
         content_handler=content_handler,
         search_handler=search_handler,

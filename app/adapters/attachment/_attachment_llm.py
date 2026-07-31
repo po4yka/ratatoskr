@@ -99,7 +99,6 @@ class AttachmentLLMWorkflowService:
             completion=_on_completion,
             llm_error=_on_llm_error,
             repair_failure=_on_processing_failure,
-            parsing_failure=_on_processing_failure,
             retry=_on_retry,
         )
 
@@ -123,13 +122,6 @@ class AttachmentLLMWorkflowService:
                 "request_id": req_id,
             },
             repair_failure_kwargs={
-                "response_sent": True,
-                "response_type": "error",
-                "error_occurred": True,
-                "error_message": "Invalid summary format",
-                "request_id": req_id,
-            },
-            parsing_failure_kwargs={
                 "response_sent": True,
                 "response_type": "error",
                 "error_occurred": True,

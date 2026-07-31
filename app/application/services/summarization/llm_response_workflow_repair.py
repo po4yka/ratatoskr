@@ -348,24 +348,6 @@ class LLMWorkflowRepairMixin:
             "repair",
         )
 
-    async def _handle_parsing_failure(
-        self,
-        message: Any,
-        req_id: int,
-        correlation_id: str | None,
-        interaction_config: Any,
-        notifications: Any | None,
-    ) -> None:
-        await self._apply_failure_outcome(
-            req_id,
-            correlation_id,
-            notifications.parsing_failure if notifications else None,
-            "parsing_failure",
-            interaction_config.interaction_id,
-            interaction_config.parsing_failure_kwargs,
-            "parsing",
-        )
-
     async def _handle_all_attempts_failed(
         self,
         message: Any,

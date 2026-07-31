@@ -41,10 +41,6 @@ class AggregationRolloutGate:
         self._cfg = cfg
         self._user_repo = user_repo
 
-    def meta_extractors_enabled(self) -> bool:
-        """Return whether Threads/Instagram platform extractors are enabled."""
-        return bool(getattr(self._cfg.runtime, "aggregation_meta_extractors_enabled", True))
-
     async def evaluate(self, user_id: int) -> AggregationRolloutDecision:
         """Return rollout availability for the supplied user identifier."""
         stage = AggregationRolloutStage(

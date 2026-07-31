@@ -61,10 +61,6 @@ class URLPostSummaryTaskService:
             getattr(getattr(self._cfg, "runtime", None), "summary_bilingual_enabled", False)
         )
 
-    def set_related_reads_service(self, service: RelatedReadsService | None) -> None:
-        """Inject or replace the related-reads service after construction."""
-        self._related_reads_service = service
-
     async def aclose(self, timeout: float = 5.0) -> None:
         """Drain outstanding post-summary background tasks."""
         await self._summary_delivery.drain_tasks(

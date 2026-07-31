@@ -1,10 +1,9 @@
-"""Firecrawl v2 async client (scrape, search, crawl, batch, extract).
+"""Firecrawl v2 async client (scrape, search, crawl, extract).
 
 This module provides the main FirecrawlClient class which orchestrates:
 - Content scraping with retry logic
 - Search queries
 - Crawl operations (async and sync)
-- Batch scrape operations
 - Data extraction
 
 The client delegates to specialized modules for:
@@ -26,7 +25,6 @@ from typing import TYPE_CHECKING, Any, cast
 import httpx
 
 from app.adapters.external.firecrawl.constants import (
-    FIRECRAWL_BATCH_SCRAPE_URL,
     FIRECRAWL_CRAWL_URL,
     FIRECRAWL_EXTRACT_URL,
     FIRECRAWL_SCRAPE_URL,
@@ -106,7 +104,7 @@ class FirecrawlClientConfig:
 
 
 class FirecrawlClient:
-    """Firecrawl v2 async client (scrape, search, crawl, batch, extract)."""
+    """Firecrawl v2 async client (scrape, search, crawl, extract)."""
 
     def __init__(
         self,
@@ -138,13 +136,11 @@ class FirecrawlClient:
             self._base_url = urls["scrape"]
             self._search_url = urls["search"]
             self._crawl_url = urls["crawl"]
-            self._batch_scrape_url = urls["batch_scrape"]
             self._extract_url = urls["extract"]
         else:
             self._base_url = FIRECRAWL_SCRAPE_URL
             self._search_url = FIRECRAWL_SEARCH_URL
             self._crawl_url = FIRECRAWL_CRAWL_URL
-            self._batch_scrape_url = FIRECRAWL_BATCH_SCRAPE_URL
             self._extract_url = FIRECRAWL_EXTRACT_URL
         self._max_retries = max(0, int(cfg.max_retries))
         self._backoff_base = float(cfg.backoff_base)
@@ -417,29 +413,6 @@ class FirecrawlClient:
                 return status
             await asyncio.sleep(max(0.1, poll_interval))
         return {"status": "timeout", "jobId": job_id}
-
-    async def start_batch_scrape(
-        self, urls: list[str], options: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
-        payload = {"urls": urls, **(options or {})}
-        payload.setdefault("formats", self._options.build_formats())
-        headers = {"Authorization": f"Bearer {self._api_key}"}
-        resp = await self._request(
-            "POST", self._batch_scrape_url, endpoint="batch_scrape", headers=headers, json=payload
-        )
-        validate_response_size(resp, self._max_response_size_bytes, "Firecrawl BatchScrape")
-        return cast("dict[str, Any]", resp.json())
-
-    async def get_batch_scrape_status(self, job_id: str) -> dict[str, Any]:
-        headers = {"Authorization": f"Bearer {self._api_key}"}
-        resp = await self._request(
-            "GET",
-            f"{self._batch_scrape_url}/{job_id}",
-            endpoint="batch_scrape_status",
-            headers=headers,
-        )
-        validate_response_size(resp, self._max_response_size_bytes, "Firecrawl BatchScrape")
-        return cast("dict[str, Any]", resp.json())
 
     async def extract(self, args: dict[str, Any]) -> dict[str, Any]:
         payload = dict(args)

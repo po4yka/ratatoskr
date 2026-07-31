@@ -142,29 +142,6 @@ class TranscriptionJobService:
             )
         )
 
-    async def enqueue_audio_hash_job(
-        self,
-        *,
-        user_id: int,
-        audio_hash: str,
-        source_type: str = "local_media",
-        correlation_id: str | None = None,
-    ) -> EnqueuedTranscription:
-        return await self._enqueue(
-            TranscriptionJobCreate(
-                user_id=user_id,
-                source_type=source_type,
-                idempotency_key=f"audio:{audio_hash}",
-                audio_hash=audio_hash,
-                language=self._cfg.language,
-                backend=self._cfg.backend,
-                tokens_mode=self._cfg.tokens_mode,
-                model_identifier=transcription_model_identifier(self._cfg),
-                correlation_id=correlation_id,
-                max_attempts=self._max_attempts,
-            )
-        )
-
     async def _enqueue(self, create: TranscriptionJobCreate) -> EnqueuedTranscription:
         job = await self._repo.enqueue_job(create)
         duplicate = job.attempt_count > 0 or job.status not in {"queued", "failed"}

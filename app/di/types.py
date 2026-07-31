@@ -57,7 +57,6 @@ class TelegramCommandDispatcherDeps:
     context_factory: Any
     onboarding_handler: Any
     admin_handler: Any
-    aggregation_commands_handler: Any
     url_commands_handler: Any
     content_handler: Any
     search_handler: Any
@@ -156,19 +155,6 @@ class McpRuntime:
     scope: McpScope
     vector_state: McpServiceState = field(default_factory=McpServiceState)
     local_vector_state: McpServiceState = field(default_factory=McpServiceState)
-
-
-@dataclass(frozen=True, slots=True)
-class BackgroundProcessorDeps:
-    request_repository: Any
-    summary_repository: Any
-    db_override_factory: Any
-    lock_manager: Any
-    retry_runner: Any
-    progress_publisher: Any
-    failure_handler: Any
-    url_handler: Any
-    forward_handler: Any
 
 
 @dataclass(frozen=True, slots=True)

@@ -70,12 +70,6 @@ class LLMInsightsGenerator:
         self._sem = sem
         self._coerce_string_list = coerce_string_list
         self._truncate_content_text = truncate_content_text
-        self._last_summary_shaped: dict[str, Any] | None = None
-        self._last_insights: dict[str, Any] | None = None
-
-    def reset_state(self) -> None:
-        self._last_summary_shaped = None
-        self._last_insights = None
 
     def has_content(self, payload: dict[str, Any]) -> bool:
         return insights_has_content(payload)
@@ -162,8 +156,6 @@ class LLMInsightsGenerator:
                         "insights_cache_hit",
                         extra={"cid": correlation_id, "model": model_name},
                     )
-                    self._last_summary_shaped = summary_candidate or {}
-                    self._last_insights = cached
                     if isinstance(summary_candidate, dict):
                         summary_candidate.setdefault("insights", cached)
                     return cast("dict[str, Any]", cached)
@@ -239,17 +231,12 @@ class LLMInsightsGenerator:
                             "facts_count": len(insights.get("new_facts", []) or []),
                         },
                     )
-                    if not isinstance(self._last_summary_shaped, dict):
-                        self._last_summary_shaped = {}
-                    self._last_insights = insights
-                    self._last_summary_shaped.setdefault("insights", insights)
                     if url_hash:
                         await self._cache_helper.write_insights_cache(
                             url_hash, model_name, chosen_lang, insights
                         )
                     return insights
 
-            self._last_insights = None
             return None
 
         except Exception as exc:
@@ -257,7 +244,6 @@ class LLMInsightsGenerator:
             logger.exception(
                 "insights_generation_failed", extra={"cid": correlation_id, "error": str(exc)}
             )
-            self._last_insights = None
             return None
 
     async def _resolve_summary_candidate(
@@ -268,7 +254,11 @@ class LLMInsightsGenerator:
         correlation_id: str | None,
     ) -> dict[str, Any] | None:
         """Return the best summary payload candidate for insights generation."""
-        summary_candidate = summary or self._last_summary_shaped
+        # Was `summary or self._last_summary_shaped`. That cross-request cache was
+        # only ever reset by reset_state(), which nothing called, so a miss fell
+        # back to whatever the previous request left behind. The per-req_id DB load
+        # below is the correct source.
+        summary_candidate = summary
         if summary_candidate is not None:
             return summary_candidate if isinstance(summary_candidate, dict) else None
 
@@ -304,8 +294,6 @@ class LLMInsightsGenerator:
             "insights_reused_from_summary",
             extra={"cid": correlation_id, "request_id": req_id, "source": "summary_payload"},
         )
-        self._last_summary_shaped = summary_candidate
-        self._last_insights = insights_payload
         return insights_payload
 
     def _build_insights_source_text(self, content_text: str, summary: dict[str, Any] | None) -> str:

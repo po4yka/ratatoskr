@@ -166,13 +166,11 @@ class LLMResponseWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.completion_mock = AsyncMock()
         self.llm_error_mock = AsyncMock()
         self.repair_failure_mock = AsyncMock()
-        self.parsing_failure_mock = AsyncMock()
 
         self.notifications = LLMWorkflowNotifications(
             completion=self.completion_mock,
             llm_error=self.llm_error_mock,
             repair_failure=self.repair_failure_mock,
-            parsing_failure=self.parsing_failure_mock,
         )
 
         self.interaction = LLMInteractionConfig(interaction_id=None)

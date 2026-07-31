@@ -580,7 +580,6 @@ def _build_command_dispatcher(
         context_factory=dispatcher_deps.context_factory,
         onboarding_handler=dispatcher_deps.onboarding_handler,
         admin_handler=dispatcher_deps.admin_handler,
-        aggregation_commands_handler=dispatcher_deps.aggregation_commands_handler,
         url_commands_handler=dispatcher_deps.url_commands_handler,
         content_handler=dispatcher_deps.content_handler,
         search_handler=dispatcher_deps.search_handler,

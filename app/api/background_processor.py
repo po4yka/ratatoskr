@@ -65,7 +65,6 @@ class BackgroundProcessor:
         request_repo_factory: RequestRepositoryFactory | None = None,
         summary_repo_factory: SummaryRepositoryFactory | None = None,
         progress_event_repo: Any | None = None,
-        deps: Any | None = None,
     ) -> None:
         self.cfg = cfg
         self.db = db
@@ -86,48 +85,42 @@ class BackgroundProcessor:
             jitter_ratio=cfg.background.retry_jitter_ratio,
         )
 
-        if deps is not None:
-            self._db_override_factory = deps.db_override_factory
-            self._lock_manager = deps.lock_manager
-            self._retry_runner = deps.retry_runner
-            self._progress_publisher = deps.progress_publisher
-            self._failure_handler = deps.failure_handler
-            self._url_request_handler = deps.url_handler
-            self._forward_request_handler = deps.forward_handler
-        else:
-            self._db_override_factory = BackgroundDbOverrideFactory(
-                cfg=cfg,
-                default_db=db,
-                default_url_processor=url_processor,
-                database_builder=database_builder,
-                url_processor_factory=url_processor_factory,
-            )
-            self._lock_manager = BackgroundLockManager(cfg=cfg, redis=redis, logger=logger)
-            self._retry_runner = BackgroundRetryRunner(policy=self._retry, logger=logger)
-            self._progress_publisher = BackgroundProgressPublisher(
-                redis=redis,
-                logger=logger,
-                progress_event_repo=progress_event_repo,
-            )
-            self._url_request_handler = UrlBackgroundRequestHandler(
-                cfg=cfg,
-                publish_update=self._progress_publisher.publish,
-                run_stage=self._run_stage,
-                summary_repo_for_db=self._get_summary_repo_for_db,
-            )
-            self._forward_request_handler = ForwardBackgroundRequestHandler(
-                cfg=cfg,
-                publish_update=self._progress_publisher.publish,
-                run_stage=self._run_stage,
-                summary_repo_for_db=self._get_summary_repo_for_db,
-            )
-            self._failure_handler = BackgroundFailureHandler(
-                logger=logger,
-                retry_policy=self._retry,
-                request_repo_for_db=self._get_request_repo_for_db,
-                mark_status=self._mark_status,
-                progress_publisher=self._progress_publisher,
-            )
+        # The former `deps` override branch was unreachable: nothing ever passed
+        # one, its fields were all typed Any so it carried no contract, and this
+        # block already builds every collaborator it would have replaced.
+        self._db_override_factory = BackgroundDbOverrideFactory(
+            cfg=cfg,
+            default_db=db,
+            default_url_processor=url_processor,
+            database_builder=database_builder,
+            url_processor_factory=url_processor_factory,
+        )
+        self._lock_manager = BackgroundLockManager(cfg=cfg, redis=redis, logger=logger)
+        self._retry_runner = BackgroundRetryRunner(policy=self._retry, logger=logger)
+        self._progress_publisher = BackgroundProgressPublisher(
+            redis=redis,
+            logger=logger,
+            progress_event_repo=progress_event_repo,
+        )
+        self._url_request_handler = UrlBackgroundRequestHandler(
+            cfg=cfg,
+            publish_update=self._progress_publisher.publish,
+            run_stage=self._run_stage,
+            summary_repo_for_db=self._get_summary_repo_for_db,
+        )
+        self._forward_request_handler = ForwardBackgroundRequestHandler(
+            cfg=cfg,
+            publish_update=self._progress_publisher.publish,
+            run_stage=self._run_stage,
+            summary_repo_for_db=self._get_summary_repo_for_db,
+        )
+        self._failure_handler = BackgroundFailureHandler(
+            logger=logger,
+            retry_policy=self._retry,
+            request_repo_for_db=self._get_request_repo_for_db,
+            mark_status=self._mark_status,
+            progress_publisher=self._progress_publisher,
+        )
         self._local_locks = getattr(self._lock_manager, "_local_locks", {})
 
         self._executor = BackgroundRequestExecutor(
@@ -249,13 +242,10 @@ class BackgroundProcessor:
         *,
         metadata: dict[str, Any] | None = None,
     ) -> str:
-        return cast(
-            "str",
-            self._url_request_handler.resolve_request_language(
-                request,
-                content_text,
-                metadata=metadata,
-            ),
+        return self._url_request_handler.resolve_request_language(
+            request,
+            content_text,
+            metadata=metadata,
         )
 
     @staticmethod

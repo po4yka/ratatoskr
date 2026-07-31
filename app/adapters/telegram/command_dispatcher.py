@@ -16,9 +16,6 @@ from app.adapters.telegram.command_dispatch import (
     dispatch_uid_routes,
 )
 from app.adapters.telegram.command_handlers.admin_handler import AdminHandler
-from app.adapters.telegram.command_handlers.aggregation_commands_handler import (
-    AggregationCommandsHandler,
-)
 from app.adapters.telegram.command_handlers.backup_handler import BackupHandler
 from app.adapters.telegram.command_handlers.content_handler import ContentHandler
 from app.adapters.telegram.command_handlers.digest_handler import DigestHandler
@@ -45,7 +42,6 @@ class TelegramCommandDispatcher:
         context_factory: CommandContextFactory,
         onboarding_handler: OnboardingHandler,
         admin_handler: AdminHandler,
-        aggregation_commands_handler: AggregationCommandsHandler,
         url_commands_handler: URLCommandsHandler,
         content_handler: ContentHandler,
         search_handler: SearchHandler,
@@ -64,7 +60,6 @@ class TelegramCommandDispatcher:
         self._context_factory = context_factory
         self._onboarding = onboarding_handler
         self._admin = admin_handler
-        self._aggregation = aggregation_commands_handler
         self._url_commands = url_commands_handler
         self._content = content_handler
         self._search = search_handler
@@ -279,25 +274,6 @@ class TelegramCommandDispatcher:
             start_time=start_time,
         )
         return await self._url_commands.handle_summarize(ctx)
-
-    async def handle_aggregate_command(
-        self,
-        message: Any,
-        text: str,
-        uid: int,
-        correlation_id: str,
-        interaction_id: int,
-        start_time: float,
-    ) -> tuple[str | None, bool]:
-        ctx = self._context_factory.build(
-            message=message,
-            text=text,
-            uid=uid,
-            correlation_id=correlation_id,
-            interaction_id=interaction_id,
-            start_time=start_time,
-        )
-        return await self._aggregation.handle_aggregate(ctx)
 
     async def handle_init_session_contact(self, message: Any) -> None:
         await self._init_session.handle_contact(message)

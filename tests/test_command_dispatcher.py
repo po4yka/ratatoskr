@@ -24,7 +24,6 @@ def _make_dispatcher(
     runtime_state: TelegramCommandRuntimeState | None = None,
     summarize_result: tuple[str | None, bool] = (None, False),
     aggregate_result: tuple[str | None, bool] = (None, False),
-    aggregation_commands_handler: Any | None = None,
 ) -> TelegramCommandDispatcher:
     runtime_state = runtime_state or TelegramCommandRuntimeState(
         url_processor=MagicMock(),
@@ -56,11 +55,6 @@ def _make_dispatcher(
         ),
         onboarding_handler=cast("Any", SimpleNamespace()),
         admin_handler=cast("Any", SimpleNamespace()),
-        aggregation_commands_handler=cast(
-            "Any",
-            aggregation_commands_handler
-            or SimpleNamespace(handle_aggregate=AsyncMock(return_value=aggregate_result)),
-        ),
         url_commands_handler=cast(
             "Any",
             SimpleNamespace(handle_summarize=AsyncMock(return_value=summarize_result)),
@@ -243,9 +237,6 @@ def test_runtime_state_property_passthroughs_mutate_shared_state() -> None:
 
 @pytest.mark.asyncio
 async def test_dispatch_command_routes_explicit_aggregate_command() -> None:
-    aggregation_commands_handler = SimpleNamespace(
-        handle_aggregate=AsyncMock(return_value=(None, False))
-    )
     routes = TelegramCommandRoutes(
         pre_alias_uid=(),
         pre_alias_text=(),
@@ -257,10 +248,9 @@ async def test_dispatch_command_routes_explicit_aggregate_command() -> None:
         post_summarize_text=(),
         tail_uid=(),
     )
-    dispatcher = _make_dispatcher(
-        routes=routes,
-        aggregation_commands_handler=aggregation_commands_handler,
-    )
+    # The /aggregate route dispatches through the route table, not through a
+    # dispatcher-held handler -- the wrapper that held one was never called.
+    dispatcher = _make_dispatcher(routes=routes)
 
     outcome = await dispatcher.dispatch_command(
         message=object(),

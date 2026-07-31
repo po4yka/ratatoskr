@@ -168,19 +168,6 @@ class TestTimeoutCache:
         result = await cache.get_global()
         assert result == stats
 
-    @pytest.mark.asyncio
-    async def test_clear_removes_all(self, cache: TimeoutCache) -> None:
-        stats = LatencyStats(p50_ms=100.0, p95_ms=200.0, sample_count=20)
-        await cache.set_domain("example.com", stats)
-        await cache.set_model("gpt-4", stats)
-        await cache.set_global(stats)
-
-        await cache.clear()
-
-        assert await cache.get_domain("example.com") is None
-        assert await cache.get_model("gpt-4") is None
-        assert await cache.get_global() is None
-
 
 class TestAdaptiveTimeoutConfig:
     """Tests for AdaptiveTimeoutConfig validation."""

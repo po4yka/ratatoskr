@@ -92,7 +92,6 @@ class LLMWorkflowNotifications(BaseModel):
     completion: Any | None = None
     llm_error: Any | None = None
     repair_failure: Any | None = None
-    parsing_failure: Any | None = None
     retry: Any | None = None
 
 
@@ -105,7 +104,6 @@ class LLMInteractionConfig(BaseModel):
     success_kwargs: dict[str, Any] | None = None
     llm_error_builder: Any | None = None
     repair_failure_kwargs: dict[str, Any] | None = None
-    parsing_failure_kwargs: dict[str, Any] | None = None
 
 
 class LLMSummaryPersistenceSettings(BaseModel):

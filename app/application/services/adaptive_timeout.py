@@ -111,14 +111,6 @@ class TimeoutCache:
         async with self._lock:
             self.combined_stats[domain] = CacheEntry(stats=stats, timestamp=time.time(), key=domain)
 
-    async def clear(self) -> None:
-        """Clear all cached entries."""
-        async with self._lock:
-            self.domain_stats.clear()
-            self.model_stats.clear()
-            self.combined_stats.clear()
-            self.global_stats = None
-
 
 def _extract_domain(url: str | None) -> str | None:
     """Extract domain from URL, normalizing www prefix."""
@@ -443,23 +435,6 @@ class AdaptiveTimeoutService:
 
         return self._stats_to_timeout(stats, "global")
 
-    async def get_firecrawl_timeout(
-        self, url: str | None = None, domain: str | None = None
-    ) -> float:
-        """Get timeout specifically for Firecrawl content extraction.
-
-        Args:
-            url: The URL being crawled
-            domain: Pre-extracted domain
-
-        Returns:
-            Timeout in seconds
-        """
-        estimate = await self.get_timeout(url=url, domain=domain)
-        # Firecrawl typically uses ~30-50% of total processing time
-        # Use a portion of the estimated total timeout
-        return max(self._config.min_timeout_sec, estimate.timeout_sec * 0.4)
-
     async def get_llm_timeout(
         self, model: str | None = None, estimated_tokens: int | None = None
     ) -> float:
@@ -475,11 +450,6 @@ class AdaptiveTimeoutService:
         estimate = await self.get_timeout(model=model)
         # LLM typically uses ~50-70% of total processing time
         return max(self._config.min_timeout_sec, estimate.timeout_sec * 0.6)
-
-    async def refresh_cache(self) -> None:
-        """Force refresh of all cached statistics."""
-        await self._cache.clear()
-        logger.info("adaptive_timeout_cache_cleared")
 
     async def warm_cache(self) -> None:
         """Pre-populate cache with global stats on startup.
