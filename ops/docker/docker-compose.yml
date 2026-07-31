@@ -118,7 +118,12 @@ services:
       - LLM_PROVIDER=${LLM_PROVIDER:-openrouter}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://localhost:11434/v1}
       - OLLAMA_API_KEY=${OLLAMA_API_KEY:-ollama}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.3}
+      # OLLAMA_MODEL is deliberately absent: model selection has no default
+      # (CLAUDE.md rule 11). An environment: entry would override both
+      # ratatoskr.yaml and the operator's own .env -- env_file entries lose to
+      # environment:, and pydantic prefers the env alias over the yaml value.
+      # Set ollama.model in ratatoskr.yaml, or OLLAMA_MODEL in .env, which
+      # reaches the container through env_file above.
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
       - METRICS_HTTP_PORT=9101
@@ -226,7 +231,6 @@ services:
       - LLM_PROVIDER=${LLM_PROVIDER:-openrouter}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://localhost:11434/v1}
       - OLLAMA_API_KEY=${OLLAMA_API_KEY:-ollama}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.3}
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
       - METRICS_HTTP_PORT=9102
@@ -387,7 +391,6 @@ services:
       - LLM_PROVIDER=${LLM_PROVIDER:-openrouter}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://localhost:11434/v1}
       - OLLAMA_API_KEY=${OLLAMA_API_KEY:-ollama}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.3}
       - REDIS_ENABLED=1
       - REDIS_HOST=redis
       - REDIS_PORT=6379

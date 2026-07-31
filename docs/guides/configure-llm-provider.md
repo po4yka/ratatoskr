@@ -71,6 +71,8 @@ anthropic:
 
 Use Ollama for local OpenAI-compatible inference. The API key is optional. Set `OLLAMA_BASE_URL` when Ollama is not on `localhost:11434`.
 
+The model has no default. Set `ollama.model` in `ratatoskr.yaml` as below, or `OLLAMA_MODEL` in `.env`; with neither, startup fails with `OLLAMA_MODEL is required when the selected LLM provider uses it`. Compose deliberately does not supply one — an `environment:` entry would override both `ratatoskr.yaml` and your own `.env`.
+
 ```env
 LLM_PROVIDER=ollama
 ```
