@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 from typing import TYPE_CHECKING, Any, TypeVar
 
@@ -39,6 +38,8 @@ class AnthropicDirectLLMClient(BaseLLMClient):
         max_response_size_mb: int,
         circuit_breaker: CircuitBreaker | None = None,
         audit: Callable[[str, str, dict[str, Any]], None] | None = None,
+        price_input_per_1k: float | None = None,
+        price_output_per_1k: float | None = None,
     ) -> None:
         super().__init__(
             base_url=base_url.rstrip("/"),
@@ -47,6 +48,8 @@ class AnthropicDirectLLMClient(BaseLLMClient):
             max_response_size_mb=max_response_size_mb,
             circuit_breaker=circuit_breaker,
             audit=audit,
+            price_input_per_1k=price_input_per_1k,
+            price_output_per_1k=price_output_per_1k,
         )
         self._api_key = api_key
         self._model = model
@@ -103,6 +106,9 @@ class AnthropicDirectLLMClient(BaseLLMClient):
 
         content = _extract_text_content(data)
         usage = (data or {}).get("usage") if isinstance(data, dict) else {}
+        tokens_prompt = _usage_int(usage, "input_tokens")
+        tokens_completion = _usage_int(usage, "output_tokens")
+        cost_usd = self._token_cost_usd(tokens_prompt, tokens_completion)
         if not content.strip():
             return LLMCallResult(
                 status=CallStatus.ERROR,
@@ -110,8 +116,9 @@ class AnthropicDirectLLMClient(BaseLLMClient):
                 response_text=None,
                 response_json=data,
                 error_text="Provider returned an empty message",
-                tokens_prompt=_usage_int(usage, "input_tokens"),
-                tokens_completion=_usage_int(usage, "output_tokens"),
+                tokens_prompt=tokens_prompt,
+                tokens_completion=tokens_completion,
+                cost_usd=cost_usd,
                 latency_ms=latency_ms,
                 endpoint="/messages",
             )
@@ -120,8 +127,9 @@ class AnthropicDirectLLMClient(BaseLLMClient):
             model=model,
             response_text=content,
             response_json=data,
-            tokens_prompt=_usage_int(usage, "input_tokens"),
-            tokens_completion=_usage_int(usage, "output_tokens"),
+            tokens_prompt=tokens_prompt,
+            tokens_completion=tokens_completion,
+            cost_usd=cost_usd,
             latency_ms=latency_ms,
             endpoint="/messages",
         )
@@ -138,41 +146,38 @@ class AnthropicDirectLLMClient(BaseLLMClient):
         model_override: str | None = None,
         fallback_models_override: tuple[str, ...] | list[str] | None = None,
     ) -> StructuredLLMResult[_ModelT]:
-        last_error: Exception | None = None
-        for attempt in range(max_retries + 1):
+        # The Messages API has no OpenAI-style response_format, so this path had
+        # no JSON guarantee at all -- it sent the prompt and hoped. A prefilled
+        # assistant turn is Anthropic's own answer to that: the reply must
+        # continue the open brace, which rules out the "Here is the summary:"
+        # preamble that used to burn every retry slot.
+        constrained = [*messages, {"role": "assistant", "content": "{"}]
+
+        async def _call() -> LLMCallResult:
             result = await self.chat(
-                messages,
+                constrained,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 request_id=request_id,
                 model_override=model_override,
                 fallback_models_override=fallback_models_override,
             )
-            if result.status != CallStatus.OK or result.response_text is None:
-                http_status: int | None = None
-                if isinstance(result.error_context, dict):
-                    http_status = result.error_context.get("status_code")
-                cause = RuntimeError(result.error_text or "Structured chat failed")
-                last_error = cause
-                # Non-retryable 4xx (anything except 429 Too Many Requests): break immediately.
-                if http_status is not None and 400 <= http_status < 500 and http_status != 429:
-                    break
-                continue
-            try:
-                parsed = response_model.model_validate(json.loads(result.response_text))
-            except Exception as exc:  # pragma: no cover - exercised through retry outcome
-                last_error = exc
-                continue
-            return StructuredLLMResult(
-                parsed=parsed,
-                tokens_prompt=result.tokens_prompt,
-                tokens_completion=result.tokens_completion,
-                cost_usd=result.cost_usd,
-                latency_ms=result.latency_ms,
-                retry_count=attempt,
-                model_used=result.model,
-            )
-        raise RuntimeError(f"Structured chat failed after retries: {last_error}") from last_error
+            if result.status == CallStatus.OK and result.response_text is not None:
+                # The prefill is not echoed back, so the reply starts one brace
+                # short. Only restore it when it is actually missing: a model
+                # that ignores the prefill returns the whole object, and
+                # prepending there would corrupt valid JSON.
+                text = result.response_text
+                if not text.lstrip().startswith("{"):
+                    return result.model_copy(update={"response_text": "{" + text})
+            return result
+
+        return await self._run_structured_attempts(
+            model=model_override or self._model,
+            response_model=response_model,
+            max_retries=max_retries,
+            call=_call,
+        )
 
 
 def _split_anthropic_messages(

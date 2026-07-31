@@ -19,7 +19,16 @@ from app.adapters.llm.anthropic_direct import AnthropicDirectLLMClient
 
 @pytest.fixture(autouse=True)
 def _no_backoff_sleep(monkeypatch):
-    """Replace asyncio.sleep in the base client to make retries instant."""
+    """Make retries instant.
+
+    Both targets matter: the retry loop backs off through ``sleep_backoff`` and
+    parks on a Retry-After header through ``asyncio.sleep``. Patching only the
+    latter left real 0.5-2 s sleeps in the suite.
+    """
+    monkeypatch.setattr(
+        "app.adapters.llm.base_client.sleep_backoff",
+        AsyncMock(return_value=None),
+    )
     monkeypatch.setattr(
         "app.adapters.llm.base_client.asyncio.sleep",
         AsyncMock(return_value=None),

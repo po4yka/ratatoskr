@@ -9,23 +9,29 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
 import weakref
 from contextlib import asynccontextmanager
 from importlib.util import find_spec
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar, cast
 
 import httpx
+from pydantic import BaseModel
 
-from app.adapter_models.llm.llm_models import LLMCallResult
+from app.adapter_models.llm.llm_models import LLMCallResult, StructuredLLMResult
 from app.core.async_utils import raise_if_cancelled
+from app.core.backoff import sleep_backoff
 from app.core.call_status import CallStatus
 from app.core.http_utils import ResponseSizeError, validate_response_size
+from app.core.json_utils import extract_json
 from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Callable, Coroutine
+    from collections.abc import AsyncGenerator, Awaitable, Callable
 
     from app.utils.circuit_breaker import CircuitBreaker
+
+_ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 logger = get_logger(__name__)
 
@@ -43,13 +49,16 @@ class BaseLLMClient:
 
     This class provides:
     - Shared HTTP client pooling across instances for connection reuse
-    - Exponential backoff retry logic
+    - One structured-call retry loop (``_run_structured_attempts``) with
+      exponential backoff, Retry-After support, and per-attempt telemetry
     - Circuit breaker integration
     - Response size validation
     - Proper async resource cleanup
 
-    Subclasses should implement the provider-specific chat() method and
-    use the shared _ensure_client() and _request_context() methods.
+    Subclasses implement the provider-specific ``chat()`` and hand it to
+    ``_run_structured_attempts`` from their ``chat_structured()``. Keeping that
+    loop here is deliberate: the two direct adapters previously carried their own
+    copies, and the copies drifted apart.
     """
 
     # Class-level client pool for connection reuse across all instances
@@ -79,7 +88,11 @@ class BaseLLMClient:
         circuit_breaker: CircuitBreaker | None = None,
         debug_payloads: bool = False,
         audit: Callable[[str, str, dict[str, Any]], None] | None = None,
+        price_input_per_1k: float | None = None,
+        price_output_per_1k: float | None = None,
     ) -> None:
+        self._price_input_per_1k = price_input_per_1k
+        self._price_output_per_1k = price_output_per_1k
         self._base_url = base_url
         self._timeout = httpx.Timeout(timeout_sec, connect=10.0, read=timeout_sec)
         self._max_retries = max_retries
@@ -108,6 +121,33 @@ class BaseLLMClient:
     def circuit_breaker(self) -> CircuitBreaker | None:
         """Return the circuit breaker instance if configured."""
         return self._circuit_breaker
+
+    def _token_cost_usd(
+        self,
+        tokens_prompt: int | None,
+        tokens_completion: int | None,
+    ) -> float | None:
+        """Price a call from the configured per-1k rates, or None when unpriced.
+
+        Direct providers do not report a USD cost the way OpenRouter does, so
+        without these rates every ``llm_calls`` row carried a NULL cost and the
+        aggregate budget (``SUM(cost_usd)`` coalesced to 0) could never reach
+        ``LLM_DAILY_HARD_BUDGET_USD``. The env-var shape mirrors the existing
+        ``OPENROUTER_PRICE_*_PER_1K`` overrides.
+        """
+        if (
+            tokens_prompt is None
+            or tokens_completion is None
+            or self._price_input_per_1k is None
+            or self._price_output_per_1k is None
+        ):
+            return None
+        try:
+            return (float(tokens_prompt) / 1000.0) * self._price_input_per_1k + (
+                float(tokens_completion) / 1000.0
+            ) * self._price_output_per_1k
+        except (TypeError, ValueError):
+            return None
 
     def get_circuit_breaker_stats(self) -> dict[str, Any]:
         """Get circuit breaker statistics."""
@@ -345,6 +385,16 @@ class BaseLLMClient:
 
         if resp.status_code != 200:
             error_msg = self._extract_error_message(data)
+            error_context: dict[str, Any] = {
+                "status_code": resp.status_code,
+                "api_error": error_msg,
+            }
+            # Carry the server's own pacing hint. Without it a 429 gets the
+            # generic backoff, which is routinely shorter than the window the
+            # provider actually wants and buys another 429.
+            retry_after = resp.headers.get("retry-after")
+            if retry_after:
+                error_context["retry_after"] = retry_after
             return None, LLMCallResult(
                 status=CallStatus.ERROR,
                 model=model,
@@ -355,92 +405,212 @@ class BaseLLMClient:
                 tokens_completion=0,
                 cost_usd=None,
                 latency_ms=latency,
-                error_context={"status_code": resp.status_code, "api_error": error_msg},
+                error_context=error_context,
             )
 
         return data, None
 
-    async def _run_with_retry(
+    # Statuses a retry can never turn into a success: a rotated key stays
+    # rotated, an over-long prompt stays over-long, an unknown model stays
+    # unknown. Retrying them only multiplies the bill and the latency.
+    _NON_RETRYABLE_STATUS: ClassVar[frozenset[int]] = frozenset(
+        {400, 401, 402, 403, 404, 405, 410, 413, 422}
+    )
+    # Cap on how long a provider-supplied Retry-After may park the request, so a
+    # bad or hostile header cannot stall the summarize graph indefinitely.
+    _RETRY_AFTER_MAX_SEC: ClassVar[float] = 120.0
+
+    async def _run_structured_attempts(
         self,
-        models_to_try: list[str],
-        attempt_fn: Callable[..., Coroutine[Any, Any, LLMCallResult]],
         *,
-        primary_model: str,
-        exhausted_endpoint: str,
-        retryable_error_substrings: tuple[str, ...] = ("rate_limit",),
-    ) -> LLMCallResult:
-        """Execute *attempt_fn* across a model list with retry/backoff/circuit-breaker.
+        model: str,
+        response_model: type[_ModelT],
+        max_retries: int,
+        call: Callable[[], Awaitable[LLMCallResult]],
+    ) -> StructuredLLMResult[_ModelT]:
+        """Drive one structured call to a decision, recording every physical request.
 
-        This is the shared retry orchestration loop used by all concrete LLM clients.
-        Callers supply a provider-specific coroutine factory (*attempt_fn*) that
-        accepts ``client``, ``model``, and ``attempt`` keyword arguments and returns
-        an :class:`LLMCallResult`.
+        Both direct adapters share this loop on purpose. They used to carry
+        byte-identical copies, and the copies drifted: commit 570e7498 added the
+        non-retryable-4xx break to the Anthropic loop and left the OpenAI/Ollama
+        twin retrying a revoked key four times.
 
-        Args:
-            models_to_try: Ordered list of model identifiers to attempt (primary first).
-            attempt_fn: Async callable with signature
-                ``(*, client: httpx.AsyncClient, model: str, attempt: int) -> LLMCallResult``.
-            primary_model: The primary model name, used in the exhausted error result.
-            exhausted_endpoint: Endpoint string recorded when all retries are exhausted.
-            retryable_error_substrings: Lower-cased substrings that mark a transient
-                error worth retrying (e.g. ``("rate_limit", "overloaded")``).
+        Every iteration is exactly one billed provider request, so every iteration
+        appends one row to ``physical_attempts``. That list is what
+        ``graph_llm._physical_attempts`` turns into ``llm_calls`` rows, and it is
+        attached to the terminal exception as well -- a failed call is still a call
+        that happened, and CLAUDE.md rule 3 requires it in the database.
 
-        Returns:
-            :class:`LLMCallResult` from the first successful attempt, or an error
-            result when all models and retries are exhausted.
+        Raises:
+            RuntimeError: When every attempt fails. Carries
+                ``__llm_physical_attempts__`` and ``__llm_result__`` for the
+                persist path, and chains the underlying cause.
         """
-        last_error: str | None = None
-        last_latency: int | None = None
+        # The caller's budget is the re-ask allowance; the provider's own
+        # configured ceiling (OPENAI_MAX_RETRIES / ANTHROPIC_MAX_RETRIES /
+        # OLLAMA_MAX_RETRIES) bounds it. Before this the provider knob was read
+        # from the environment, stored, and never consulted again.
+        budget = max(0, min(int(max_retries), int(self._max_retries)))
+        attempts: list[dict[str, Any]] = []
+        last_error: Exception | None = None
+        last_result: LLMCallResult | None = None
 
-        async with self._request_context() as client:
-            for model in models_to_try:
-                for attempt in range(self._max_retries + 1):
-                    try:
-                        result = await attempt_fn(client=client, model=model, attempt=attempt)
+        if not self._check_circuit_breaker():
+            msg = f"{getattr(self, 'provider_name', 'llm')} circuit breaker is open"
+            raise RuntimeError(msg)
 
-                        if result.status == CallStatus.OK:
-                            if self._circuit_breaker:
-                                self._circuit_breaker.record_success()
-                            return result
+        for attempt in range(budget + 1):
+            started = time.perf_counter()
+            try:
+                result = await call()
+            except (TimeoutError, ConnectionError) as exc:
+                # Transport faults are the MOST retryable class there is, yet
+                # they used to escape the loop after a single attempt while a
+                # hopeless 400 consumed the whole budget.
+                last_error = exc
+                attempts.append(
+                    _attempt_row(
+                        model=model,
+                        status="error",
+                        latency_ms=int((time.perf_counter() - started) * 1000),
+                        error_text=str(exc),
+                    )
+                )
+                if attempt < budget:
+                    await sleep_backoff(attempt, backoff_base=self._backoff_base)
+                    continue
+                break
+            except Exception as exc:
+                raise_if_cancelled(exc)
+                last_error = exc
+                attempts.append(
+                    _attempt_row(
+                        model=model,
+                        status="error",
+                        latency_ms=int((time.perf_counter() - started) * 1000),
+                        error_text=str(exc),
+                    )
+                )
+                break
 
-                        # Retry on transient errors
-                        error_text = (result.error_text or "").lower()
-                        if any(sub in error_text for sub in retryable_error_substrings):
-                            if attempt < self._max_retries:
-                                await self._sleep_backoff(attempt)
-                                continue
+            last_result = result
+            if result.status != CallStatus.OK or result.response_text is None:
+                attempts.append(_attempt_row_from_result(result, error_text=result.error_text))
+                last_error = RuntimeError(result.error_text or "Structured chat failed")
+                status_code = _status_code_of(result)
+                if status_code is not None and status_code in self._NON_RETRYABLE_STATUS:
+                    break
+                if attempt < budget:
+                    await self._wait_before_retry(result, attempt=attempt)
+                    continue
+                break
 
-                        last_error = result.error_text
-                        last_latency = result.latency_ms
-                        break  # Try next model
+            payload = extract_json(result.response_text)
+            if payload is None:
+                # A 200 whose body is not JSON is still a billed call.
+                error_text = "Provider response did not contain a JSON object"
+                attempts.append(_attempt_row_from_result(result, error_text=error_text))
+                last_error = ValueError(error_text)
+                if attempt < budget:
+                    await sleep_backoff(attempt, backoff_base=self._backoff_base)
+                    continue
+                break
 
-                    except (TimeoutError, ConnectionError) as e:
-                        last_error = str(e)
-                        if attempt < self._max_retries:
-                            await self._sleep_backoff(attempt)
-                            continue
-                        break  # Try next model
+            try:
+                parsed = response_model.model_validate(payload)
+            except Exception as exc:
+                raise_if_cancelled(exc)
+                attempts.append(_attempt_row_from_result(result, error_text=str(exc)))
+                last_error = exc
+                if attempt < budget:
+                    await sleep_backoff(attempt, backoff_base=self._backoff_base)
+                    continue
+                break
 
-                    except Exception as e:
-                        raise_if_cancelled(e)
-                        last_error = f"Unexpected error: {e}"
-                        break  # Try next model
+            attempts.append(_attempt_row_from_result(result, error_text=None))
+            self._record_circuit_breaker_success()
+            return StructuredLLMResult(
+                parsed=parsed,
+                tokens_prompt=result.tokens_prompt,
+                tokens_completion=result.tokens_completion,
+                cost_usd=result.cost_usd,
+                latency_ms=result.latency_ms,
+                retry_count=attempt,
+                model_used=result.model,
+                physical_attempts=attempts,
+            )
 
-        # All models exhausted
-        if self._circuit_breaker:
-            self._circuit_breaker.record_failure()
+        self._record_circuit_breaker_failure()
+        terminal = RuntimeError(f"Structured chat failed after retries: {last_error}")
+        terminal.__llm_physical_attempts__ = attempts  # type: ignore[attr-defined]
+        terminal.__llm_result__ = last_result  # type: ignore[attr-defined]
+        raise terminal from last_error
 
-        return LLMCallResult(
-            status=CallStatus.ERROR,
-            model=primary_model,
-            response_text=None,
-            error_text=last_error or "All retries and fallbacks exhausted",
-            tokens_prompt=0,
-            tokens_completion=0,
-            cost_usd=None,
-            latency_ms=last_latency,
-            endpoint=exhausted_endpoint,
-        )
+    async def _wait_before_retry(self, result: LLMCallResult, *, attempt: int) -> None:
+        """Honor the provider's Retry-After hint, falling back to plain backoff."""
+        raw = None
+        if isinstance(result.error_context, dict):
+            raw = result.error_context.get("retry_after")
+        if raw is not None:
+            try:
+                requested = float(raw)
+            except (TypeError, ValueError):
+                logger.warning("invalid_retry_after_header", extra={"retry_after": str(raw)})
+            else:
+                capped = min(max(0.0, requested), self._RETRY_AFTER_MAX_SEC)
+                if requested > self._RETRY_AFTER_MAX_SEC:
+                    logger.warning(
+                        "retry_after_header_capped",
+                        extra={"requested_seconds": requested, "capped_seconds": capped},
+                    )
+                await asyncio.sleep(capped)
+                return
+        await sleep_backoff(attempt, backoff_base=self._backoff_base)
+
+
+def _attempt_row(
+    *,
+    model: str | None,
+    status: str,
+    latency_ms: int | None = None,
+    error_text: str | None = None,
+    tokens_prompt: int | None = None,
+    tokens_completion: int | None = None,
+    cost_usd: float | None = None,
+) -> dict[str, Any]:
+    """One physical provider request, shaped like the OpenRouter reference rows."""
+    return {
+        "model": model,
+        "status": status,
+        "tokens_prompt": tokens_prompt,
+        "tokens_completion": tokens_completion,
+        "cost_usd": cost_usd,
+        "latency_ms": latency_ms,
+        "error_text": error_text,
+    }
+
+
+def _attempt_row_from_result(result: LLMCallResult, *, error_text: str | None) -> dict[str, Any]:
+    """Record a request the provider answered, billed regardless of usability."""
+    return _attempt_row(
+        model=result.model,
+        status="ok" if error_text is None else "error",
+        latency_ms=result.latency_ms,
+        error_text=error_text,
+        tokens_prompt=result.tokens_prompt,
+        tokens_completion=result.tokens_completion,
+        cost_usd=result.cost_usd,
+    )
+
+
+def _status_code_of(result: LLMCallResult) -> int | None:
+    if not isinstance(result.error_context, dict):
+        return None
+    raw = result.error_context.get("status_code")
+    try:
+        return int(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 async def asyncio_sleep_backoff(base: float, attempt: int) -> None:

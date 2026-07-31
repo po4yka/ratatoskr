@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 from typing import TYPE_CHECKING, Any, TypeVar
 
@@ -37,6 +36,8 @@ class OpenAICompatibleLLMClient(BaseLLMClient):
         max_response_size_mb: int,
         circuit_breaker: CircuitBreaker | None = None,
         audit: Callable[[str, str, dict[str, Any]], None] | None = None,
+        price_input_per_1k: float | None = None,
+        price_output_per_1k: float | None = None,
     ) -> None:
         super().__init__(
             base_url=base_url.rstrip("/"),
@@ -45,6 +46,8 @@ class OpenAICompatibleLLMClient(BaseLLMClient):
             max_response_size_mb=max_response_size_mb,
             circuit_breaker=circuit_breaker,
             audit=audit,
+            price_input_per_1k=price_input_per_1k,
+            price_output_per_1k=price_output_per_1k,
         )
         self._provider_name = provider_name
         self._api_key = api_key
@@ -103,10 +106,18 @@ class OpenAICompatibleLLMClient(BaseLLMClient):
         if error is not None:
             return error
 
-        choice = (data or {}).get("choices", [{}])[0]
+        # `.get("choices", [{}])` only substitutes the default when the key is
+        # absent. Ollama and several proxies answer 200 with an explicitly empty
+        # list, and indexing that raised IndexError outside _request_context --
+        # escaping every caller of chat(), not just the retry loop.
+        choices = (data or {}).get("choices") if isinstance(data, dict) else None
+        choice = choices[0] if isinstance(choices, list) and choices else {}
         message = choice.get("message") if isinstance(choice, dict) else {}
         content = message.get("content") if isinstance(message, dict) else None
         usage = (data or {}).get("usage") if isinstance(data, dict) else {}
+        tokens_prompt = _usage_int(usage, "prompt_tokens")
+        tokens_completion = _usage_int(usage, "completion_tokens")
+        cost_usd = self._token_cost_usd(tokens_prompt, tokens_completion)
         if not isinstance(content, str) or not content.strip():
             return LLMCallResult(
                 status=CallStatus.ERROR,
@@ -114,8 +125,9 @@ class OpenAICompatibleLLMClient(BaseLLMClient):
                 response_text=None,
                 response_json=data,
                 error_text="Provider returned an empty chat completion",
-                tokens_prompt=_usage_int(usage, "prompt_tokens"),
-                tokens_completion=_usage_int(usage, "completion_tokens"),
+                tokens_prompt=tokens_prompt,
+                tokens_completion=tokens_completion,
+                cost_usd=cost_usd,
                 latency_ms=latency_ms,
                 endpoint="/chat/completions",
             )
@@ -124,8 +136,9 @@ class OpenAICompatibleLLMClient(BaseLLMClient):
             model=model,
             response_text=content,
             response_json=data,
-            tokens_prompt=_usage_int(usage, "prompt_tokens"),
-            tokens_completion=_usage_int(usage, "completion_tokens"),
+            tokens_prompt=tokens_prompt,
+            tokens_completion=tokens_completion,
+            cost_usd=cost_usd,
             latency_ms=latency_ms,
             endpoint="/chat/completions",
             structured_output_used=response_format is not None,
@@ -144,9 +157,8 @@ class OpenAICompatibleLLMClient(BaseLLMClient):
         model_override: str | None = None,
         fallback_models_override: tuple[str, ...] | list[str] | None = None,
     ) -> StructuredLLMResult[_ModelT]:
-        last_error: Exception | None = None
-        for attempt in range(max_retries + 1):
-            result = await self.chat(
+        async def _call() -> LLMCallResult:
+            return await self.chat(
                 messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
@@ -155,24 +167,13 @@ class OpenAICompatibleLLMClient(BaseLLMClient):
                 fallback_models_override=fallback_models_override,
                 response_format={"type": "json_object"},
             )
-            if result.status != CallStatus.OK or result.response_text is None:
-                last_error = RuntimeError(result.error_text or "Structured chat failed")
-                continue
-            try:
-                parsed = response_model.model_validate(json.loads(result.response_text))
-            except Exception as exc:  # pragma: no cover - exercised through retry outcome
-                last_error = exc
-                continue
-            return StructuredLLMResult(
-                parsed=parsed,
-                tokens_prompt=result.tokens_prompt,
-                tokens_completion=result.tokens_completion,
-                cost_usd=result.cost_usd,
-                latency_ms=result.latency_ms,
-                retry_count=attempt,
-                model_used=result.model,
-            )
-        raise RuntimeError(f"Structured chat failed after retries: {last_error}")
+
+        return await self._run_structured_attempts(
+            model=model_override or self._model,
+            response_model=response_model,
+            max_retries=max_retries,
+            call=_call,
+        )
 
 
 def _usage_int(usage: Any, key: str) -> int | None:

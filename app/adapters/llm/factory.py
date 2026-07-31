@@ -72,6 +72,8 @@ class LLMClientFactory:
                 max_response_size_mb=config.openai.max_response_size_mb,
                 circuit_breaker=circuit_breaker,
                 audit=audit,
+                price_input_per_1k=config.openai.price_input_per_1k,
+                price_output_per_1k=config.openai.price_output_per_1k,
             )
         if normalized == "ollama":
             return LLMClientFactory._create_openai_compatible(
@@ -86,6 +88,8 @@ class LLMClientFactory:
                 max_response_size_mb=config.ollama.max_response_size_mb,
                 circuit_breaker=circuit_breaker,
                 audit=audit,
+                price_input_per_1k=config.ollama.price_input_per_1k,
+                price_output_per_1k=config.ollama.price_output_per_1k,
             )
         return LLMClientFactory._create_anthropic(config, circuit_breaker, audit)
 
@@ -114,6 +118,8 @@ class LLMClientFactory:
         max_response_size_mb: int,
         circuit_breaker: CircuitBreaker | None,
         audit: Callable[[str, str, dict[str, Any]], None] | None,
+        price_input_per_1k: float | None,
+        price_output_per_1k: float | None,
     ) -> LLMClientProtocol:
         from app.adapters.llm.openai_compatible import OpenAICompatibleLLMClient
 
@@ -129,6 +135,8 @@ class LLMClientFactory:
             max_response_size_mb=max_response_size_mb,
             circuit_breaker=circuit_breaker,
             audit=audit,
+            price_input_per_1k=price_input_per_1k,
+            price_output_per_1k=price_output_per_1k,
         )
 
     @staticmethod
@@ -151,6 +159,8 @@ class LLMClientFactory:
             max_response_size_mb=config.anthropic.max_response_size_mb,
             circuit_breaker=circuit_breaker,
             audit=audit,
+            price_input_per_1k=config.anthropic.price_input_per_1k,
+            price_output_per_1k=config.anthropic.price_output_per_1k,
         )
 
     @staticmethod

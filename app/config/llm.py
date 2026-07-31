@@ -117,6 +117,12 @@ class DirectOpenAIConfig(BaseModel):
     timeout_sec: int = Field(default=60, validation_alias="OPENAI_TIMEOUT_SEC")
     max_retries: int = Field(default=3, validation_alias="OPENAI_MAX_RETRIES")
     max_response_size_mb: int = Field(default=10, validation_alias="OPENAI_MAX_RESPONSE_SIZE_MB")
+    price_input_per_1k: float | None = Field(
+        default=None, validation_alias="OPENAI_PRICE_INPUT_PER_1K"
+    )
+    price_output_per_1k: float | None = Field(
+        default=None, validation_alias="OPENAI_PRICE_OUTPUT_PER_1K"
+    )
 
     @field_validator("api_key", mode="before")
     @classmethod
@@ -148,6 +154,12 @@ class DirectAnthropicConfig(BaseModel):
     timeout_sec: int = Field(default=60, validation_alias="ANTHROPIC_TIMEOUT_SEC")
     max_retries: int = Field(default=3, validation_alias="ANTHROPIC_MAX_RETRIES")
     max_response_size_mb: int = Field(default=10, validation_alias="ANTHROPIC_MAX_RESPONSE_SIZE_MB")
+    price_input_per_1k: float | None = Field(
+        default=None, validation_alias="ANTHROPIC_PRICE_INPUT_PER_1K"
+    )
+    price_output_per_1k: float | None = Field(
+        default=None, validation_alias="ANTHROPIC_PRICE_OUTPUT_PER_1K"
+    )
 
     @field_validator("api_key", mode="before")
     @classmethod
@@ -176,6 +188,12 @@ class DirectOllamaConfig(BaseModel):
     timeout_sec: int = Field(default=120, validation_alias="OLLAMA_TIMEOUT_SEC")
     max_retries: int = Field(default=1, validation_alias="OLLAMA_MAX_RETRIES")
     max_response_size_mb: int = Field(default=10, validation_alias="OLLAMA_MAX_RESPONSE_SIZE_MB")
+    price_input_per_1k: float | None = Field(
+        default=None, validation_alias="OLLAMA_PRICE_INPUT_PER_1K"
+    )
+    price_output_per_1k: float | None = Field(
+        default=None, validation_alias="OLLAMA_PRICE_OUTPUT_PER_1K"
+    )
 
     @field_validator("api_key", mode="before")
     @classmethod

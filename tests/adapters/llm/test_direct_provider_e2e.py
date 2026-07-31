@@ -91,7 +91,12 @@ async def test_direct_anthropic_provider_structured_roundtrip(respx_mock) -> Non
     assert request.headers["anthropic-version"] == "2023-06-01"
     payload = json.loads(request.content)
     assert payload["system"] == "Return JSON only."
-    assert payload["messages"] == [{"role": "user", "content": "Summarize"}]
+    # The trailing assistant turn is the prefill that constrains the reply to
+    # JSON; the Messages API has no response_format to do it declaratively.
+    assert payload["messages"] == [
+        {"role": "user", "content": "Summarize"},
+        {"role": "assistant", "content": "{"},
+    ]
 
 
 @pytest.mark.asyncio
