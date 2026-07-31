@@ -89,3 +89,22 @@ else:
         .with_result_backend(_result_backend)
         .with_middlewares(*_middlewares)
     )
+
+
+# The module that starts tracing also stops it. Taskiq fires WORKER_SHUTDOWN on
+# SIGTERM (app/cli/taskiq_worker.py forwards it to the child process group), so
+# this runs while the loop is still up and the exporter can still reach the
+# collector. Registered here rather than in a task module so it applies whichever
+# subset of task modules a worker is started with.
+try:
+    from taskiq import TaskiqEvents as _TaskiqEvents
+
+    @broker.on_event(_TaskiqEvents.WORKER_SHUTDOWN)
+    async def _shutdown_tracing_on_worker_exit(_state: object) -> None:
+        """Flush the span buffer before the worker process goes away."""
+        from app.observability.otel import shutdown_tracing
+
+        shutdown_tracing()
+
+except Exception:  # pragma: no cover - lightweight taskiq test stubs
+    pass

@@ -245,8 +245,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             logger.info("database_closed")
         finally:
             from app.observability.metrics_http import mark_process_dead
+            from app.observability.otel import shutdown_tracing
 
             mark_process_dead()
+            # Flush the span buffer for the same reason mark_process_dead exists:
+            # the tail of the run is what an operator needs after a restart.
+            shutdown_tracing()
 
 
 # FastAPI app instance

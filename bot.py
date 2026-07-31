@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import signal
 from contextlib import suppress
 from functools import partial
 from typing import Any
@@ -28,6 +29,20 @@ async def main() -> None:
     from app.observability.otel import init_tracing
 
     init_tracing(cfg)
+
+    # Docker stops a container with SIGTERM, and Python leaves it at SIG_DFL --
+    # the interpreter dies on the spot. Nothing below this line ran on a deploy:
+    # not the finally block's db_write_queue.stop(), not broker.shutdown(), not
+    # the span flush, and not OTel's own atexit hook. Turning the signal into a
+    # cancel makes the process exit through the interpreter instead, so the
+    # existing teardown finally happens. SIGINT is deliberately left alone:
+    # asyncio.Runner already cancels the main task on it, and overriding that
+    # would lose the double-Ctrl-C escalation.
+    _main_task = asyncio.current_task()
+    if _main_task is not None:
+        with suppress(NotImplementedError):
+            asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, _main_task.cancel)
+
     start_metrics_http_server_from_env()
     cfg_holder = ConfigHolder(cfg)
 
@@ -137,6 +152,12 @@ async def main() -> None:
         await db_write_queue.stop()
         if broker_started and broker is not None and not broker.is_worker_process:
             await broker.shutdown()
+        # Last: flush the span buffer while the process is still alive. atexit
+        # also covers this, but running here exports the shutdown sequence itself.
+        with suppress(Exception):
+            from app.observability.otel import shutdown_tracing
+
+            shutdown_tracing()
 
 
 if __name__ == "__main__":

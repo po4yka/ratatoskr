@@ -198,9 +198,24 @@ def instrument_fastapi_app(app: Any, *, cfg: AppConfig | None = None) -> None:
 
 
 def shutdown_tracing() -> None:
-    """Flush and shut down the tracer provider (call in process shutdown)."""
+    """Flush and shut down the tracer provider.
+
+    BatchSpanProcessor holds spans for up to ``schedule_delay_millis`` (5 s) and
+    exports them on its own schedule or on shutdown.
+
+    TracerProvider already registers its own ``atexit`` hook
+    (``shutdown_on_exit=True``), so a normal interpreter exit was always covered.
+    What was not covered is SIGTERM, which is how Docker stops a container:
+    Python's default handler terminates the process without running ``atexit``.
+    Callers must therefore invoke this from a real shutdown seam -- uvicorn's
+    lifespan, taskiq's WORKER_SHUTDOWN -- while the loop is still up.
+
+    Safe to call more than once and safe to call when tracing was never started.
+    """
+    global _initialized
     if not _otel_available or not _initialized:
         return
+    _initialized = False
     provider = _trace.get_tracer_provider()
     if hasattr(provider, "shutdown"):
         provider.shutdown()

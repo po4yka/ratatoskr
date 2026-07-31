@@ -58,6 +58,7 @@ from app.core.backoff import sleep_backoff
 from app.core.call_status import CallStatus
 from app.core.http_utils import ResponseSizeError, validate_response_size
 from app.core.logging_utils import get_logger
+from app.observability.metrics_scraper import record_firecrawl_request
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -268,7 +269,9 @@ class FirecrawlClient:
 
         started = time.perf_counter()
         try:
-            resp = await self._client.post(self._search_url, headers=headers, json=body)
+            resp = await self._request(
+                "POST", self._search_url, endpoint="search", headers=headers, json=body
+            )
             validate_response_size(resp, self._max_response_size_bytes, "Firecrawl Search")
         except ResponseSizeError as exc:
             return self._error_handler.build_search_size_error(exc, trimmed_query, started)
@@ -336,13 +339,17 @@ class FirecrawlClient:
         payload = {"url": url, **(options or {})}
         payload.setdefault("formats", self._options.build_formats())
         headers = {"Authorization": f"Bearer {self._api_key}"}
-        resp = await self._client.post(self._crawl_url, headers=headers, json=payload)
+        resp = await self._request(
+            "POST", self._crawl_url, endpoint="crawl", headers=headers, json=payload
+        )
         validate_response_size(resp, self._max_response_size_bytes, "Firecrawl Crawl")
         return cast("dict[str, Any]", resp.json())
 
     async def get_crawl_status(self, job_id: str) -> dict[str, Any]:
         headers = {"Authorization": f"Bearer {self._api_key}"}
-        resp = await self._client.get(f"{self._crawl_url}/{job_id}", headers=headers)
+        resp = await self._request(
+            "GET", f"{self._crawl_url}/{job_id}", endpoint="crawl_status", headers=headers
+        )
         validate_response_size(resp, self._max_response_size_bytes, "Firecrawl Crawl")
         return cast("dict[str, Any]", resp.json())
 
@@ -417,13 +424,20 @@ class FirecrawlClient:
         payload = {"urls": urls, **(options or {})}
         payload.setdefault("formats", self._options.build_formats())
         headers = {"Authorization": f"Bearer {self._api_key}"}
-        resp = await self._client.post(self._batch_scrape_url, headers=headers, json=payload)
+        resp = await self._request(
+            "POST", self._batch_scrape_url, endpoint="batch_scrape", headers=headers, json=payload
+        )
         validate_response_size(resp, self._max_response_size_bytes, "Firecrawl BatchScrape")
         return cast("dict[str, Any]", resp.json())
 
     async def get_batch_scrape_status(self, job_id: str) -> dict[str, Any]:
         headers = {"Authorization": f"Bearer {self._api_key}"}
-        resp = await self._client.get(f"{self._batch_scrape_url}/{job_id}", headers=headers)
+        resp = await self._request(
+            "GET",
+            f"{self._batch_scrape_url}/{job_id}",
+            endpoint="batch_scrape_status",
+            headers=headers,
+        )
         validate_response_size(resp, self._max_response_size_bytes, "Firecrawl BatchScrape")
         return cast("dict[str, Any]", resp.json())
 
@@ -431,7 +445,9 @@ class FirecrawlClient:
         payload = dict(args)
         payload.setdefault("formats", self._options.build_formats())
         headers = {"Authorization": f"Bearer {self._api_key}"}
-        resp = await self._client.post(self._extract_url, headers=headers, json=payload)
+        resp = await self._request(
+            "POST", self._extract_url, endpoint="extract", headers=headers, json=payload
+        )
         validate_response_size(resp, self._max_response_size_bytes, "Firecrawl Extract")
         return cast("dict[str, Any]", resp.json())
 
@@ -554,6 +570,44 @@ class FirecrawlClient:
             pdf_hint=pdf_hint,
         )
 
+    async def _request(
+        self,
+        method: str,
+        url: str,
+        *,
+        endpoint: str,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        """Issue one Firecrawl API call and record it.
+
+        Every Firecrawl request goes through here so ratatoskr_firecrawl_requests_total
+        actually has a series. Nothing called record_firecrawl_request, so the
+        counter's labelled children were never created -- and a Prometheus
+        aggregate over a series that does not exist yields an empty vector, not
+        zero. Both alerts built on it (RatatoskrFirecrawlHighErrors and
+        RatatoskrFirecrawlNoRequests, ops/monitoring/alerting_rules.yml) could
+        therefore never fire, including the one whose whole job is to notice that
+        Firecrawl has gone quiet.
+        """
+        started = time.perf_counter()
+        # Dispatch to the same bound methods the call sites used before, so this
+        # stays purely additive: no transport behaviour changes, and tests that
+        # patch _client.post / _client.get keep working.
+        call = self._client.post if method == "POST" else self._client.get
+        try:
+            response = await call(url, **kwargs)
+        except Exception:
+            record_firecrawl_request(
+                "error", endpoint=endpoint, latency_seconds=time.perf_counter() - started
+            )
+            raise
+        record_firecrawl_request(
+            "success" if response.status_code < 400 else "error",
+            endpoint=endpoint,
+            latency_seconds=time.perf_counter() - started,
+        )
+        return response
+
     async def _execute_scrape_attempt(
         self,
         *,
@@ -586,7 +640,9 @@ class FirecrawlClient:
         }
         self._payload_logger.log_request_payload(json_body)
 
-        resp = await self._client.post(self._base_url, headers=headers, json=json_body)
+        resp = await self._request(
+            "POST", self._base_url, endpoint="scrape", headers=headers, json=json_body
+        )
         try:
             validate_response_size(resp, self._max_response_size_bytes, "Firecrawl")
         except ResponseSizeError as size_exc:
