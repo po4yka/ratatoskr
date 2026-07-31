@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from urllib.parse import urlparse
+from typing import Any
+from urllib.parse import urljoin, urlparse
 
 from app.core.logging_utils import get_logger
 from app.security.ssrf import is_url_safe, make_safe_sync_client
@@ -21,6 +22,76 @@ def _validate_feed_url(url: str) -> None:
     safe, reason = is_url_safe(url)
     if not safe:
         raise ValueError(f"Feed URL blocked: {reason}")
+
+
+# Feeds are text; anything this large is a broken or hostile server. The
+# sibling source ingestors cap their responses the same way -- this fetcher
+# buffered `resp.content` with no bound at all, and POST /rss accepts an
+# arbitrary URL at subscription time.
+_MAX_FEED_BYTES = 10 * 1024 * 1024
+# Feedburner and Substack answer 301 to their canonical https host. With
+# follow_redirects=False and only 304 special-cased, raise_for_status turned
+# that into a failure, and roughly ten polls (~5 h) later the feed auto-disabled.
+_MAX_FEED_REDIRECTS = 3
+
+
+def _read_capped(response: Any) -> bytes:
+    """Read a streamed body, refusing anything over the cap.
+
+    Content-Length is the cheap early-out; the cumulative count is the
+    authoritative one because the header can be absent or wrong.
+    """
+    declared = response.headers.get("content-length")
+    if declared:
+        try:
+            if int(declared) > _MAX_FEED_BYTES:
+                msg = f"feed body exceeds {_MAX_FEED_BYTES} byte cap"
+                raise ValueError(msg)
+        except ValueError as exc:
+            if "cap" in str(exc):
+                raise
+
+    chunks: list[bytes] = []
+    total = 0
+    for chunk in response.iter_bytes():
+        total += len(chunk)
+        if total > _MAX_FEED_BYTES:
+            msg = f"feed body exceeds {_MAX_FEED_BYTES} byte cap"
+            raise ValueError(msg)
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _fetch_feed_body(
+    url: str, *, headers: dict[str, str], timeout: float
+) -> tuple[bytes, dict[str, str]] | None:
+    """Fetch the feed, following a bounded number of redirects.
+
+    Returns ``(body, response_headers)``, or None when the server answers 304.
+    The headers come back because ETag / Last-Modified drive the conditional
+    request on the next poll. Every redirect target is re-validated, so
+    following them does not widen the SSRF surface.
+    """
+    current_url = url
+    with make_safe_sync_client(follow_redirects=False) as client:
+        for _ in range(_MAX_FEED_REDIRECTS + 1):
+            with client.stream("GET", current_url, headers=headers, timeout=timeout) as resp:
+                if resp.status_code == 304:
+                    return None
+                location = resp.headers.get("location")
+                if resp.status_code in {301, 302, 303, 307, 308} and location:
+                    current_url = urljoin(current_url, location)
+                    _validate_feed_url(current_url)
+                    continue
+                resp.raise_for_status()
+                # Lower-cased explicitly: httpx normalises its own Headers, but the
+                # mapping is rebuilt here so lookups do not depend on which
+                # casing the server (or a test double) used.
+                return _read_capped(resp), {
+                    key.lower(): value for key, value in dict(resp.headers).items()
+                }
+    msg = f"feed exceeded {_MAX_FEED_REDIRECTS} redirects"
+    raise ValueError(msg)
 
 
 @dataclass
@@ -65,17 +136,14 @@ def fetch_feed(
     if last_modified:
         headers["If-Modified-Since"] = last_modified
 
-    with make_safe_sync_client(follow_redirects=False) as client:
-        resp = client.get(url, headers=headers, timeout=timeout)
-
-    if resp.status_code == 304:
+    fetched = _fetch_feed_body(url, headers=headers, timeout=timeout)
+    if fetched is None:
         return FeedResult(not_modified=True)
-
-    resp.raise_for_status()
+    body, response_headers = fetched
 
     import feedparser
 
-    parsed = feedparser.parse(resp.content)
+    parsed = feedparser.parse(body)
 
     entries = []
     for entry in parsed.entries:
@@ -115,6 +183,6 @@ def fetch_feed(
         description=feed_info.get("subtitle") or feed_info.get("description"),
         site_url=feed_info.get("link"),
         entries=entries,
-        etag=resp.headers.get("ETag"),
-        last_modified=resp.headers.get("Last-Modified"),
+        etag=response_headers.get("etag"),
+        last_modified=response_headers.get("last-modified"),
     )

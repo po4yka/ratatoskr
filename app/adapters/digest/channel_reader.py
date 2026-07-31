@@ -18,6 +18,23 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _fetch_error_reason(exc: BaseException) -> str:
+    """Tell a rate limit apart from a genuinely unreachable channel.
+
+    Telethon sleeps FloodWaits below its own threshold itself, so anything that
+    reaches here is a long one -- and it says "come back later", not "this
+    channel is gone". Counting it as a plain fetch_failed meant a handful of
+    rate-limited digests in a row tripped max_fetch_errors and set
+    is_active=False permanently, with a last_error indistinguishable from a
+    deleted channel.
+    """
+    name = type(exc).__name__.lower()
+    text = str(exc).lower()
+    if "floodwait" in name or "flood_wait" in text or "too many requests" in text:
+        return "rate_limited"
+    return "fetch_failed"
+
+
 class ChannelReader:
     """Fetches posts from subscribed channels with fair distribution."""
 
@@ -77,18 +94,30 @@ class ChannelReader:
                 )
                 await self._store.async_update_channel_fetch_success(channel)
                 channel_posts[channel.id] = posts
-            except Exception:
+            except Exception as exc:
                 logger.exception(
                     "digest_channel_fetch_error",
                     extra={"channel": channel.username, "uid": user_id},
                 )
+                reason = _fetch_error_reason(exc)
+                record_digest_channel_fetch_error(reason)
+                if reason == "rate_limited":
+                    # Deliberately not recorded as a fetch error: the store
+                    # always increments fetch_error_count, and a channel that is
+                    # merely rate-limited would then march toward auto-disable.
+                    # The metric above and the log line are where an operator
+                    # looks for throttling anyway.
+                    logger.warning(
+                        "digest_channel_rate_limited",
+                        extra={"channel": channel.username, "uid": user_id},
+                    )
+                    continue
                 max_errors = self._cfg.digest.max_fetch_errors
                 disable = await self._store.async_record_channel_fetch_error(
                     channel,
-                    "fetch_failed",
+                    reason,
                     max_errors=max_errors,
                 )
-                record_digest_channel_fetch_error("fetch_failed")
                 if disable:
                     logger.warning(
                         "digest_channel_auto_disabled",
@@ -162,13 +191,18 @@ class ChannelReader:
                 hours_lookback=self._cfg.digest.hours_lookback,
                 min_length=self._cfg.digest.min_post_length,
             )
-        except Exception:
-            await self._store.async_record_channel_fetch_error(
-                channel,
-                "fetch_failed",
-                max_errors=self._cfg.digest.max_fetch_errors,
-            )
-            record_digest_channel_fetch_error("fetch_failed")
+        except Exception as exc:
+            reason = _fetch_error_reason(exc)
+            record_digest_channel_fetch_error(reason)
+            # Same rule as the batch path: a rate limit is not evidence the
+            # channel is unreachable, so it must not advance fetch_error_count
+            # toward auto-disable.
+            if reason != "rate_limited":
+                await self._store.async_record_channel_fetch_error(
+                    channel,
+                    reason,
+                    max_errors=self._cfg.digest.max_fetch_errors,
+                )
             raise
         if max_items is not None:
             posts = posts[:max_items]

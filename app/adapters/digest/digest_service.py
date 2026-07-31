@@ -11,6 +11,7 @@ from app.adapters.content.streaming.operation_streams import (
     digest_run_topic,
     publish_operation_event,
 )
+from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import get_logger
 from app.infrastructure.persistence.digest_store import DigestStore
 from app.observability.metrics_digest import (
@@ -27,6 +28,14 @@ if TYPE_CHECKING:
     from app.config import AppConfig
 
 logger = get_logger(__name__)
+
+
+class _PartialDeliveryError(Exception):
+    """Raised when some digest chunks were delivered before a send failed."""
+
+    def __init__(self, sent: int, cause: Exception) -> None:
+        super().__init__(str(cause))
+        self.sent = sent
 
 
 @dataclass
@@ -383,6 +392,17 @@ class DigestService:
                 channel_count=result.channel_count,
             )
             delivery_succeeded = True
+        except _PartialDeliveryError as e:
+            logger.warning(
+                "digest_send_partial",
+                extra={"cid": correlation_id, "sent": e.sent, "error": str(e)},
+                exc_info=True,
+            )
+            result.messages_sent = e.sent
+            # Record the delivery for what actually went out; the run is still
+            # reported as failed because result.errors is non-empty.
+            delivery_succeeded = e.sent > 0
+            result.errors.append(f"Send failed after {e.sent} message(s): {e}")
         except Exception as e:
             logger.warning(
                 "digest_send_failed",
@@ -496,7 +516,15 @@ class DigestService:
         sent = 0
         for text, buttons in message_chunks:
             reply_markup = _build_inline_keyboard(buttons) if buttons else None
-            await self._send(user_id, text, reply_markup=reply_markup)
+            try:
+                await self._send(user_id, text, reply_markup=reply_markup)
+            except Exception as exc:
+                raise_if_cancelled(exc)
+                # Carry the count out. Letting the raw error escape meant
+                # messages_sent stayed unset and no DigestDelivery row was
+                # written, so the posts already delivered were sent again on the
+                # next run while the run itself reported messages_sent=0.
+                raise _PartialDeliveryError(sent, exc) from exc
             sent += 1
         return sent
 

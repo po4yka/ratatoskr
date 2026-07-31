@@ -141,9 +141,23 @@ def _patch_ssrf():
 
 
 def _patch_feed_client(response: MagicMock):
-    """Patch the safe HTTP client factory and return the mocked get call."""
+    """Patch the safe HTTP client factory.
+
+    The fetcher streams so an oversized feed is refused without being buffered,
+    so the fake exposes ``client.stream`` as a context manager and gives the
+    response an ``iter_bytes``. ``content`` set by a test is chunked through it.
+    """
+    if not isinstance(response.headers, dict):
+        response.headers = {}
+    raw = response.content if isinstance(response.content, bytes) else b""
+    response.iter_bytes = MagicMock(return_value=iter([raw] if raw else []))
+
+    stream_ctx = MagicMock()
+    stream_ctx.__enter__.return_value = response
+    stream_ctx.__exit__.return_value = None
+
     client = MagicMock()
-    client.get.return_value = response
+    client.stream.return_value = stream_ctx
     manager = MagicMock()
     manager.__enter__.return_value = client
     manager.__exit__.return_value = None
@@ -261,7 +275,7 @@ class TestFetchFeed:
                 etag='"abc"',
                 last_modified="Thu, 01 Jan 2026",
             )
-            mock_get = mock_client_factory.return_value.__enter__.return_value.get
+            mock_get = mock_client_factory.return_value.__enter__.return_value.stream
             call_kwargs = mock_get.call_args
             headers = call_kwargs.kwargs.get("headers") or call_kwargs[1].get("headers", {})
             assert headers.get("If-None-Match") == '"abc"'
@@ -276,7 +290,7 @@ class TestFetchFeed:
             _patch_feed_client(mock_resp) as mock_client_factory,
         ):
             fetch_feed("https://example.com/feed.xml")
-            mock_get = mock_client_factory.return_value.__enter__.return_value.get
+            mock_get = mock_client_factory.return_value.__enter__.return_value.stream
             call_kwargs = mock_get.call_args
             headers = call_kwargs.kwargs.get("headers") or call_kwargs[1].get("headers", {})
             assert "If-None-Match" not in headers
@@ -375,7 +389,7 @@ class TestFetchFeed:
             _patch_feed_client(mock_resp) as mock_client_factory,
         ):
             fetch_feed("https://example.com/feed.xml", timeout=15.0)
-            mock_get = mock_client_factory.return_value.__enter__.return_value.get
+            mock_get = mock_client_factory.return_value.__enter__.return_value.stream
             call_kwargs = mock_get.call_args
             assert mock_client_factory.call_args.kwargs.get("follow_redirects") is False
             assert call_kwargs.kwargs.get("timeout") == 15.0

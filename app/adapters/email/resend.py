@@ -7,6 +7,9 @@ from typing import TYPE_CHECKING
 import httpx
 
 from app.adapters.email.protocol import EmailDeliveryResult, EmailMessage
+from app.core.logging_utils import get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from app.config.email import EmailConfig
@@ -57,7 +60,20 @@ class ResendEmailProvider:
                 error=str(exc)[:500],
             )
 
-        data = response.json()
+        # Outside the httpx.HTTPError handler a JSONDecodeError escaped send()
+        # entirely: the mail had already gone out, but email_deliveries was
+        # never written (service.py records after send) and no DigestDelivery
+        # row was created, so the next digest sent the same content again.
+        # A 200 with an unreadable body means delivered-without-an-id, not
+        # failed -- reporting failure is what causes the duplicate.
+        try:
+            data = response.json()
+        except ValueError:
+            logger.warning(
+                "resend_response_not_json",
+                extra={"status_code": response.status_code},
+            )
+            data = None
         message_id = data.get("id") if isinstance(data, dict) else None
         return EmailDeliveryResult(
             provider=self.provider_name,

@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from app.adapters.rss.feed_fetcher import fetch_feed
 from app.adapters.rss.signal_ingester import RssSignalIngester
 from app.adapters.rss.substack import is_substack_url
+from app.core.async_utils import raise_if_cancelled
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
 from app.infrastructure.persistence.repositories.rss_feed_repository import (
@@ -267,17 +268,29 @@ async def _poll_feed(
             new_item_ids=created_item_ids,
         )
     except Exception as exc:
-        await repo.async_record_feed_fetch_error(
-            feed_id=int(feed["id"]),
-            error=str(exc),
-            max_fetch_errors=MAX_FETCH_ERRORS,
-        )
-        if signal_source is not None:
-            await signal_repo.async_record_source_fetch_error(
-                source_id=int(signal_source["id"]),
+        raise_if_cancelled(exc)
+        # These two writes are themselves I/O. An exception raised from inside
+        # this handler used to escape _poll_feed entirely and abort the whole
+        # cycle through gather, losing the stats of every feed already polled
+        # and skipping the ingestion and delivery that follow.
+        try:
+            await repo.async_record_feed_fetch_error(
+                feed_id=int(feed["id"]),
                 error=str(exc),
-                max_errors=MAX_FETCH_ERRORS,
-                base_backoff_seconds=SIGNAL_SOURCE_BASE_BACKOFF_SECONDS,
+                max_fetch_errors=MAX_FETCH_ERRORS,
+            )
+            if signal_source is not None:
+                await signal_repo.async_record_source_fetch_error(
+                    source_id=int(signal_source["id"]),
+                    error=str(exc),
+                    max_errors=MAX_FETCH_ERRORS,
+                    base_backoff_seconds=SIGNAL_SOURCE_BASE_BACKOFF_SECONDS,
+                )
+        except Exception as record_exc:
+            raise_if_cancelled(record_exc)
+            logger.warning(
+                "rss_feed_error_record_failed",
+                extra={"feed_id": feed.get("id"), "error": str(record_exc)},
             )
         logger.warning(
             "rss_feed_poll_error",
@@ -322,7 +335,22 @@ async def poll_all_feeds(
         async with host_lock, semaphore:
             return await _poll_feed(repo, signal_repo, feed)
 
-    results = await asyncio.gather(*(_bounded_poll(feed) for feed in feeds))
+    # return_exceptions: one feed must not cost the cycle. Without it an
+    # unexpected error propagated out of gather, so the aggregation below never
+    # ran, the source/signal ingestion and delivery that consume new_item_ids
+    # were skipped, and Taskiq retried the entire poll up to three times.
+    settled = await asyncio.gather(*(_bounded_poll(feed) for feed in feeds), return_exceptions=True)
+    results: list[_FeedPollResult] = []
+    for feed, outcome in zip(feeds, settled, strict=True):
+        if isinstance(outcome, BaseException):
+            raise_if_cancelled(outcome)
+            logger.warning(
+                "rss_feed_poll_unexpected_error",
+                extra={"feed_id": feed.get("id"), "error": str(outcome)},
+            )
+            results.append(_FeedPollResult(errors=1))
+        else:
+            results.append(outcome)
     stats: dict[str, Any] = {
         "polled": sum(result.polled for result in results),
         "new_items": sum(result.new_items for result in results),
