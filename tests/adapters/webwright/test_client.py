@@ -26,7 +26,7 @@ async def test_successful_task():
     }
     transport = httpx.MockTransport(lambda req: httpx.Response(200, json=sample))
     with patch(
-        "app.adapters.webwright.client.make_safe_async_client",
+        "app.adapters.webwright.client.make_trusted_sidecar_client",
         return_value=httpx.AsyncClient(transport=transport),
     ):
         result = await client.run_task(task="say hi", correlation_id="cid-1")
@@ -48,7 +48,7 @@ async def test_timeout_returns_error_result():
 
     transport = httpx.MockTransport(raise_timeout)
     with patch(
-        "app.adapters.webwright.client.make_safe_async_client",
+        "app.adapters.webwright.client.make_trusted_sidecar_client",
         return_value=httpx.AsyncClient(transport=transport),
     ):
         result = await client.run_task(task="t", correlation_id="c")
@@ -62,7 +62,7 @@ async def test_http_error_returns_error_result():
     client = WebwrightClient(url="http://wright:8090")
     transport = httpx.MockTransport(lambda req: httpx.Response(502, json={}))
     with patch(
-        "app.adapters.webwright.client.make_safe_async_client",
+        "app.adapters.webwright.client.make_trusted_sidecar_client",
         return_value=httpx.AsyncClient(transport=transport),
     ):
         result = await client.run_task(task="t", correlation_id="c")
@@ -75,7 +75,7 @@ async def test_non_object_payload_returns_error():
     client = WebwrightClient(url="http://wright:8090")
     transport = httpx.MockTransport(lambda req: httpx.Response(200, json=["nope"]))
     with patch(
-        "app.adapters.webwright.client.make_safe_async_client",
+        "app.adapters.webwright.client.make_trusted_sidecar_client",
         return_value=httpx.AsyncClient(transport=transport),
     ):
         result = await client.run_task(task="t", correlation_id="c")
@@ -99,7 +99,7 @@ async def test_correlation_id_header_sent():
 
     transport = httpx.MockTransport(capture)
     with patch(
-        "app.adapters.webwright.client.make_safe_async_client",
+        "app.adapters.webwright.client.make_trusted_sidecar_client",
         return_value=httpx.AsyncClient(transport=transport),
     ):
         await client.run_task(task="t", correlation_id="abc-123")
@@ -122,7 +122,7 @@ async def test_cookies_and_model_forwarded():
 
     transport = httpx.MockTransport(capture)
     with patch(
-        "app.adapters.webwright.client.make_safe_async_client",
+        "app.adapters.webwright.client.make_trusted_sidecar_client",
         return_value=httpx.AsyncClient(transport=transport),
     ):
         await client.run_task(

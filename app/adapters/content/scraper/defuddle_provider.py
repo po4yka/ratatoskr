@@ -13,7 +13,7 @@ from app.adapters.content.scraper.target_safety import reject_unsafe_target_url
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger, redact_headers_for_logging
-from app.security.ssrf import is_url_safe_async, make_safe_async_client
+from app.security.ssrf import is_url_safe_async, make_trusted_sidecar_client
 
 logger = get_logger(__name__)
 
@@ -112,7 +112,10 @@ class DefuddleProvider:
             )
         except Exception as exc:
             latency = int((time.perf_counter() - started) * 1000)
-            logger.debug(
+            # warning, not debug: this rung is enabled by default, and a
+            # misconfigured or unreachable sidecar fails every URL silently --
+            # which is how it stayed broken while /health reported it enabled.
+            logger.warning(
                 "defuddle_fetch_failed",
                 extra={
                     "url": url,
@@ -184,7 +187,10 @@ class DefuddleProvider:
         request_headers = headers or self._build_headers()
         overall_timeout = self._timeout_sec + 5
         async with asyncio.timeout(overall_timeout):
-            async with make_safe_async_client(
+            # The user URL was validated above and off-origin redirects are
+            # re-checked below; this connection goes to the configured sidecar,
+            # whose compose address the SSRF transport would refuse outright.
+            async with make_trusted_sidecar_client(
                 follow_redirects=False,
                 timeout=self._timeout_sec,
             ) as client:

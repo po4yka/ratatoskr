@@ -13,7 +13,7 @@ from typing import Any
 import httpx
 
 from app.core.logging_utils import get_logger
-from app.security.ssrf import make_safe_async_client
+from app.security.ssrf import make_trusted_sidecar_client
 
 logger = get_logger(__name__)
 
@@ -91,7 +91,7 @@ class WebwrightClient:
         client_timeout = (timeout_sec or self._timeout_sec) + 10
 
         try:
-            async with make_safe_async_client(timeout=client_timeout) as client:
+            async with make_trusted_sidecar_client(timeout=client_timeout) as client:
                 response = await client.post(endpoint, json=body, headers=headers)
                 response.raise_for_status()
                 data = response.json()

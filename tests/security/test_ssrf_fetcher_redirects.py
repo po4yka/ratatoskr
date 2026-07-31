@@ -103,7 +103,7 @@ async def test_defuddle_provider_blocks_redirect_to_private_ip() -> None:
 
     with (
         patch(
-            "app.adapters.content.scraper.defuddle_provider.make_safe_async_client",
+            "app.adapters.content.scraper.defuddle_provider.make_trusted_sidecar_client",
             return_value=_AsyncContext(client),
         ),
         patch(

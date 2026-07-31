@@ -27,7 +27,7 @@ from app.adapters.content.scraper.target_safety import reject_unsafe_target_url
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger, redact_headers_for_logging
-from app.security.ssrf import is_url_safe_async
+from app.security.ssrf import is_url_safe_async, make_trusted_sidecar_client
 
 logger = get_logger(__name__)
 
@@ -72,7 +72,10 @@ class Crawl4AIProvider:
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
-            self._client = httpx.AsyncClient(
+            # Named rather than bare: this is the same deliberate SSRF-transport
+            # bypass the other sidecar providers make, and an unexplained plain
+            # client here is what made the difference look accidental.
+            self._client = make_trusted_sidecar_client(
                 follow_redirects=False,
                 timeout=self._timeout_sec,
             )

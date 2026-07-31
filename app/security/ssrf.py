@@ -365,6 +365,27 @@ def make_safe_async_client(**kwargs: Any) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=SafeAsyncTransport(), **kwargs)
 
 
+def make_trusted_sidecar_client(**kwargs: Any) -> httpx.AsyncClient:
+    """Return a plain AsyncClient for an operator-configured sidecar.
+
+    Deliberately NOT backed by SafeAsyncTransport. The transport validates the
+    resolved IP against BLOCKED_NETWORKS, which includes every RFC1918 range --
+    exactly where a compose sidecar lives (``http://defuddle-api:3003`` resolves
+    to 172.18.x.x). Pointing it at our own sidecar made the connection fail
+    before it was attempted, so the rung was dead in every containerised
+    deployment while /health still advertised it as enabled.
+
+    This is not a hole in the SSRF defence: the sidecar host comes from
+    configuration, never from a user. Callers still validate the user-supplied
+    target URL with :func:`is_url_safe_async` before handing it to the sidecar,
+    and re-validate any redirect that leaves the sidecar's own origin.
+
+    Use :func:`make_safe_async_client` for anything whose host a user can
+    influence.
+    """
+    return httpx.AsyncClient(**kwargs)
+
+
 def make_safe_sync_client(**kwargs: Any) -> httpx.Client:
     """Return a sync Client backed by SafeSyncTransport."""
     return httpx.Client(transport=SafeSyncTransport(), **kwargs)

@@ -27,7 +27,7 @@ from app.adapters.content.scraper.target_safety import reject_unsafe_target_url
 from app.adapters.external.firecrawl.models import FirecrawlResult
 from app.core.call_status import CallStatus
 from app.core.logging_utils import get_logger, redact_url_for_logging
-from app.security.ssrf import make_safe_async_client
+from app.security.ssrf import make_trusted_sidecar_client
 
 logger = get_logger(__name__)
 
@@ -235,7 +235,7 @@ class WebwrightProvider:
         )
 
     async def aclose(self) -> None:
-        # No persistent client; each request gets a fresh make_safe_async_client.
+        # No persistent client; each request gets a fresh make_trusted_sidecar_client.
         return None
 
     def _host_in_allowlist(self, url: str) -> bool:
@@ -268,7 +268,7 @@ class WebwrightProvider:
         # Client-side timeout slightly exceeds the sidecar's wall clock so the
         # sidecar gets a chance to return its structured timeout response
         # instead of httpx aborting first.
-        async with make_safe_async_client(timeout=self._timeout_sec + 5) as client:
+        async with make_trusted_sidecar_client(timeout=self._timeout_sec + 5) as client:
             response = await client.post(endpoint, json=body, headers=headers)
             response.raise_for_status()
             data = response.json()
