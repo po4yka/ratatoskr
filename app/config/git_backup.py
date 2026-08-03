@@ -393,6 +393,19 @@ class GitBackupConfig(BaseModel):
         ),
     )
 
+    mirror_orgs: list[str] = Field(
+        default_factory=list,
+        validation_alias="GIT_BACKUP_MIRROR_ORGS",
+        description=(
+            "Organisation logins whose repositories are enumerated (GET /orgs/<org>/repos"
+            "?type=all) and mirrored. Deliberately an explicit list rather than "
+            "affiliation=organization_member on /user/repos: membership would sweep in every "
+            "organisation the token can see, including employers'. The list is the gate — "
+            "empty (default) means no organisation is enumerated. Private repositories need "
+            "the token's `repo` scope. Accepts a comma-separated string or a JSON list."
+        ),
+    )
+
     # Gist mirroring
     mirror_gists: bool = Field(
         default=False,
@@ -542,6 +555,25 @@ class GitBackupConfig(BaseModel):
         if value in (None, ""):
             return None
         return str(value).strip() or None
+
+    @field_validator("mirror_orgs", mode="before")
+    @classmethod
+    def _parse_mirror_orgs(cls, value: Any) -> Any:
+        """Accept ``a,b`` as well as a JSON list, and drop blanks.
+
+        Organisation logins are case-insensitive on GitHub, so they are lowered
+        to keep the enumeration idempotent when the same org is spelled two ways.
+        """
+        if value is None or value == "":
+            return []
+        if isinstance(value, str):
+            value = value.split(",")
+        if not isinstance(value, (list, tuple)):
+            return value
+        # dict.fromkeys de-duplicates while preserving order, so "Acme,acme"
+        # costs one API round trip rather than two.
+        cleaned = (str(v).strip().lower() for v in value)
+        return list(dict.fromkeys(org for org in cleaned if org))
 
     @field_validator("extra_repos")
     @classmethod

@@ -207,3 +207,61 @@ async def test_repository_dto_size_defaults_to_zero_when_absent() -> None:
             repos = await gh.list_owned_repos()
 
     assert repos[0].size == 0
+
+
+# ---------------------------------------------------------------------------
+# list_org_repos
+# ---------------------------------------------------------------------------
+
+ORG_URL = "https://api.github.com/orgs/po4yka-labs/repos"
+
+
+@pytest.mark.asyncio
+async def test_list_org_repos_requests_type_all() -> None:
+    """type=all is explicit so the result can never silently narrow to public."""
+    async with respx.mock:
+        route = respx.get(f"{ORG_URL}?type=all&per_page=100").mock(
+            return_value=httpx.Response(200, json=_owned_page1())
+        )
+
+        async with _make_client() as gh:
+            repos = await gh.list_org_repos("po4yka-labs")
+
+    assert route.called
+    assert [r.full_name for r in repos] == ["alice/my-lib", "alice/private-tool"]
+
+
+@pytest.mark.asyncio
+async def test_list_org_repos_paginates_via_link_header() -> None:
+    page2_url = "https://api.github.com/orgs/po4yka-labs/repos?page=2&per_page=100"
+
+    router = respx.MockRouter(assert_all_called=False)
+    router.get(f"{ORG_URL}?type=all&per_page=100").mock(
+        return_value=httpx.Response(
+            200,
+            json=_owned_page1(),
+            headers={"Link": f'<{page2_url}>; rel="next"'},
+        )
+    )
+    router.get(page2_url).mock(return_value=httpx.Response(200, json=_owned_page2()))
+
+    async with router:
+        async with _make_client() as gh:
+            repos = await gh.list_org_repos("po4yka-labs")
+
+    assert len(repos) == 3
+
+
+@pytest.mark.asyncio
+async def test_list_org_repos_propagates_a_missing_org() -> None:
+    """A renamed or inaccessible org must surface, not silently yield nothing."""
+    from app.adapters.github.exceptions import GitHubNotFoundError
+
+    async with respx.mock:
+        respx.get(f"{ORG_URL}?type=all&per_page=100").mock(
+            return_value=httpx.Response(404, json={"message": "Not Found"})
+        )
+
+        async with _make_client() as gh:
+            with pytest.raises(GitHubNotFoundError):
+                await gh.list_org_repos("po4yka-labs")

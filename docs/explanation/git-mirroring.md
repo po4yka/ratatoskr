@@ -22,13 +22,20 @@ Three source types feed the sync job.
 
 **GitHub gists** (`source=github`, clone URL `https://gist.github.com/<id>.git`) are enumerated automatically when `GIT_BACKUP_MIRROR_GISTS=true`. At the start of each sync run, `_enumerate_and_upsert_gists` queries all active `UserGitHubIntegration` rows, calls `GET /gists` for each user (with Link-header pagination), and upserts a `git_mirrors` row per gist via `GitMirrorRepository.upsert_target`. Freshly upserted rows receive `status=pending` and are picked up by `perform_sync` in the same run. Errors for one user (API failure, decryption failure) are logged and skipped; they do not abort the run for other users. Gist credentials are injected the same way as repository credentials — the `gist.github.com` host is in the `_GITHUB_HOSTS` allowlist in `app/core/git_url_safety.py`. On disk, gists land under `<data_path>/github/gist.github.com/<name>.git`, separate from regular repos under `<data_path>/github/github.com/<name>.git`, so the two namespaces never collide.
 
-**GitHub repositories (starred / owned / watched)** are enumerated automatically when one or more of `GIT_BACKUP_MIRROR_STARRED`, `GIT_BACKUP_MIRROR_OWNED`, or `GIT_BACKUP_MIRROR_WATCHED` is `true`. At the start of each sync run, `_enumerate_and_upsert_github_repos` queries all active `UserGitHubIntegration` rows, then for each enabled category calls:
+**GitHub repositories (starred / owned / watched / organisation)** are enumerated automatically when one or more of `GIT_BACKUP_MIRROR_STARRED`, `GIT_BACKUP_MIRROR_OWNED`, or `GIT_BACKUP_MIRROR_WATCHED` is `true`, or `GIT_BACKUP_MIRROR_ORGS` is non-empty. At the start of each sync run, `_enumerate_and_upsert_github_repos` queries all active `UserGitHubIntegration` rows, then for each enabled category calls:
 
 - `GET /user/starred` (starred repos, paginated) — enabled by `GIT_BACKUP_MIRROR_STARRED`
 - `GET /user/repos?affiliation=owner` (repos the user owns, paginated) — enabled by `GIT_BACKUP_MIRROR_OWNED`
 - `GET /user/subscriptions` (repos the user watches, paginated) — enabled by `GIT_BACKUP_MIRROR_WATCHED`
+- `GET /orgs/<org>/repos?type=all` (paginated), once per entry in `GIT_BACKUP_MIRROR_ORGS`
 
-A repo that appears in multiple lists (e.g. both starred and owned) is de-duplicated by clone URL within each user's batch so only one `git_mirrors` row is upserted. Clone URLs use the HTTPS form `https://github.com/<full_name>.git`. The GitHub-reported `size` field (already in KB) is stored as `size_kb` on the `git_mirrors` row so the large-repo timeout multiplier (`GIT_BACKUP_LARGE_REPO_TIMEOUT_MULTIPLIER`) applies from the very first clone without waiting for an on-disk measurement. When a matching row already exists in the `repositories` table for the `(user_id, github_id)` pair (from the GitHub ingestion subsystem), the `repository_id` FK is set so the mirror is linked for vector reconciliation purposes. Errors for one user (API failure, decryption failure) are logged and skipped; they do not abort the run for other users.
+The organisation category exists because the other three cannot reach it: `affiliation=owner` returns only personally-owned repositories, so **a repository transferred into an organisation stops being enumerated** and its existing mirror rots — it keeps failing against the old `github.com/<user>/<repo>` URL while nothing re-enrolls it under the new one. This was observed in production: six private repositories moved to an org and their mirrors failed for weeks with `403 Write access to repository not granted` before the gap was noticed.
+
+The gate is the list itself — empty (the default) enumerates nothing. It is deliberately an explicit list rather than `affiliation=organization_member`, which would sweep in every organisation the token can see, including an employer's. Private organisation repositories require the token's `repo` scope; without it GitHub returns the public subset rather than an error, so the per-org repository count is logged at debug level.
+
+Each organisation is fetched independently. One unreachable org (renamed, access revoked, a typo in the list) is logged and skipped without costing the user the other categories — but it marks the run incomplete, so `seen_by_user` is not recorded and the unstar reconciliation below cannot read the gap as "those repositories disappeared".
+
+A repo that appears in multiple lists (e.g. both starred and owned, or owned and organisation) is de-duplicated by clone URL within each user's batch so only one `git_mirrors` row is upserted. Clone URLs use the HTTPS form `https://github.com/<full_name>.git`. The GitHub-reported `size` field (already in KB) is stored as `size_kb` on the `git_mirrors` row so the large-repo timeout multiplier (`GIT_BACKUP_LARGE_REPO_TIMEOUT_MULTIPLIER`) applies from the very first clone without waiting for an on-disk measurement. When a matching row already exists in the `repositories` table for the `(user_id, github_id)` pair (from the GitHub ingestion subsystem), the `repository_id` FK is set so the mirror is linked for vector reconciliation purposes. Errors for one user (API failure, decryption failure) are logged and skipped; they do not abort the run for other users.
 
 **Manual/arbitrary repositories** (`source=manual`) are any git-accessible URL that the user registers directly — public GitHub repos without a GitHub integration, self-hosted Gitea/Forgejo instances, or any other `https://` or `git://` URL. These receive a `git_mirrors` row with no `repository_id` FK and are cloned without credentials. The static `GIT_BACKUP_EXTRA_REPOS` config key (a name-to-URL dict in `ratatoskr.yaml`) also produces manual mirrors, upserting rows at job startup so outcomes are persisted identically to user-registered mirrors.
 
@@ -226,6 +233,7 @@ All variables are read by `app/config/git_backup.py::GitBackupConfig`. Full refe
 | `GIT_BACKUP_SHALLOW_CLONE_AFTER_FAILURES` | `0` | Consecutive failure count that triggers shallow clone; `0` = disabled |
 | `GIT_BACKUP_AUTO_SKIP_FAILING` | `true` | Skip mirrors in cooldown window instead of retrying |
 | `GIT_BACKUP_MIRROR_GISTS` | `false` | When `true`, enumerate all gists per active GitHub integration and upsert `git_mirrors` rows for them |
+| `GIT_BACKUP_MIRROR_ORGS` | `[]` | Organisation logins to enumerate via `GET /orgs/<org>/repos?type=all`. Comma-separated string or JSON list; lower-cased and de-duplicated. Empty = no organisation is enumerated. Reaches what `affiliation=owner` cannot: repositories transferred into an org. Private org repos need the token's `repo` scope |
 | `GIT_BACKUP_EXTRA_REPOS` | `{}` | Static name→URL map, upserted as `source=manual` rows by the sync task and keyed to the first `ALLOWED_USER_IDS` entry. Removing an entry does not delete its row — use `DELETE /v1/git-mirrors/{id}` |
 | `GIT_BACKUP_PRIORITIES` | `[]` | Priority rules for task ordering and per-task timeout overrides; set via `ratatoskr.yaml` (YAML list of dicts) |
 | `GIT_BACKUP_IGNORE` | `[]` | Regex/substring patterns; matching mirrors are skipped this run |
@@ -328,6 +336,32 @@ Before any git operation, `_preflight_storage_check` writes, reads back, and del
 `StorageCircuitBreaker` trips after `GIT_BACKUP_CIRCUIT_BREAKER_THRESHOLD` consecutive `STORAGE_ERROR` failures (default `3`, matching gitout). Once open, remaining tasks in the current run are skipped immediately rather than hammering a failed volume. The breaker resets on the next sync run. Any non-storage failure category resets the consecutive counter without opening the breaker.
 
 ---
+
+## Triaging "Repository backup coverage is partial"
+
+The public status card (`_github_backup_status`, `app/api/services/status_service.py`) reports DEGRADED with that message when the picture is **mixed** — some non-`excluded` mirrors are fresh and others are not. It is not "everything is broken"; all-bad reports "Repository backups need attention" instead. So the first question is always *which* rows are the odd ones out:
+
+```sql
+SELECT status, count(*), min(last_mirrored_at), max(last_mirrored_at)
+FROM git_mirrors GROUP BY status ORDER BY 2 DESC;
+
+SELECT name, last_error_category, consecutive_failures, left(last_error, 200)
+FROM git_mirrors WHERE status = 'failed' ORDER BY name;
+```
+
+Freshness thresholds are `_BACKUP_STALE_AFTER` (36 h → DEGRADED) and `_BACKUP_OUTAGE_AFTER` (48 h → OUTAGE); a `pending` row counts as UNKNOWN, so newly enrolled mirrors also produce a mixed picture until their first successful clone.
+
+`AUTH_ERROR` with `remote: Write access to repository not granted` and HTTP 403 on a **fetch** is the misleading one. It rarely means what it says:
+
+| Actual cause | How to confirm |
+|---|---|
+| Token cannot see the repo at all | `GET /repos/<owner>/<name>` with the stored token returns 404 |
+| Repository was transferred or renamed | the same call returns 301 to `/repositories/<id>`; follow it for the new `full_name` |
+| Token lacks `repo` for private repos | `GET /user` response header `X-OAuth-Scopes` omits `repo` |
+
+Note the header is `X-OAuth-Scopes`, not `X-GitHub-OAuth-Scopes`; querying the wrong name returns nothing and reads as "no scopes". Fine-grained tokens (`github_pat_…`) legitimately report no scopes at all and use a per-repository selection instead — they also cannot satisfy the star-list `user` scope, so a classic token is required when star-list writes matter.
+
+After a transfer, fix the row rather than waiting: the clone URL is what matters, and `mirror_path` is stable once populated, so correcting `clone_url`/`name` and clearing `status`/`consecutive_failures`/`backoff_until` lets the next run fetch into the existing bare clone instead of re-cloning. Add the new owner to `GIT_BACKUP_MIRROR_ORGS` so the enumeration keeps it enrolled from then on.
 
 ## Health monitoring
 

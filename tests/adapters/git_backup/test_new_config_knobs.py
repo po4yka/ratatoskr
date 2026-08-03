@@ -355,3 +355,34 @@ class TestPreflightTimeout:
             asyncio.run(service.perform_sync())
 
         assert captured_ms == [25_000]
+
+
+class TestMirrorOrgs:
+    """GIT_BACKUP_MIRROR_ORGS accepts both env spellings and gates on emptiness."""
+
+    def test_defaults_to_empty_so_no_org_is_enumerated(self) -> None:
+        assert GitBackupConfig().mirror_orgs == []
+
+    def test_parses_a_comma_separated_string(self) -> None:
+        cfg = GitBackupConfig.model_validate({"mirror_orgs": "po4yka-labs, second-org"})
+        assert cfg.mirror_orgs == ["po4yka-labs", "second-org"]
+
+    def test_parses_a_real_list(self) -> None:
+        cfg = GitBackupConfig.model_validate({"mirror_orgs": ["po4yka-labs"]})
+        assert cfg.mirror_orgs == ["po4yka-labs"]
+
+    def test_lowercases_because_github_logins_are_case_insensitive(self) -> None:
+        """Two spellings of one org must not enumerate it twice."""
+        cfg = GitBackupConfig.model_validate({"mirror_orgs": "Po4yka-Labs,po4yka-labs"})
+        assert cfg.mirror_orgs == ["po4yka-labs"]
+
+    def test_preserves_order_while_de_duplicating(self) -> None:
+        cfg = GitBackupConfig.model_validate({"mirror_orgs": "b-org,a-org,b-org"})
+        assert cfg.mirror_orgs == ["b-org", "a-org"]
+
+    def test_drops_blanks_from_a_trailing_comma(self) -> None:
+        cfg = GitBackupConfig.model_validate({"mirror_orgs": "po4yka-labs,,  ,"})
+        assert cfg.mirror_orgs == ["po4yka-labs"]
+
+    def test_an_empty_string_is_not_an_org(self) -> None:
+        assert GitBackupConfig.model_validate({"mirror_orgs": ""}).mirror_orgs == []

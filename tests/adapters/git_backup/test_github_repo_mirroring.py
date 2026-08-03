@@ -157,6 +157,7 @@ async def test_enumerate_owned_repos_upserts_one_row_per_repo() -> None:
     cfg.git_backup.mirror_starred = False
     cfg.git_backup.mirror_owned = True
     cfg.git_backup.mirror_watched = False
+    cfg.git_backup.mirror_orgs = []
 
     integration = MagicMock(user_id=42, encrypted_token=b"tok")
     db = _build_db_stub([integration])
@@ -232,6 +233,7 @@ async def test_enumerate_watched_repos_upserts_with_size_kb() -> None:
     cfg.git_backup.mirror_starred = False
     cfg.git_backup.mirror_owned = False
     cfg.git_backup.mirror_watched = True
+    cfg.git_backup.mirror_orgs = []
 
     integration = MagicMock(user_id=7, encrypted_token=b"tok")
     db = _build_db_stub([integration])
@@ -300,6 +302,7 @@ async def test_enumerate_deduplicates_across_starred_and_owned() -> None:
     cfg.git_backup.mirror_starred = True
     cfg.git_backup.mirror_owned = True
     cfg.git_backup.mirror_watched = False
+    cfg.git_backup.mirror_orgs = []
 
     integration = MagicMock(user_id=42, encrypted_token=b"tok")
     db = _build_db_stub([integration])
@@ -367,6 +370,7 @@ async def test_enumerate_links_repository_id_when_row_exists() -> None:
     cfg.git_backup.mirror_starred = False
     cfg.git_backup.mirror_owned = True
     cfg.git_backup.mirror_watched = False
+    cfg.git_backup.mirror_orgs = []
 
     integration = MagicMock(user_id=42, encrypted_token=b"tok")
     # The Repository table has a row with id=77 matching github_id=6001
@@ -438,6 +442,7 @@ async def test_enumerate_skips_user_on_api_error() -> None:
     cfg.git_backup.mirror_starred = False
     cfg.git_backup.mirror_owned = True
     cfg.git_backup.mirror_watched = False
+    cfg.git_backup.mirror_orgs = []
 
     integrations = [
         MagicMock(user_id=1, encrypted_token=b"bad"),
@@ -532,6 +537,7 @@ async def test_enumerate_stores_none_when_size_is_zero() -> None:
     cfg.git_backup.mirror_starred = False
     cfg.git_backup.mirror_owned = True
     cfg.git_backup.mirror_watched = False
+    cfg.git_backup.mirror_orgs = []
 
     integration = MagicMock(user_id=1, encrypted_token=b"tok")
     db = _build_db_stub([integration])
@@ -704,6 +710,7 @@ async def test_bulk_enumeration_does_not_pin_what_it_enrolls() -> None:
     cfg.git_backup.mirror_starred = False
     cfg.git_backup.mirror_owned = True
     cfg.git_backup.mirror_watched = False
+    cfg.git_backup.mirror_orgs = []
 
     db = _build_db_stub([MagicMock(user_id=7, encrypted_token=b"tok")])
 
@@ -718,3 +725,243 @@ async def test_bulk_enumeration_does_not_pin_what_it_enrolls() -> None:
         await _enumerate_and_upsert_github_repos(cfg, db)
 
     assert seen_pinned == [False]
+
+
+# ---------------------------------------------------------------------------
+# Organisation repositories
+# ---------------------------------------------------------------------------
+
+
+def _org_client(org_repos: dict[str, list], *, failing: set[str] | None = None):
+    """Fake client whose only populated category is /orgs/<org>/repos."""
+    failing = failing or set()
+
+    class _FakeClient:
+        def __init__(self, token: str) -> None:
+            pass
+
+        async def list_owned_repos(self):
+            return []
+
+        async def list_starred(self):
+            async def _empty():
+                return
+                yield  # make it an async generator
+
+            return _empty()
+
+        async def list_watched_repos(self):
+            return []
+
+        async def list_org_repos(self, org):
+            if org in failing:
+                raise RuntimeError(f"org {org} unreachable")
+            return org_repos.get(org, [])
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+    return _FakeClient
+
+
+def _org_cfg(orgs: list[str]):
+    cfg = MagicMock()
+    cfg.git_backup = MagicMock()
+    cfg.git_backup.mirror_starred = False
+    cfg.git_backup.mirror_owned = False
+    cfg.git_backup.mirror_watched = False
+    cfg.git_backup.mirror_orgs = orgs
+    return cfg
+
+
+def _recording_repo(sink: list[dict]):
+    async def fake_upsert(
+        user_id, source, clone_url, name, *, size_kb=None, repository_id=None, pinned=False
+    ):
+        sink.append({"clone_url": clone_url, "name": name, "size_kb": size_kb})
+        return _make_mirror(len(sink), clone_url, name=name)
+
+    repo = MagicMock()
+    repo.upsert_target = fake_upsert
+    return repo
+
+
+@pytest.mark.asyncio
+async def test_org_repos_are_enumerated_and_upserted() -> None:
+    """affiliation=owner never returns org repos, so this is the only path that finds them."""
+    from app.tasks.git_backup_sync import _enumerate_and_upsert_github_repos
+
+    upserted: list[dict] = []
+    client = _org_client({"po4yka-labs": [_make_repo_dto(4001, "po4yka-labs/Cartory", size=2048)]})
+
+    with (
+        patch(
+            "app.adapters.git_backup.repository.GitMirrorRepository",
+            return_value=_recording_repo(upserted),
+        ),
+        patch("app.adapters.github.github_api_client.GitHubAPIClient", client),
+        patch("app.security.secret_crypto.decrypt_secret", return_value="ghp_fake"),
+    ):
+        total, seen = await _enumerate_and_upsert_github_repos(
+            _org_cfg(["po4yka-labs"]), _build_db_stub([MagicMock(user_id=7, encrypted_token=b"t")])
+        )
+
+    assert total == 1
+    assert upserted[0]["clone_url"] == "https://github.com/po4yka-labs/Cartory.git"
+    assert upserted[0]["name"] == "po4yka-labs/Cartory"
+    assert upserted[0]["size_kb"] == 2048
+    assert seen[7] == {"https://github.com/po4yka-labs/Cartory.git"}
+
+
+@pytest.mark.asyncio
+async def test_an_empty_org_list_queries_no_organisation() -> None:
+    """The list is the gate; nothing is enumerated by default."""
+    from app.tasks.git_backup_sync import _enumerate_and_upsert_github_repos
+
+    queried: list[str] = []
+
+    class _FakeClient:
+        def __init__(self, token: str) -> None:
+            pass
+
+        async def list_owned_repos(self):
+            return []
+
+        async def list_starred(self):
+            async def _empty():
+                return
+                yield
+
+            return _empty()
+
+        async def list_watched_repos(self):
+            return []
+
+        async def list_org_repos(self, org):
+            queried.append(org)
+            return []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+    with (
+        patch("app.adapters.git_backup.repository.GitMirrorRepository", return_value=MagicMock()),
+        patch("app.adapters.github.github_api_client.GitHubAPIClient", _FakeClient),
+        patch("app.security.secret_crypto.decrypt_secret", return_value="ghp_fake"),
+    ):
+        total, _seen = await _enumerate_and_upsert_github_repos(
+            _org_cfg([]), _build_db_stub([MagicMock(user_id=7, encrypted_token=b"t")])
+        )
+
+    assert total == 0
+    assert queried == []
+
+
+@pytest.mark.asyncio
+async def test_one_failing_org_does_not_lose_the_others() -> None:
+    from app.tasks.git_backup_sync import _enumerate_and_upsert_github_repos
+
+    upserted: list[dict] = []
+    client = _org_client(
+        {"good-org": [_make_repo_dto(4002, "good-org/keeper")]},
+        failing={"broken-org"},
+    )
+
+    with (
+        patch(
+            "app.adapters.git_backup.repository.GitMirrorRepository",
+            return_value=_recording_repo(upserted),
+        ),
+        patch("app.adapters.github.github_api_client.GitHubAPIClient", client),
+        patch("app.security.secret_crypto.decrypt_secret", return_value="ghp_fake"),
+    ):
+        total, _seen = await _enumerate_and_upsert_github_repos(
+            _org_cfg(["broken-org", "good-org"]),
+            _build_db_stub([MagicMock(user_id=7, encrypted_token=b"t")]),
+        )
+
+    assert total == 1
+    assert upserted[0]["clone_url"] == "https://github.com/good-org/keeper.git"
+
+
+@pytest.mark.asyncio
+async def test_a_failing_org_keeps_the_release_sweep_out_of_the_gap() -> None:
+    """An incomplete listing must not read as 'those repositories disappeared'."""
+    from app.tasks.git_backup_sync import _enumerate_and_upsert_github_repos
+
+    upserted: list[dict] = []
+    client = _org_client({"good-org": [_make_repo_dto(4003, "good-org/keeper")]}, failing={"gone"})
+
+    with (
+        patch(
+            "app.adapters.git_backup.repository.GitMirrorRepository",
+            return_value=_recording_repo(upserted),
+        ),
+        patch("app.adapters.github.github_api_client.GitHubAPIClient", client),
+        patch("app.security.secret_crypto.decrypt_secret", return_value="ghp_fake"),
+    ):
+        _total, seen = await _enumerate_and_upsert_github_repos(
+            _org_cfg(["gone", "good-org"]),
+            _build_db_stub([MagicMock(user_id=7, encrypted_token=b"t")]),
+        )
+
+    # The user is absent from seen_by_user entirely, which is what makes
+    # _release_unstarred_mirrors skip them this run.
+    assert 7 not in seen
+
+
+@pytest.mark.asyncio
+async def test_a_repo_in_both_owned_and_org_is_upserted_once() -> None:
+    from app.tasks.git_backup_sync import _enumerate_and_upsert_github_repos
+
+    shared = _make_repo_dto(4004, "po4yka-labs/shared")
+    upserted: list[dict] = []
+
+    class _FakeClient:
+        def __init__(self, token: str) -> None:
+            pass
+
+        async def list_owned_repos(self):
+            return [shared]
+
+        async def list_starred(self):
+            async def _empty():
+                return
+                yield
+
+            return _empty()
+
+        async def list_watched_repos(self):
+            return []
+
+        async def list_org_repos(self, org):
+            return [shared]
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+    cfg = _org_cfg(["po4yka-labs"])
+    cfg.git_backup.mirror_owned = True
+
+    with (
+        patch(
+            "app.adapters.git_backup.repository.GitMirrorRepository",
+            return_value=_recording_repo(upserted),
+        ),
+        patch("app.adapters.github.github_api_client.GitHubAPIClient", _FakeClient),
+        patch("app.security.secret_crypto.decrypt_secret", return_value="ghp_fake"),
+    ):
+        total, _seen = await _enumerate_and_upsert_github_repos(
+            cfg, _build_db_stub([MagicMock(user_id=7, encrypted_token=b"t")])
+        )
+
+    assert total == 1

@@ -504,6 +504,36 @@ class GitHubAPIClient:
 
         return results
 
+    async def list_org_repos(self, org: str, *, per_page: int = 100) -> list[RepositoryDTO]:
+        """GET /orgs/<org>/repos?type=all — return the org repos this token can see.
+
+        ``type=all`` is explicit rather than relying on the API default so the
+        result never silently narrows. Private repositories appear only when the
+        token carries the ``repo`` scope; without it GitHub returns the public
+        subset instead of failing, which is why the caller logs the count.
+
+        Paginates via Link header using the same pattern as :meth:`list_gists`.
+        """
+        params: dict[str, Any] = {"type": "all", "per_page": per_page}
+        url: str | None = f"/orgs/{org}/repos"
+        first_page = True
+        results: list[RepositoryDTO] = []
+
+        while url is not None:
+            if first_page:
+                response = await self._request("GET", url, params=params)
+                first_page = False
+            else:
+                response = await self._request_absolute(url)
+
+            items: list[dict[str, Any]] = response.json()
+            for raw in items:
+                results.append(RepositoryDTO.model_validate(raw))
+
+            url = self._parse_next_link(response.headers.get("Link"))
+
+        return results
+
     async def list_watched_repos(self, *, per_page: int = 100) -> list[RepositoryDTO]:
         """GET /user/subscriptions — return all repos watched by the authenticated user.
 

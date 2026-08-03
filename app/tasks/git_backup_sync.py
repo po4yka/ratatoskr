@@ -135,14 +135,19 @@ async def _enumerate_and_upsert_gists(cfg: AppConfig, db: Database) -> int:
 async def _enumerate_and_upsert_github_repos(
     cfg: AppConfig, db: Database
 ) -> tuple[int, dict[int, set[str]]]:
-    """Enumerate starred/owned/watched GitHub repos for all active integrations and upsert GitMirror rows.
+    """Enumerate starred/owned/watched/org GitHub repos for all active integrations and upsert GitMirror rows.
 
     Returns the total number of mirror rows upserted and, per user, the clone URLs
     this run actually saw (used to release mirrors of unstarred repositories).
 
     Behaviour:
     - Only the categories enabled in cfg.git_backup (mirror_starred / mirror_owned /
-      mirror_watched) are fetched; the others are skipped entirely.
+      mirror_watched / mirror_orgs) are fetched; the others are skipped entirely.
+    - ``mirror_orgs`` covers what the other three cannot: ``affiliation=owner`` on
+      /user/repos returns only personally-owned repositories, so a repository moved
+      into an organisation stops being enumerated and its mirror silently rots.
+      Each configured org is fetched independently; one failure marks the run
+      incomplete rather than discarding the rest.
     - De-duplication is by clone_url within each user's batch — a repo that appears in
       multiple lists (e.g. both starred and owned) is upserted only once.
     - Per-user failures (API errors, decryption failures) are logged and skipped; they
@@ -191,6 +196,7 @@ async def _enumerate_and_upsert_github_repos(
         # Values are RepositoryDTO instances; untyped dict avoids a TC001 violation
         # (the annotation would require a local TYPE_CHECKING import inside a function body).
         repos_by_clone_url: dict = {}
+        enumeration_complete = True
 
         try:
             async with GitHubAPIClient(token) as client:
@@ -211,6 +217,29 @@ async def _enumerate_and_upsert_github_repos(
                         clone_url = f"https://github.com/{watched_repo.full_name}.git"
                         if clone_url not in repos_by_clone_url:
                             repos_by_clone_url[clone_url] = watched_repo
+
+                for org in git_cfg.mirror_orgs:
+                    # One unreachable org (renamed, access revoked, typo in the
+                    # list) must not cost the user every other category, so each
+                    # is isolated. The run is still marked incomplete below so
+                    # the release sweep cannot read the gap as "deleted".
+                    try:
+                        org_repos = await client.list_org_repos(org)
+                    except Exception as exc:
+                        enumeration_complete = False
+                        logger.warning(
+                            "git_backup_repo_enum_org_failed",
+                            extra={"user_id": user_id, "org": org, "error": str(exc)},
+                        )
+                        continue
+                    logger.debug(
+                        "git_backup_org_enumerated",
+                        extra={"user_id": user_id, "org": org, "count": len(org_repos)},
+                    )
+                    for org_repo in org_repos:
+                        clone_url = f"https://github.com/{org_repo.full_name}.git"
+                        if clone_url not in repos_by_clone_url:
+                            repos_by_clone_url[clone_url] = org_repo
         except Exception as exc:
             logger.warning(
                 "git_backup_repo_enum_api_error",
@@ -257,7 +286,8 @@ async def _enumerate_and_upsert_github_repos(
 
         # Only a user whose enumeration completed can be reconciled below; a
         # partial listing would look like "everything disappeared".
-        seen_by_user[user_id] = set(repos_by_clone_url)
+        if enumeration_complete:
+            seen_by_user[user_id] = set(repos_by_clone_url)
 
         logger.debug(
             "git_backup_repos_enumerated",
@@ -693,6 +723,7 @@ async def sync_git_backup(
                 cfg.git_backup.mirror_starred
                 or cfg.git_backup.mirror_owned
                 or cfg.git_backup.mirror_watched
+                or cfg.git_backup.mirror_orgs
             ):
                 repos_upserted, seen_by_user = await _enumerate_and_upsert_github_repos(cfg, db)
                 logger.info(
