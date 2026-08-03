@@ -26,6 +26,7 @@ notice that Firecrawl has gone quiet while URLs are still being processed.
 from __future__ import annotations
 
 import importlib.util
+import threading
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -80,6 +81,49 @@ class TestTracingShutdown:
         otel.shutdown_tracing()
 
         assert provider.shutdown.call_count == 1
+
+    @_needs_otel
+    def test_a_stalled_collector_cannot_hold_the_stop_open(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The flush is bounded, because the collector is often not there.
+
+        ``provider.shutdown()`` joins the exporter thread for up to 30 s, every
+        container ships ``stop_grace_period: 30s``, and the default endpoint only
+        resolves when the ``with-monitoring`` profile is up. Unbounded, a
+        deployment that traces without a collector would spend the whole grace
+        period per process and be SIGKILLed with the spans still buffered.
+
+        The assertion is that the call returned while the exporter was still
+        stuck, not that it returned quickly: a wall-clock threshold measures the
+        load on the machine as much as the code.
+        """
+        from app.observability import otel
+
+        started = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+
+        class StalledProvider:
+            def shutdown(self) -> None:
+                started.set()
+                release.wait(10)  # released below, so the thread is not leaked
+                finished.set()
+
+        monkeypatch.setattr(otel, "_otel_available", True)
+        monkeypatch.setattr(otel, "_initialized", True)
+        monkeypatch.setattr(otel, "SPAN_FLUSH_TIMEOUT_SEC", 0.05)
+        monkeypatch.setattr(
+            otel, "_trace", MagicMock(get_tracer_provider=lambda: StalledProvider())
+        )
+
+        try:
+            otel.shutdown_tracing()
+            assert not finished.is_set(), "the stop sat and waited for the collector"
+        finally:
+            release.set()
+
+        assert started.wait(10), "the flush was never even attempted"
 
     @_needs_otel
     def test_it_is_safe_when_tracing_never_started(self, monkeypatch: pytest.MonkeyPatch) -> None:

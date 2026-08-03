@@ -21,14 +21,14 @@ one seam left, so these tests drive the lifespan protocol itself rather than
 asserting that some function was wired somewhere.
 
 The flush is also the one thing standing between SIGTERM and the process exit,
-so it is bounded; the last test is the one that says so.
+so ``shutdown_tracing`` bounds itself; that budget is covered in
+tests/observability/test_shutdown_and_firecrawl_metrics.py, where it lives.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
-import threading
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -181,48 +181,6 @@ async def test_a_failing_sdk_startup_still_flushes(monkeypatch: pytest.MonkeyPat
         await _run_lifespan(_sse_app(Starlette(lifespan=broken)), log)
 
     assert log == ["flush", "lifespan.startup.failed"]
-
-
-@pytest.mark.asyncio
-async def test_a_stalled_exporter_cannot_hold_the_container_open(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The flush is bounded, because the thing it talks to is usually not there.
-
-    ``shutdown_tracing`` blocks: BatchSpanProcessor joins its worker thread for
-    up to 30 s, and uvicorn waits on this lifespan with no timeout of its own.
-    Every MCP service sets ``stop_grace_period: 30s``, so an unbounded flush
-    against an unreachable collector would spend the entire budget and then be
-    SIGKILLed with the spans still buffered -- a slower stop and no telemetry.
-
-    The assertion is that the lifespan came back while the exporter was still
-    stuck -- not that it came back quickly. A wall-clock threshold said the same
-    thing but failed once under a loaded full suite, and a flaky guard is one
-    nobody trusts the next time it goes red.
-    """
-    started = threading.Event()
-    release = threading.Event()
-    finished = threading.Event()
-
-    def stalls() -> None:
-        started.set()
-        release.wait(10)  # released below, so the worker thread is not leaked
-        finished.set()
-
-    monkeypatch.setattr("app.observability.otel.shutdown_tracing", stalls)
-    monkeypatch.setattr("app.mcp.server._SPAN_FLUSH_TIMEOUT_SEC", 0.05)
-    log: list[str] = []
-
-    try:
-        await _run_lifespan(_sse_app(Starlette()), log)
-        assert not finished.is_set(), "the shutdown sat and waited for the exporter"
-    finally:
-        release.set()
-
-    assert log == ["lifespan.startup.complete", "lifespan.shutdown.complete"]
-    # Generous on purpose: a busy executor may only get to the thread now, and
-    # that is still the bounded behaviour working. Nothing running at all is not.
-    assert started.wait(10), "the flush was never even attempted"
 
 
 def test_the_sdk_still_returns_an_app_with_a_router() -> None:

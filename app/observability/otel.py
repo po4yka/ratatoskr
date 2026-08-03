@@ -20,6 +20,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import threading
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -240,8 +241,14 @@ def instrument_fastapi_app(app: Any, *, cfg: AppConfig | None = None) -> None:
     _instrumented_fastapi_app_ids.add(app_id)
 
 
-def shutdown_tracing() -> None:
-    """Flush and shut down the tracer provider.
+# Five seconds matches BatchSpanProcessor's own scheduling delay: long enough
+# for a healthy collector, which exports in milliseconds, and short enough that
+# an absent one costs a deploy little. See shutdown_tracing.
+SPAN_FLUSH_TIMEOUT_SEC = 5.0
+
+
+def shutdown_tracing(timeout_sec: float | None = None) -> None:
+    """Flush and shut down the tracer provider, under a deadline.
 
     BatchSpanProcessor holds spans for up to ``schedule_delay_millis`` (5 s) and
     exports them on its own schedule or on shutdown.
@@ -253,15 +260,36 @@ def shutdown_tracing() -> None:
     Callers must therefore invoke this from a real shutdown seam -- uvicorn's
     lifespan, taskiq's WORKER_SHUTDOWN -- while the loop is still up.
 
+    The deadline is not decoration. ``provider.shutdown()`` joins the exporter
+    thread for up to 30 s, every container is configured with
+    ``stop_grace_period: 30s``, and the shipped default endpoint only resolves
+    when the ``with-monitoring`` profile is up. Without a bound, a deployment
+    that traces but has no collector spends the whole grace period per process
+    and is SIGKILLed with the spans still buffered -- a slower stop and no
+    telemetry either.
+
     Safe to call more than once and safe to call when tracing was never started.
     """
     global _initialized
     if not _otel_available or not _initialized:
         return
     _initialized = False
+    # Read at call time, not as a default argument, so the budget stays one
+    # patchable number rather than a value frozen into this signature.
+    budget = SPAN_FLUSH_TIMEOUT_SEC if timeout_sec is None else timeout_sec
     provider = _trace.get_tracer_provider()
-    if hasattr(provider, "shutdown"):
-        provider.shutdown()
+    if not hasattr(provider, "shutdown"):
+        return
+
+    # A thread rather than a signal or an alarm: provider.shutdown() blocks
+    # inside a thread join of its own, so there is nothing to interrupt from
+    # here. Daemon, so a flush that never returns cannot keep the interpreter
+    # alive either -- by this point the caller is on its way out.
+    worker = threading.Thread(target=provider.shutdown, name="ratatoskr-span-flush", daemon=True)
+    worker.start()
+    worker.join(budget)
+    if worker.is_alive():
+        logger.warning("otel_span_flush_timed_out", extra={"timeout_sec": budget})
 
 
 def get_tracer(name: str) -> Any:

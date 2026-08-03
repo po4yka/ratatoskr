@@ -48,19 +48,6 @@ def _deployment_env() -> str:
     return os.getenv("APP_ENV", "development").strip().lower() or "development"
 
 
-# The flush must not outlive the container's stop grace period. BatchSpanProcessor
-# joins its worker thread for up to 30 s, and every MCP service is configured with
-# `stop_grace_period: 30s`, so an unreachable collector could burn the whole budget
-# and then be SIGKILLed with the spans still buffered -- slower shutdowns, no more
-# telemetry. That is not a corner case: the default OTEL_EXPORTER_OTLP_ENDPOINT is
-# `http://tempo:4317`, and tempo lives in docker-compose.monitoring.yml on its own
-# network, so it does not resolve from these containers unless an operator wires it
-# up (measured: 7.5 s just to fail DNS, 30 s against a stalled collector). Five
-# seconds matches the processor's own scheduling delay -- long enough for a healthy
-# local collector, which exports in milliseconds.
-_SPAN_FLUSH_TIMEOUT_SEC = 5.0
-
-
 def _install_tracing_flush(app: Any) -> None:
     """Drain the span buffer from the ASGI lifespan -- the only seam that runs.
 
@@ -76,9 +63,9 @@ def _install_tracing_flush(app: Any) -> None:
     scheduling delay, longer when the exporter is slow) was dropped on each
     restart. That tail is what an operator reads first.
 
-    ``shutdown_tracing`` is synchronous and uvicorn waits on this lifespan with
-    no timeout of its own, so it runs in a thread under a deadline rather than
-    on the loop -- see ``_SPAN_FLUSH_TIMEOUT_SEC``.
+    ``shutdown_tracing`` is synchronous and bounds itself; the thread here is
+    only so the loop stays free while it runs, because uvicorn waits on this
+    lifespan with no timeout of its own.
 
     ``run_server`` also has a stdio transport; it is the local-client path and
     is not deployed. It ends when stdin closes, which is a normal interpreter
@@ -108,12 +95,9 @@ async def _flush_spans() -> None:
     from app.observability.otel import shutdown_tracing
 
     try:
-        await asyncio.wait_for(asyncio.to_thread(shutdown_tracing), _SPAN_FLUSH_TIMEOUT_SEC)
-    except TimeoutError:
-        # The thread keeps running; the process usually outlives it long enough
-        # to finish. Losing the spans must never also stall the stop.
-        logger.warning("mcp_span_flush_timed_out", extra={"timeout_sec": _SPAN_FLUSH_TIMEOUT_SEC})
+        await asyncio.to_thread(shutdown_tracing)
     except Exception:
+        # Losing the spans must never also cost us the shutdown.
         logger.warning("mcp_span_flush_failed", exc_info=True)
 
 
