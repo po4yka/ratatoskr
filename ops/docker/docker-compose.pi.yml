@@ -230,18 +230,33 @@ services:
   mcp:
     environment:
       - QDRANT_URL=http://host-gateway:6333
+      # Same torch-vs-cgroup oversubscription the worker documents above, and
+      # tighter here than anywhere else: app/di/mcp.py builds an EmbeddingService
+      # (:99, :134) inside a 0.20-CPU quota, so uncapped torch sizes its pool
+      # from nproc (4) and oversubscribes 20:1 -- against the 5.3:1 that already
+      # froze a 0.75-CPU container on 2026-07-29. Profile-gated and off by
+      # default, which is why it was missed, not why it is safe.
+      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
+      - MKL_NUM_THREADS=${MKL_NUM_THREADS:-1}
+      - OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-1}
     extra_hosts:
       - "host-gateway:host-gateway"
 
   mcp-write:
     environment:
       - QDRANT_URL=http://host-gateway:6333
+      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
+      - MKL_NUM_THREADS=${MKL_NUM_THREADS:-1}
+      - OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-1}
     extra_hosts:
       - "host-gateway:host-gateway"
 
   mcp-public:
     environment:
       - QDRANT_URL=http://host-gateway:6333
+      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
+      - MKL_NUM_THREADS=${MKL_NUM_THREADS:-1}
+      - OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-1}
     extra_hosts:
       - "host-gateway:host-gateway"
 
