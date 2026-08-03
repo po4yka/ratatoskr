@@ -7,10 +7,12 @@ default handler terminates without running atexit. Every `docker compose down`
 and every deploy therefore dropped the tail of the run: exactly the spans an
 operator wants when a process dies mid-request.
 
-Two of the five processes stop gracefully on SIGTERM and can now flush: uvicorn
-runs the FastAPI lifespan, and taskiq fires WORKER_SHUTDOWN. The bot installs no
-signal handler, so its call covers only KeyboardInterrupt and exceptions; giving
-it a real SIGTERM path is a separate change.
+Four of the five processes flush now. uvicorn runs the FastAPI lifespan, taskiq
+fires WORKER_SHUTDOWN, the bot turns SIGTERM into a cancel of its main task, and
+the MCP server hangs the flush off its own ASGI lifespan. The fifth is the taskiq
+scheduler: taskiq's scheduler CLI installs no signal handler at all -- unlike its
+worker CLI -- so SIGTERM kills that process at SIG_DFL and nothing runs. Giving it
+a seam is a separate change.
 
 record_firecrawl_request was called from nowhere. Its counter is labelled, so no
 child series was ever created, and a Prometheus aggregate over a missing series
@@ -108,17 +110,18 @@ class TestTracingShutdown:
 class TestTheSigtermPathsFlush:
     """init_tracing is called from five processes; shutdown was called from none.
 
-    Only two of the five stop gracefully on SIGTERM: uvicorn runs the FastAPI
-    lifespan, and taskiq fires WORKER_SHUTDOWN (app/cli/taskiq_worker.py forwards
-    the signal to the child process group). Those are the paths that can actually
-    flush. The bot installs no signal handler at all, so its finally block covers
-    only KeyboardInterrupt and exceptions -- see the module docstring.
+    Each of these owns a different seam -- the FastAPI lifespan, taskiq's
+    WORKER_SHUTDOWN (app/cli/taskiq_worker.py forwards the signal to the child
+    process group), a SIGTERM-to-cancel handler, the MCP server's own ASGI
+    lifespan -- so there is nothing to share and nothing but this list to notice
+    when one of them is dropped. The taskiq scheduler is the one process still
+    missing from it; see the module docstring for why it needs its own change.
     """
 
     @pytest.mark.parametrize(
         "path",
-        ["app/api/main.py", "app/tasks/broker.py", "bot.py"],
-        ids=["mobile-api", "taskiq-worker", "bot"],
+        ["app/api/main.py", "app/tasks/broker.py", "bot.py", "app/mcp/server.py"],
+        ids=["mobile-api", "taskiq-worker", "bot", "mcp"],
     )
     def test_the_shutdown_seams_flush_the_span_buffer(self, path: str) -> None:
         source = (Path(__file__).resolve().parents[2] / path).read_text()

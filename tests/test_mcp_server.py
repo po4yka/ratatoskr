@@ -41,7 +41,12 @@ class FakeFastMCP:
         self.run_calls.append(kwargs)
 
     def sse_app(self):
-        app = object()
+        # A bare object() stood here, which is not what the SDK returns and let
+        # _build_sse_app get away with anything. Starlette is the real shape,
+        # and the tracing-flush hook needs its router.
+        from starlette.applications import Starlette
+
+        app = Starlette()
         self.sse_apps.append(app)
         return app
 
