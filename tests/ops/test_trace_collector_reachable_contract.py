@@ -19,6 +19,7 @@ keeps the check honest instead of quietly making it vacuous.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -111,6 +112,38 @@ def test_the_collector_shares_a_network_with_its_clients(host: str) -> None:
     for name, svc in _TRACING_CLIENTS.items():
         assert collector & _networks(svc), (
             f"{name} cannot reach '{host}': {sorted(_networks(svc))} vs {sorted(collector)}"
+        )
+
+
+_DEPLOY = ROOT / "tools/scripts/build-and-deploy-pi.sh"
+
+
+@pytest.mark.parametrize("host", sorted(h for h in _COLLECTOR_HOSTS if h))
+def test_the_deploy_starts_the_collector(host: str) -> None:
+    """The other half of the coupling, and the half a Compose file cannot hold.
+
+    Everything above checks that the repository agrees with itself. None of it
+    says anything about how the stack is actually launched, and the deploy brings
+    services up by name -- so a collector that exists in the file but is never
+    named simply never runs.
+    """
+    script = _DEPLOY.read_text(encoding="utf-8")
+
+    assert re.search(rf"up -d[^\n]*\b{re.escape(host)}\b", script), (
+        f"the deploy never starts '{host}', so the services it ships come up "
+        f"exporting spans to nothing"
+    )
+
+
+@pytest.mark.parametrize("host", sorted(h for h in _COLLECTOR_HOSTS if h))
+def test_the_deploy_passes_every_profile_the_collector_needs(host: str) -> None:
+    """`up tempo` fails with "no such service" if its profile is not enabled."""
+    script = _DEPLOY.read_text(encoding="utf-8")
+
+    for profile in _SERVICES[host].get("profiles") or []:
+        assert f"--profile {profile}" in script, (
+            f"'{host}' is gated behind the '{profile}' profile, which the deploy "
+            f"does not enable -- starting it would fail with 'no such service'"
         )
 
 

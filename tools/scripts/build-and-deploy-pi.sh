@@ -507,6 +507,11 @@ COMPOSE_RUN=(
   docker compose
   --env-file "${COMPOSE_ENV_FILE}"
   --profile ai-backup-reauth
+  # Makes the monitoring services addressable, nothing more: every `up` below
+  # names its service, so this does not drag Grafana and friends into a deploy.
+  # It is what lets `ensure_trace_collector` reach tempo, which the app services
+  # export to (Compose ships OTEL_ENABLED=true).
+  --profile with-monitoring
   -p "${COMPOSE_PROJECT}"
   -f ops/docker/docker-compose.yml
   -f ops/docker/docker-compose.pi.yml
@@ -700,6 +705,28 @@ run_remote_migrations() {
     ${COMPOSE_RUN[*]} up -d --no-build postgres && \
     ( ${COMPOSE_RUN[*]} rm -sf ${MIGRATE_SERVICE} >/dev/null 2>&1 || true ) && \
     ${COMPOSE_RUN[*]} run --rm ${MIGRATE_SERVICE} python -m app.cli.migrate_db ${migrate_args[*]}"
+}
+
+ensure_trace_collector() {
+  # Compose ships OTEL_ENABLED=true, so the five service processes start
+  # exporting spans the moment they come up. Without a collector on the network
+  # the endpoint resolves nowhere: spans are buffered and dropped, and every
+  # stop pays the flush deadline for nothing. Bringing it up here keeps the
+  # producer and its sink deployed together instead of relying on whoever runs
+  # this remembering a profile flag.
+  #
+  # `--no-build`, like the postgres step in run_remote_migrations: this is an
+  # upstream image, not one this script builds and ships. First deploy pulls it.
+  #
+  # A collector that will not start must not fail a deploy of the application.
+  # Telemetry is not worth the bot: the same reasoning keeps init_tracing from
+  # raising when the exporter package is unusable.
+  echo "==> Ensuring the trace collector is up on ${RASPI_HOST}"
+  if ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && ${COMPOSE_RUN[*]} up -d --no-build tempo"; then
+    echo "    tempo up"
+  else
+    echo "    WARNING: tempo did not start; spans will be dropped until it does" >&2
+  fi
 }
 
 tag_running_image_as_previous() {
@@ -929,6 +956,7 @@ elif [[ $RESTART -eq 1 ]]; then
   retire_legacy_qdrant_container
   verify_webauthn_host
   verify_pinned_cloakbrowser_image
+  ensure_trace_collector
   for svc in "${SERVICES[@]}"; do
     if [[ $ROLLBACK -eq 1 ]]; then
       if is_pinned_browser_service "$svc"; then

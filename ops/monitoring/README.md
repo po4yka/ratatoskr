@@ -21,11 +21,18 @@ docker compose -f ops/docker/docker-compose.yml \
 
 The profile also brings up `tempo`, the OTLP collector the application services
 export spans to. It is not optional garnish: Compose ships `OTEL_ENABLED=true`,
-so running the services without this profile leaves `http://tempo:4317`
-unresolvable and every span is buffered and then dropped. Grafana provisions the
-matching datasource, so traces are queryable as soon as the profile is up. On a
-host that cannot spare the ~256-512 MB, set `OTEL_TRACES_EXPORTER=file` (spans
-land in `OTEL_FILE_EXPORTER_PATH` for offline DuckDB queries) or turn
+so services started without a collector leave `http://tempo:4317` unresolvable
+and every span is buffered and then dropped. Grafana provisions the matching
+datasource, so traces are queryable as soon as the collector is up.
+
+The Pi deploy does not rely on anyone remembering that. `build-and-deploy-pi.sh`
+enables the profile and starts `tempo` before it restarts the application
+services, so the producer and its sink ship together; the first deploy pulls
+`grafana/tempo` for arm64. A collector that fails to start warns and lets the
+deploy continue -- telemetry must not be able to block shipping the bot.
+
+On a host that cannot spare the ~256-512 MB, set `OTEL_TRACES_EXPORTER=file`
+(spans land in `OTEL_FILE_EXPORTER_PATH` for offline DuckDB queries) or turn
 `OTEL_ENABLED` off, rather than leaving the services pointed at nothing.
 
 Instead of `ALERT_WEBHOOK_URL`, or in addition to it, the renderer supports
