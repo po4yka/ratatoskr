@@ -18,11 +18,14 @@ instrumentation code needs to change.
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from app.config.settings import AppConfig
+
+logger = logging.getLogger(__name__)
 
 _initialized = False
 _otel_available = False
@@ -136,11 +139,20 @@ def init_tracing(cfg: AppConfig | None = None, *, fastapi_app: Any | None = None
         return
     if not _otel_available or not _is_enabled(cfg):
         return
+    # Must run before the instrumentation packages are imported: they read the
+    # sanitize list from the environment at import time.
     _ensure_http_header_sanitizers()
 
-    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
-    from opentelemetry.instrumentation.logging import LoggingInstrumentor
-    from opentelemetry.instrumentation.redis import RedisInstrumentor
+    try:
+        exporter = _build_exporter(cfg)
+    except Exception:
+        # The exporter package is a separate distribution from the SDK and can
+        # skew against it. Unguarded, that ImportError reached bot.py, which does
+        # not wrap this call, and stopped the bot from booting -- over telemetry.
+        # A provider with no exporter would be worse than none, so stay off, but
+        # say so: silence here reads as OTEL_ENABLED=false.
+        logger.error("otel_exporter_unavailable", exc_info=True)
+        return
 
     process_role = os.getenv("RATATOSKR_PROCESS_ROLE", "unknown")
     service_version = os.getenv("RATATOSKR_VERSION", "0.1.0")
@@ -160,21 +172,49 @@ def init_tracing(cfg: AppConfig | None = None, *, fastapi_app: Any | None = None
     provider = TracerProvider(resource=resource, sampler=ParentBased(ALWAYS_ON))
     provider.add_span_processor(
         BatchSpanProcessor(
-            _build_exporter(cfg),
+            exporter,
             max_queue_size=2048,
             max_export_batch_size=512,
             schedule_delay_millis=5000,
         )
     )
     _trace.set_tracer_provider(provider)
+    # Set before instrumenting, so a failure below leaves a usable provider
+    # rather than a process that believes tracing never started.
+    _initialized = True
 
-    HTTPXClientInstrumentor().instrument()
-    RedisInstrumentor().instrument()
-    LoggingInstrumentor().instrument(set_logging_format=False)
+    _instrument_libraries()
     if fastapi_app is not None:
         instrument_fastapi_app(fastapi_app, cfg=cfg)
 
-    _initialized = True
+
+def _instrument_libraries() -> None:
+    """Auto-instrument httpx, redis and logging; degrade rather than fail.
+
+    These imports used to be unguarded, and two of the four callers wrap
+    init_tracing in ``except Exception: pass``. A version skew between
+    opentelemetry-instrumentation and its per-library packages therefore looked
+    exactly like OTEL_ENABLED=false -- no spans, no log line, nothing to search
+    for. (Reproducible: an opentelemetry-instrumentation-httpx newer than the
+    installed opentelemetry-instrumentation raises ImportError on
+    OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_CLIENT_REQUEST.) The third caller,
+    bot.py, does not guard at all, so the same skew would stop the bot booting.
+
+    Ratatoskr's own spans -- graph nodes, LLM calls, scraper providers -- come
+    from manual instrumentation against the provider, which is already live by
+    the time this runs. Losing the auto-instrumented client spans is a
+    degradation worth a warning, not a reason to have no tracing.
+    """
+    try:
+        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+        from opentelemetry.instrumentation.logging import LoggingInstrumentor
+        from opentelemetry.instrumentation.redis import RedisInstrumentor
+
+        HTTPXClientInstrumentor().instrument()
+        RedisInstrumentor().instrument()
+        LoggingInstrumentor().instrument(set_logging_format=False)
+    except Exception:
+        logger.warning("otel_library_instrumentation_unavailable", exc_info=True)
 
 
 def instrument_fastapi_app(app: Any, *, cfg: AppConfig | None = None) -> None:
@@ -193,6 +233,9 @@ def instrument_fastapi_app(app: Any, *, cfg: AppConfig | None = None) -> None:
 
         FastAPIInstrumentor.instrument_app(app)
     except ImportError:
+        # Same reasoning as _instrument_libraries: silence here is
+        # indistinguishable from tracing being switched off.
+        logger.warning("otel_fastapi_instrumentation_unavailable", exc_info=True)
         return
     _instrumented_fastapi_app_ids.add(app_id)
 
