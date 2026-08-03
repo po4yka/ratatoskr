@@ -1,6 +1,6 @@
 # MCP Server
 
-Ratatoskr exposes an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that allows external AI agents (OpenClaw, Claude Desktop, etc.) to search, retrieve, and explore stored article summaries, plus run local trusted aggregation bundles when the server is scoped to a single user.
+Ratatoskr exposes an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that allows external AI agents (Claude Desktop, etc.) to search, retrieve, and explore stored article summaries, plus run local trusted aggregation bundles when the server is scoped to a single user.
 
 The server now supports two deployment modes:
 
@@ -38,7 +38,7 @@ Every MCP tool and resource call passes through an in-process rate limiter keyed
 
 ## Running
 
-**stdio mode** (default -- for OpenClaw / Claude Desktop, requires startup user scope):
+**stdio mode** (default -- for Claude Desktop and other MCP clients, requires startup user scope):
 
 ```bash
 MCP_USER_ID=123456 python -m app.cli.mcp_server
@@ -225,7 +225,7 @@ If you terminate client auth at a trusted gateway, configure `MCP_FORWARDING_SEC
 
 ### Connecting from another Docker Compose project
 
-To connect from a service in a different compose project (e.g. OpenClaw), attach that service to the same Docker network and point the MCP client at `http://ratatoskr-mcp:8200/sse`.
+To connect from a service in a different compose project (e.g. another MCP client), attach that service to the same Docker network and point the MCP client at `http://ratatoskr-mcp:8200/sse`.
 
 Example mcporter config:
 

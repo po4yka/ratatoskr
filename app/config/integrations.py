@@ -123,7 +123,7 @@ class McpConfig(BaseModel):
     """MCP (Model Context Protocol) server configuration.
 
     Controls the MCP server that exposes articles and search
-    to external AI agents like OpenClaw.
+    to external AI agents.
     """
 
     model_config = ConfigDict(frozen=True, populate_by_name=True)

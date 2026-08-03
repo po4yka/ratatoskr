@@ -4,7 +4,7 @@
 
 Ratatoskr stores structured summaries and extracted content for web pages,
 videos, aggregation bundles, X bookmarks, and scored source signals. This skill
-connects OpenClaw to Ratatoskr's MCP server for scoped archive search, retrieval,
+connects an MCP client to Ratatoskr's MCP server for scoped archive search, retrieval,
 research, ingestion, feedback, and vector-index diagnostics.
 
 The current MCP surface exposes 28 tools and 17 resources. Every request is
@@ -88,7 +88,7 @@ quality, and enrichment fields.
 
 ## Setup
 
-### stdio transport (recommended for local OpenClaw)
+### stdio transport (recommended for local MCP clients)
 
 Use the repository virtual environment, a PostgreSQL async DSN, and an explicit
 Ratatoskr user scope. Replace both placeholders:
@@ -115,7 +115,7 @@ Ratatoskr user scope. Replace both placeholders:
 
 `--user-id` may be replaced by `MCP_USER_ID` in the environment. Unscoped stdio
 is rejected unless `--allow-unscoped-stdio` is explicitly supplied; keep normal
-OpenClaw integrations scoped. The removed SQLite `DB_PATH` option is not
+integrations scoped. The removed SQLite `DB_PATH` option is not
 supported. `--dsn` is the CLI alternative to `DATABASE_URL`.
 
 ### SSE transport (trusted loopback)

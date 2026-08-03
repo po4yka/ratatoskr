@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-INTEGRATION = ROOT / "integrations/openclaw-skill"
+INTEGRATION = ROOT / "integrations/mcp-skill"
 
 
 def _registered_tool_names() -> set[str]:
@@ -37,7 +37,7 @@ def _registered_resource_uris() -> set[str]:
     return uris
 
 
-def test_openclaw_catalog_matches_registered_mcp_surface() -> None:
+def test_skill_catalog_matches_registered_mcp_surface() -> None:
     config = json.loads((INTEGRATION / "config.json").read_text())
     tools = config["tools"]
     resources = config["resources"]
@@ -48,7 +48,7 @@ def test_openclaw_catalog_matches_registered_mcp_surface() -> None:
     assert set(resources) == _registered_resource_uris()
 
 
-def test_openclaw_skill_documents_every_catalog_entry() -> None:
+def test_skill_documents_every_catalog_entry() -> None:
     config = json.loads((INTEGRATION / "config.json").read_text())
     skill = (INTEGRATION / "SKILL.md").read_text()
 
@@ -59,7 +59,7 @@ def test_openclaw_skill_documents_every_catalog_entry() -> None:
         assert f"`{resource}`" in skill
 
 
-def test_openclaw_setup_uses_postgres_venv_and_explicit_scope() -> None:
+def test_skill_setup_uses_postgres_venv_and_explicit_scope() -> None:
     raw_config = (INTEGRATION / "config.json").read_text()
     config = json.loads(raw_config)
     skill = (INTEGRATION / "SKILL.md").read_text()
