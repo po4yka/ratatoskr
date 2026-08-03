@@ -17276,11 +17276,14 @@ components:
         runCount:
           type: integer
           title: Runcount
+          description: 'Always 0: rules are stored but not executed. Kept so the field does not disappear from the contract
+            if execution ever returns.'
         lastTriggeredAt:
           anyOf:
           - type: string
           - type: 'null'
           title: Lasttriggeredat
+          description: 'Always null: rules are stored but not executed.'
         createdAt:
           type: string
           title: Createdat

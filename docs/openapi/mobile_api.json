@@ -27103,7 +27103,8 @@
           },
           "runCount": {
             "type": "integer",
-            "title": "Runcount"
+            "title": "Runcount",
+            "description": "Always 0: rules are stored but not executed. Kept so the field does not disappear from the contract if execution ever returns."
           },
           "lastTriggeredAt": {
             "anyOf": [
@@ -27114,7 +27115,8 @@
                 "type": "null"
               }
             ],
-            "title": "Lasttriggeredat"
+            "title": "Lasttriggeredat",
+            "description": "Always null: rules are stored but not executed."
           },
           "createdAt": {
             "type": "string",

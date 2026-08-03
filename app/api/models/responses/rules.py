@@ -1,4 +1,11 @@
-"""Rules API response models."""
+"""Rules API response models.
+
+Rules are stored, listed and edited; nothing executes them. The engine was
+removed in dd46ff80 after it turned out never to have run once -- its only
+trigger was an event no production code ever published. The execution-shaped
+fields below are documented as inert so an API consumer reads a zero as "nothing
+runs rules" rather than "this rule has not matched yet".
+"""
 
 from __future__ import annotations
 
@@ -19,8 +26,18 @@ class RuleResponse(AliasCompatibleResponseModel):
     conditions: list[dict[str, Any]]
     actions: list[dict[str, Any]]
     priority: int
-    run_count: int = Field(serialization_alias="runCount")
-    last_triggered_at: str | None = Field(default=None, serialization_alias="lastTriggeredAt")
+    run_count: int = Field(
+        serialization_alias="runCount",
+        description=(
+            "Always 0: rules are stored but not executed. Kept so the field does "
+            "not disappear from the contract if execution ever returns."
+        ),
+    )
+    last_triggered_at: str | None = Field(
+        default=None,
+        serialization_alias="lastTriggeredAt",
+        description="Always null: rules are stored but not executed.",
+    )
     created_at: str = Field(serialization_alias="createdAt")
     updated_at: str = Field(serialization_alias="updatedAt")
 
