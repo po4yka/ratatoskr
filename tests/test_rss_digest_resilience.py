@@ -240,6 +240,7 @@ async def test_a_send_failure_carries_the_delivered_count_out() -> None:
         await svc._deliver_digest_messages(
             user_id=1,
             message_chunks=[("a", []), ("b", []), ("c", [])],
+            all_post_ids=[],
             digest_type="daily",
             correlation_id="cid",
             post_count=3,
@@ -247,3 +248,137 @@ async def test_a_send_failure_carries_the_delivered_count_out() -> None:
         )
 
     assert caught.value.sent == 2
+
+
+class TestPartialDeliveryRecordsNoPosts:
+    """A delivery row suppresses its posts for 30 days.
+
+    d2a00810 made a partial send record a delivery so the chunks that landed
+    would not be re-sent. It recorded the whole run's post ids, so the chunks
+    that never went out were suppressed too -- silently and permanently.
+
+    The floor is worse than "partial": the first chunk is a table of contents
+    carrying no posts, so header-sends-then-body-fails gave sent=1, a delivery
+    row with every id, and zero posts actually delivered.
+
+    A chunk carries no record of which posts it held, so the safe answer is to
+    record none. Re-sending a chunk that landed is an annoyance; suppressing one
+    that did not is unrecoverable.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_partial_send_marks_no_post_delivered(self) -> None:
+        from app.adapters.digest.digest_service import DigestService, _PartialDeliveryError
+
+        svc = object.__new__(DigestService)
+        svc._store = SimpleNamespace(  # type: ignore[attr-defined]
+            async_get_user_preference=AsyncMock(
+                return_value=SimpleNamespace(delivery_channel="telegram")
+            )
+        )
+        calls = {"n": 0}
+
+        async def _send(*_a: Any, **_kw: Any) -> None:
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("flood wait")
+
+        svc._send = _send  # type: ignore[attr-defined]
+
+        with pytest.raises(_PartialDeliveryError) as caught:
+            await svc._deliver_digest_messages(
+                user_id=1,
+                message_chunks=[("toc", []), ("channel a", []), ("channel b", [])],
+                all_post_ids=[11, 12, 21, 22, 31],
+                digest_type="daily",
+                correlation_id="cid",
+                post_count=5,
+                channel_count=3,
+            )
+
+        assert caught.value.sent == 1
+        assert caught.value.delivered_post_ids == []
+
+    @pytest.mark.asyncio
+    async def test_the_toc_only_case_suppresses_nothing(self) -> None:
+        """The cheapest failure: the header lands and the body never does."""
+        from app.adapters.digest.digest_service import DigestService, _PartialDeliveryError
+
+        svc = object.__new__(DigestService)
+        svc._store = SimpleNamespace(  # type: ignore[attr-defined]
+            async_get_user_preference=AsyncMock(
+                return_value=SimpleNamespace(delivery_channel="telegram")
+            )
+        )
+        calls = {"n": 0}
+
+        async def _send(*_a: Any, **_kw: Any) -> None:
+            calls["n"] += 1
+            if calls["n"] > 1:
+                raise RuntimeError("flood wait")
+
+        svc._send = _send  # type: ignore[attr-defined]
+
+        with pytest.raises(_PartialDeliveryError) as caught:
+            await svc._deliver_digest_messages(
+                user_id=1,
+                message_chunks=[("toc", []), ("channel a", [])],
+                all_post_ids=[11, 12],
+                digest_type="daily",
+                correlation_id="cid",
+                post_count=2,
+                channel_count=1,
+            )
+
+        assert caught.value.delivered_post_ids == [], "a table of contents delivers no posts"
+
+    @pytest.mark.asyncio
+    async def test_a_full_send_records_every_post(self) -> None:
+        from app.adapters.digest.digest_service import DigestService
+
+        svc = object.__new__(DigestService)
+        svc._store = SimpleNamespace(  # type: ignore[attr-defined]
+            async_get_user_preference=AsyncMock(
+                return_value=SimpleNamespace(delivery_channel="telegram")
+            )
+        )
+        svc._send = AsyncMock(return_value=None)  # type: ignore[attr-defined]
+
+        sent, delivered = await svc._deliver_digest_messages(
+            user_id=1,
+            message_chunks=[("toc", []), ("channel a", [])],
+            all_post_ids=[11, 12, 21],
+            digest_type="daily",
+            correlation_id="cid",
+            post_count=3,
+            channel_count=2,
+        )
+
+        assert sent == 2
+        assert delivered == [11, 12, 21]
+
+    @pytest.mark.asyncio
+    async def test_email_delivers_everything_at_once(self) -> None:
+        """One email carries the whole digest, so it is all-or-nothing."""
+        from app.adapters.digest.digest_service import DigestService
+
+        svc = object.__new__(DigestService)
+        svc._store = SimpleNamespace(  # type: ignore[attr-defined]
+            async_get_user_preference=AsyncMock(
+                return_value=SimpleNamespace(delivery_channel="email", email_address_id=7)
+            )
+        )
+        svc._email = lambda: SimpleNamespace(send_digest=AsyncMock(return_value=None))  # type: ignore[attr-defined]
+
+        sent, delivered = await svc._deliver_digest_messages(
+            user_id=1,
+            message_chunks=[("toc", []), ("channel a", [])],
+            all_post_ids=[11, 21],
+            digest_type="daily",
+            correlation_id="cid",
+            post_count=2,
+            channel_count=2,
+        )
+
+        assert sent == 1
+        assert delivered == [11, 21]

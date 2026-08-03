@@ -272,7 +272,15 @@ class BaseLLMClient:
         except httpx.TimeoutException as e:
             msg = f"Request timeout: {e}"
             raise TimeoutError(msg) from e
-        except httpx.ConnectError as e:
+        except (httpx.NetworkError, httpx.RemoteProtocolError) as e:
+            # NetworkError covers ConnectError, ReadError, WriteError and
+            # CloseError; RemoteProtocolError is a server that hung up without
+            # completing its response. All are transient and all belong to the
+            # retryable class. Only ConnectError was translated before, so a
+            # connection reset mid-response -- the commonest of them -- fell
+            # through to the generic handler below, became a RuntimeError, and
+            # the retry loop gave up after one attempt while
+            # docs/reference/llm-providers.md promised it would retry.
             msg = f"Connection failed: {e}"
             raise ConnectionError(msg) from e
         except httpx.HTTPStatusError:

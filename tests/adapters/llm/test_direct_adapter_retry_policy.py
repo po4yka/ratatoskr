@@ -179,6 +179,38 @@ class TestTransportFailuresAreRetried:
         assert result.parsed == _Schema(value=42)
         assert route.call_count == 2
 
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            httpx.ReadError("connection reset by peer"),
+            httpx.WriteError("broken pipe"),
+            httpx.RemoteProtocolError("server disconnected without sending a response"),
+            httpx.ConnectError("refused"),
+            httpx.ConnectTimeout("timed out"),
+        ],
+        ids=["read-reset", "write-broken-pipe", "remote-hangup", "connect-refused", "timeout"],
+    )
+    @pytest.mark.asyncio
+    async def test_every_transport_fault_class_is_retried(
+        self, respx_mock: Any, exc: Exception
+    ) -> None:
+        """Only ConnectError and TimeoutException were translated before.
+
+        ReadError, WriteError and RemoteProtocolError are neither, so they became
+        a generic RuntimeError and the loop gave up after one attempt -- while the
+        provider docs promised a connection reset would be retried.
+        """
+        route = respx_mock.post(OPENAI_URL).mock(side_effect=[exc, _openai_ok()])
+        client = _openai()
+        try:
+            result = await client.chat_structured(
+                [{"role": "user", "content": "go"}], response_model=_Schema, max_retries=3
+            )
+        finally:
+            await client.aclose()
+        assert result.parsed == _Schema(value=42)
+        assert route.call_count == 2, f"{type(exc).__name__} was not retried"
+
     @pytest.mark.asyncio
     async def test_persistent_transport_failure_exhausts_the_budget(self, respx_mock: Any) -> None:
         route = respx_mock.post(OPENAI_URL).mock(side_effect=httpx.ConnectError("refused"))

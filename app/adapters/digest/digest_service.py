@@ -31,11 +31,19 @@ logger = get_logger(__name__)
 
 
 class _PartialDeliveryError(Exception):
-    """Raised when some digest chunks were delivered before a send failed."""
+    """Raised when some digest chunks were delivered before a send failed.
 
-    def __init__(self, sent: int, cause: Exception) -> None:
+    Carries the message ids that actually went out. A delivery row suppresses its
+    posts for 30 days (digest_store.async_list_delivered_message_ids), so writing
+    the whole run's ids after a partial send drops the unsent remainder for good.
+    """
+
+    def __init__(self, sent: int, delivered_post_ids: list[int], cause: Exception) -> None:
         super().__init__(str(cause))
         self.sent = sent
+        # Empty on the partial path: see the raise site for why guessing is worse
+        # than re-sending.
+        self.delivered_post_ids = delivered_post_ids
 
 
 @dataclass
@@ -381,11 +389,16 @@ class DigestService:
             "phase",
             {"phase": "delivering", "chunks": len(message_chunks)},
         )
+        all_post_ids = [p.get("message_id") for p in analyzed]
+        # Only ids that actually reached the user may be recorded: a delivery row
+        # suppresses its posts for 30 days.
+        delivered_post_ids: list[int] = []
         delivery_succeeded = False
         try:
-            result.messages_sent = await self._deliver_digest_messages(
+            result.messages_sent, delivered_post_ids = await self._deliver_digest_messages(
                 user_id=user_id,
                 message_chunks=message_chunks,
+                all_post_ids=[i for i in all_post_ids if i is not None],
                 digest_type=result.digest_type,
                 correlation_id=correlation_id,
                 post_count=result.post_count,
@@ -399,8 +412,12 @@ class DigestService:
                 exc_info=True,
             )
             result.messages_sent = e.sent
-            # Record the delivery for what actually went out; the run is still
-            # reported as failed because result.errors is non-empty.
+            # Record only the chunks that landed; the run is still reported as
+            # failed because result.errors is non-empty. Recording the whole run
+            # here would drop the unsent posts for 30 days.
+            delivered_post_ids = e.delivered_post_ids
+            # Still "succeeded" enough to write the audit row and emit the event,
+            # but with no post ids, so nothing is suppressed from the next run.
             delivery_succeeded = e.sent > 0
             result.errors.append(f"Send failed after {e.sent} message(s): {e}")
         except Exception as e:
@@ -423,7 +440,7 @@ class DigestService:
             )
 
         # 5. Persist delivery record
-        post_ids = [p.get("message_id") for p in analyzed]
+        post_ids = delivered_post_ids
         if delivery_succeeded:
             try:
                 await self._store.async_create_delivery(
@@ -499,7 +516,13 @@ class DigestService:
         correlation_id: str,
         post_count: int,
         channel_count: int,
-    ) -> int:
+        all_post_ids: list[int],
+    ) -> tuple[int, list[int]]:
+        """Deliver the digest and report which posts actually reached the user.
+
+        Returns ``(messages_sent, delivered_post_ids)``. Only ids in the second
+        element may be recorded as delivered.
+        """
         preference = await self._store.async_get_user_preference(user_id)
         if getattr(preference, "delivery_channel", "telegram") == "email":
             text = "\n\n".join(chunk for chunk, _buttons in message_chunks)
@@ -511,7 +534,8 @@ class DigestService:
                 correlation_id=correlation_id,
                 metadata={"post_count": post_count, "channel_count": channel_count},
             )
-            return 1
+            # One email carries the whole digest: all or nothing.
+            return 1, list(all_post_ids)
 
         sent = 0
         for text, buttons in message_chunks:
@@ -520,13 +544,13 @@ class DigestService:
                 await self._send(user_id, text, reply_markup=reply_markup)
             except Exception as exc:
                 raise_if_cancelled(exc)
-                # Carry the count out. Letting the raw error escape meant
-                # messages_sent stayed unset and no DigestDelivery row was
-                # written, so the posts already delivered were sent again on the
-                # next run while the run itself reported messages_sent=0.
-                raise _PartialDeliveryError(sent, exc) from exc
+                # No ids: a chunk carries no record of which posts it held, and
+                # guessing wrong in this direction is unrecoverable. Re-sending a
+                # chunk that landed is an annoyance; suppressing one that did not
+                # hides those posts for 30 days.
+                raise _PartialDeliveryError(sent, [], exc) from exc
             sent += 1
-        return sent
+        return sent, list(all_post_ids)
 
     async def _send_user_message(
         self,
