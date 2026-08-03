@@ -40,7 +40,11 @@ The `with-monitoring` Compose profile supplies Prometheus, Alertmanager, Grafana
 
 ## OpenTelemetry
 
-Tracing is opt-in through `OTEL_ENABLED`. Provider/exporter setup is implemented in `app/observability/otel.py`; stable attribute names live in `app/observability/attributes.py`. The configuration owner and validation rules are documented in [Environment Variables](../reference/environment-variables.md#configuration-ownership).
+Tracing is controlled by `OTEL_ENABLED`. Compose enables it for the five service processes; `OtelConfig.enabled` stays `False`, so a CLI run or a test traces nothing unless the variable is set. Provider/exporter setup is implemented in `app/observability/otel.py`; stable attribute names live in `app/observability/attributes.py`. The configuration owner and validation rules are documented in [Environment Variables](../reference/environment-variables.md#configuration-ownership).
+
+Spans go to the `tempo` service in the `with-monitoring` profile, which Grafana already carries a datasource for. Tracing and its collector belong to the same profile: running the services without the profile leaves the endpoint unresolvable, spans are buffered and dropped, and each shutdown pays for the attempt. `tests/ops/test_trace_collector_reachable_contract.py` holds that coupling.
+
+Every process flushes its span buffer at its own shutdown seam, under a five-second deadline (`SPAN_FLUSH_TIMEOUT_SEC`). The deadline matters more than it sounds: `provider.shutdown()` joins the exporter thread for up to 30 seconds, which is exactly the containers' `stop_grace_period`, so an unbounded flush against a missing collector would spend the whole budget and still lose the spans. For a host that cannot spare a collector, `OTEL_TRACES_EXPORTER=file` writes span lines to `OTEL_FILE_EXPORTER_PATH` for offline DuckDB queries instead.
 
 Instrumented boundaries include HTTP/Telegram ingress, summary graph nodes, scraper providers, LLM calls, database sessions/transactions, Taskiq propagation, Redis, vector/embedding operations, and selected application use cases. Traces must not contain secret or full-content payloads.
 

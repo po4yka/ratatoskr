@@ -124,7 +124,7 @@ services:
       # environment:, and pydantic prefers the env alias over the yaml value.
       # Set ollama.model in ratatoskr.yaml, or OLLAMA_MODEL in .env, which
       # reaches the container through env_file above.
-      - OTEL_ENABLED=${OTEL_ENABLED:-false}
+      - OTEL_ENABLED=${OTEL_ENABLED:-true}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
       - METRICS_HTTP_PORT=9101
       - METRICS_BEARER_TOKEN=${METRICS_BEARER_TOKEN:-}
@@ -231,7 +231,7 @@ services:
       - LLM_PROVIDER=${LLM_PROVIDER:-openrouter}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://localhost:11434/v1}
       - OLLAMA_API_KEY=${OLLAMA_API_KEY:-ollama}
-      - OTEL_ENABLED=${OTEL_ENABLED:-false}
+      - OTEL_ENABLED=${OTEL_ENABLED:-true}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
       - METRICS_HTTP_PORT=9102
       - PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus-worker
@@ -323,7 +323,7 @@ services:
       - X_WIKI_SYNC_CRON=${X_WIKI_SYNC_CRON:-0 * * * *}
       - X_WIKI_LIBRARY_PATH=${X_WIKI_LIBRARY_PATH:-/x_bookmarks/library}
       - X_IDEAS_PATH=${X_IDEAS_PATH:-/x_bookmarks/ideas}
-      - OTEL_ENABLED=${OTEL_ENABLED:-false}
+      - OTEL_ENABLED=${OTEL_ENABLED:-true}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
       - METRICS_HTTP_PORT=9103
       - RATATOSKR_PROCESS_ROLE=scheduler
@@ -420,7 +420,7 @@ services:
       - AI_BACKUP_REAUTH_VNC_CONNECT_TIMEOUT_SECONDS=${AI_BACKUP_REAUTH_VNC_CONNECT_TIMEOUT_SECONDS:-5}
       # Auth token forwarded to defuddle sidecar — empty by default (auth is opt-in)
       - SCRAPER_DEFUDDLE_TOKEN=${DEFUDDLE_AUTH_TOKEN:-}
-      - OTEL_ENABLED=${OTEL_ENABLED:-false}
+      - OTEL_ENABLED=${OTEL_ENABLED:-true}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
     command:
       - sh
@@ -507,7 +507,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
-      - OTEL_ENABLED=${OTEL_ENABLED:-false}
+      - OTEL_ENABLED=${OTEL_ENABLED:-true}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
       - RATATOSKR_PROCESS_ROLE=mcp
     volumes:
@@ -1258,6 +1258,36 @@ services:
       timeout: 10s
       retries: 3
 
+  # The collector OTEL_EXPORTER_OTLP_ENDPOINT names. It lived only in
+  # docker-compose.monitoring.yml on a separate network, so the default endpoint
+  # resolved nowhere here and every span was dropped. No `networks:` key: it
+  # joins the project default with the app containers. Contract:
+  # tests/ops/test_trace_collector_reachable_contract.py
+  tempo:
+    profiles:
+      - with-monitoring
+    image: grafana/tempo:2.6.1
+    container_name: ratatoskr-tempo
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ../monitoring/tempo-config.yml:/etc/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    ports:
+      # OTLP gRPC stays off the host: the only clients are sibling containers.
+      - "127.0.0.1:3200:3200"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3200/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   promtail:
     profiles:
       - with-monitoring
@@ -1553,6 +1583,7 @@ volumes:
   prometheus_data:
   grafana_data:
   loki_data:
+  tempo_data:
   git_mirrors_data:
   ai-backup-display-chatgpt:
   ai-backup-display-claude:

@@ -19,6 +19,15 @@ docker compose -f ops/docker/docker-compose.yml \
   --profile with-monitoring up -d
 ```
 
+The profile also brings up `tempo`, the OTLP collector the application services
+export spans to. It is not optional garnish: Compose ships `OTEL_ENABLED=true`,
+so running the services without this profile leaves `http://tempo:4317`
+unresolvable and every span is buffered and then dropped. Grafana provisions the
+matching datasource, so traces are queryable as soon as the profile is up. On a
+host that cannot spare the ~256-512 MB, set `OTEL_TRACES_EXPORTER=file` (spans
+land in `OTEL_FILE_EXPORTER_PATH` for offline DuckDB queries) or turn
+`OTEL_ENABLED` off, rather than leaving the services pointed at nothing.
+
 Instead of `ALERT_WEBHOOK_URL`, or in addition to it, the renderer supports
 `ALERT_SLACK_API_URL`, `ALERT_TELEGRAM_WEBHOOK_URL`, and
 `ALERT_PAGERDUTY_ROUTING_KEY`. Slack and Telegram URLs must use HTTPS. Every
