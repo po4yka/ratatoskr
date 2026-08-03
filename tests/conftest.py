@@ -5,6 +5,7 @@ This module provides common fixtures for all tests.
 
 import os
 import socket
+import sys
 from datetime import date, datetime
 from enum import Enum
 from pathlib import Path
@@ -672,3 +673,34 @@ async def session(database):
         raise
     finally:
         await sess.close()
+
+
+@pytest.fixture(autouse=True)
+def _drop_stub_bound_task_modules():
+    """Never leave an ``app.tasks`` module bound to a stubbed taskiq.
+
+    Eleven test files fake taskiq so the task modules import without Redis. Any
+    ``app.tasks`` module first imported inside that window binds the fakes
+    permanently -- ``app/tasks/middleware.py`` does ``from taskiq import
+    TaskiqMiddleware``, which resolves to ``object`` there -- and the module
+    stays in ``sys.modules`` long after monkeypatch has put the real package
+    back. The next test to use it then hands taskiq middlewares that are not
+    TaskiqMiddleware subclasses, and the broker silently skips all four of them.
+    That is a test passing alone and failing in the suite, which is the worst
+    kind: tests/tasks/test_taskiq_retry_dlq.py did exactly that.
+
+    Dropping the modules costs one re-import for the next user and keeps the
+    fakes from outliving the test that asked for them.
+    """
+    yield
+    module = sys.modules.get("app.tasks.middleware")
+    if module is None:
+        return
+    try:
+        from taskiq.abc.middleware import TaskiqMiddleware
+    except ImportError:  # taskiq is an optional extra; nothing could be bound
+        return
+    if issubclass(module.TaskiqExecutionMetricsMiddleware, TaskiqMiddleware):
+        return
+    for name in [name for name in sys.modules if name.startswith("app.tasks")]:
+        sys.modules.pop(name, None)

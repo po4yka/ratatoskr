@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import sys
 import types
 from types import SimpleNamespace
@@ -33,24 +34,24 @@ def _stub_taskiq(monkeypatch: pytest.MonkeyPatch) -> None:
             monkeypatch.setitem(sys.modules, mod_name, types.ModuleType(mod_name))
 
     taskiq_mod = sys.modules["taskiq"]
-    taskiq_mod.AsyncBroker = object  # type: ignore[attr-defined]
-    taskiq_mod.TaskiqDepends = lambda fn, **_kw: None  # type: ignore[attr-defined]
-    taskiq_mod.TaskiqMiddleware = object  # type: ignore[attr-defined]
-    taskiq_mod.InMemoryBroker = MagicMock  # type: ignore[attr-defined]
-    taskiq_mod.TaskiqScheduler = MagicMock  # type: ignore[attr-defined]
+    monkeypatch.setattr(taskiq_mod, "AsyncBroker", object, raising=False)
+    monkeypatch.setattr(taskiq_mod, "TaskiqDepends", lambda fn, **_kw: None, raising=False)
+    monkeypatch.setattr(taskiq_mod, "TaskiqMiddleware", object, raising=False)
+    monkeypatch.setattr(taskiq_mod, "InMemoryBroker", MagicMock, raising=False)
+    monkeypatch.setattr(taskiq_mod, "TaskiqScheduler", MagicMock, raising=False)
 
     msg_mod = sys.modules["taskiq.message"]
-    msg_mod.TaskiqMessage = object  # type: ignore[attr-defined]
+    monkeypatch.setattr(msg_mod, "TaskiqMessage", object, raising=False)
 
     sched_task_mod = sys.modules["taskiq.scheduler.scheduled_task"]
-    sched_task_mod.ScheduledTask = MagicMock  # type: ignore[attr-defined]
+    monkeypatch.setattr(sched_task_mod, "ScheduledTask", MagicMock, raising=False)
 
     source_mod = sys.modules["taskiq.abc.schedule_source"]
-    source_mod.ScheduleSource = object  # type: ignore[attr-defined]
+    monkeypatch.setattr(source_mod, "ScheduleSource", object, raising=False)
 
     tkr_mod = sys.modules["taskiq_redis"]
-    tkr_mod.RedisStreamBroker = MagicMock  # type: ignore[attr-defined]
-    tkr_mod.RedisAsyncResultBackend = MagicMock  # type: ignore[attr-defined]
+    monkeypatch.setattr(tkr_mod, "RedisStreamBroker", MagicMock, raising=False)
+    monkeypatch.setattr(tkr_mod, "RedisAsyncResultBackend", MagicMock, raising=False)
 
 
 def _evict_task_modules() -> None:
@@ -125,7 +126,14 @@ def _make_sync_summary() -> object:
 
 
 def _stub_taskiq_static() -> None:
-    """Minimal stub for import without monkeypatch (used in helpers)."""
+    """Minimal stub for import without monkeypatch (used in helpers).
+
+    Nothing undoes this one, so it must not displace anything real. Where taskiq
+    is installed the import below wins and every ``hasattr`` guard then declines
+    to touch it; only a genuinely missing package gets a placeholder. Inserting
+    the placeholder unconditionally left ``taskiq.message`` and friends faked for
+    the rest of the session.
+    """
     for mod_name in (
         "taskiq",
         "taskiq.abc",
@@ -135,7 +143,11 @@ def _stub_taskiq_static() -> None:
         "taskiq.message",
         "taskiq_redis",
     ):
-        if mod_name not in sys.modules:
+        if mod_name in sys.modules:
+            continue
+        try:
+            importlib.import_module(mod_name)
+        except ImportError:
             sys.modules[mod_name] = types.ModuleType(mod_name)
 
     taskiq_mod = sys.modules["taskiq"]

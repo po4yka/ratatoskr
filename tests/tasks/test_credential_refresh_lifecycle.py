@@ -25,12 +25,11 @@ import pytest
 
 
 def _evict_app_tasks() -> None:
-    # A neighbouring unit module mutates the real ``taskiq`` module in place
-    # while installing its lightweight broker stub. Reload the real package so
-    # this lifecycle contract always exercises InMemoryBroker's decorators.
-    for mod in list(sys.modules):
-        if mod == "taskiq" or mod.startswith(("taskiq.", "taskiq_redis")):
-            sys.modules.pop(mod, None)
+    # This used to evict the whole ``taskiq`` package as well, because the
+    # neighbouring stub helpers wrote their fakes straight onto the real module
+    # and left them there. They go through monkeypatch now, so the real package
+    # survives them and only the app modules that may have been imported while
+    # the fakes were live need rebuilding.
     for mod in list(sys.modules):
         if mod.startswith("app.tasks"):
             sys.modules.pop(mod, None)

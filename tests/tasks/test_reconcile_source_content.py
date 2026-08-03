@@ -17,13 +17,15 @@ def _stub_taskiq(monkeypatch: pytest.MonkeyPatch) -> None:
         if module_name not in sys.modules:
             monkeypatch.setitem(sys.modules, module_name, types.ModuleType(module_name))
     taskiq = sys.modules["taskiq"]
-    taskiq.AsyncBroker = object
-    taskiq.TaskiqDepends = lambda function, **_kwargs: None
-    taskiq.TaskiqMiddleware = object
-    taskiq.InMemoryBroker = MagicMock
-    sys.modules["taskiq.message"].TaskiqMessage = object
-    sys.modules["taskiq_redis"].RedisStreamBroker = MagicMock
-    sys.modules["taskiq_redis"].RedisAsyncResultBackend = MagicMock
+    monkeypatch.setattr(taskiq, "AsyncBroker", object, raising=False)
+    monkeypatch.setattr(taskiq, "TaskiqDepends", lambda function, **_kwargs: None, raising=False)
+    monkeypatch.setattr(taskiq, "TaskiqMiddleware", object, raising=False)
+    monkeypatch.setattr(taskiq, "InMemoryBroker", MagicMock, raising=False)
+    monkeypatch.setattr(sys.modules["taskiq.message"], "TaskiqMessage", object, raising=False)
+    monkeypatch.setattr(sys.modules["taskiq_redis"], "RedisStreamBroker", MagicMock, raising=False)
+    monkeypatch.setattr(
+        sys.modules["taskiq_redis"], "RedisAsyncResultBackend", MagicMock, raising=False
+    )
 
 
 def _load_task(monkeypatch: pytest.MonkeyPatch):

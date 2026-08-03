@@ -37,27 +37,27 @@ def _stub_taskiq(monkeypatch):
             monkeypatch.setitem(sys.modules, mod_name, types.ModuleType(mod_name))
 
     taskiq_mod = sys.modules["taskiq"]
-    taskiq_mod.AsyncBroker = object
-    taskiq_mod.TaskiqDepends = lambda fn, **_kw: None
-    taskiq_mod.TaskiqMiddleware = object
-    taskiq_mod.InMemoryBroker = MagicMock
+    monkeypatch.setattr(taskiq_mod, "AsyncBroker", object, raising=False)
+    monkeypatch.setattr(taskiq_mod, "TaskiqDepends", lambda fn, **_kw: None, raising=False)
+    monkeypatch.setattr(taskiq_mod, "TaskiqMiddleware", object, raising=False)
+    monkeypatch.setattr(taskiq_mod, "InMemoryBroker", MagicMock, raising=False)
     # app.tasks.url_processing imports TaskiqEvents for its @broker.on_event
     # decorators. Without it the stub makes every test that imports that module
     # fail on collection when this file runs on its own.
-    taskiq_mod.TaskiqEvents = MagicMock()
+    monkeypatch.setattr(taskiq_mod, "TaskiqEvents", MagicMock(), raising=False)
 
     msg_mod = sys.modules["taskiq.message"]
-    msg_mod.TaskiqMessage = object
+    monkeypatch.setattr(msg_mod, "TaskiqMessage", object, raising=False)
 
     sched_task_mod = sys.modules["taskiq.scheduler.scheduled_task"]
-    sched_task_mod.ScheduledTask = MagicMock
+    monkeypatch.setattr(sched_task_mod, "ScheduledTask", MagicMock, raising=False)
 
     source_mod = sys.modules["taskiq.abc.schedule_source"]
-    source_mod.ScheduleSource = object
+    monkeypatch.setattr(source_mod, "ScheduleSource", object, raising=False)
 
     tkr_mod = sys.modules["taskiq_redis"]
-    tkr_mod.RedisStreamBroker = MagicMock
-    tkr_mod.RedisAsyncResultBackend = MagicMock
+    monkeypatch.setattr(tkr_mod, "RedisStreamBroker", MagicMock, raising=False)
+    monkeypatch.setattr(tkr_mod, "RedisAsyncResultBackend", MagicMock, raising=False)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
