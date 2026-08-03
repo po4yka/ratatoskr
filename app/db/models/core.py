@@ -35,10 +35,17 @@ class LLMAttemptTrigger(enum.StrEnum):
     - ``initial``: first call for the request (the request just landed).
     - ``user_retry``: first call of a request cloned by
       ``RequestService.retry_failed_request`` (mobile API retry action).
-    - ``auto_backfill``: reserved for an automated backfill / scheduled retry
-      pipeline. No current code path writes this value.
+    - ``auto_backfill``: one row per model in the fallback cascade that failed
+      before a later model answered, written by
+      ``app/application/services/summarization/llm_response_workflow_storage.py``
+      so a cascade leaves a row per physical attempt rather than one for the
+      winner. Always ``status='error'``; ``app/observability/metrics_llm.py``
+      reads it as a fallback marker. The name is historical: there is no
+      backfill pipeline, and this value has a live writer.
     - ``repair_loop``: call issued by the JSON-repair self-correction path in
-      ``app/adapters/content/llm_response_workflow_repair.py``.
+      ``app/application/services/summarization/llm_response_workflow_repair.py``
+      (the module moved out of ``app/adapters/content/`` in the layering
+      refactor), and by the repo-analysis agent for its own repair attempts.
     - ``stream_fallback_retry``: reserved for a fresh request created when
       streaming falls back to non-streaming. The current implementation reuses
       the same in-flight ``LLMCall`` row rather than inserting a new one, so
@@ -47,10 +54,13 @@ class LLMAttemptTrigger(enum.StrEnum):
       (microsoft/Webwright) was used to enrich thin/paywalled content.
       RESERVED — the ``WebwrightEnricher`` (Path C) that wrote this value
       has been removed; no active code path sets this trigger.
-    - ``graph_node``: LLM call issued by a node of the LangGraph summarize
-      graph (the graph orchestration path; ADR-0001/0011). RESERVED — added by
-      the checkpoint-infrastructure track ahead of the graph cutover; no active
-      code path writes this value yet (the graph runs behind a feature flag).
+    - ``graph_node``: LLM call issued by a node of the LangGraph summarize graph
+      (ADR-0001/0011). Since the T9 cutover the graph is the sole summarize path
+      for URLs, so this is the value most rows carry. Written by the summarize,
+      repair and enrich nodes under
+      ``app/application/graphs/summarize/nodes/`` and by the RAG grounding step
+      in ``app/application/services/summarization/rag_enrichment.py``. The
+      feature flag this docstring once described is gone.
     - ``ru_translation``: structured Russian translation of a finished summary,
       issued by the bilingual post-summary step (``SUMMARY_BILINGUAL_ENABLED``).
     - ``agent``: LLM call issued by a standalone agent path with no parent
