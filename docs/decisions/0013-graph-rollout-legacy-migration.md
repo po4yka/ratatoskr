@@ -1,7 +1,7 @@
 # ADR 0013: Graph cutover & legacy summarize-path removal
 
 **Date:** 2026-06-15
-**Status:** Implemented (T9 cutover) — the graph is the sole summarize path; the legacy `url_processor` / `pure_summary_service` / `interactive_summary_service` files and the transitional `SUMMARIZE_GRAPH_ENABLED` flag are deleted.
+**Status:** Implemented (T9 cutover) — the graph is the sole summarize path for URLs, which is this ADR's scope; attachments and forwarded messages were never part of the migration and still run `LLMResponseWorkflow`; the legacy `url_processor` / `pure_summary_service` / `interactive_summary_service` files and the transitional `SUMMARIZE_GRAPH_ENABLED` flag are deleted.
 
 ## Context
 

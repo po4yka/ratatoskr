@@ -72,7 +72,7 @@ The `ci.yml` lockfile-freshness job (`check-lock`) verifies that committed `requ
 
 ## Base LangGraph runtime supply chain
 
-ADR-0001 was reversed on 2026-06-15 and the graph subsequently became the sole summarize path (see ADR-0013/0015). Since 2026-07-18, LangGraph and its PostgreSQL checkpointer are base dependencies rather than an optional extra. A plain `uv sync`, the bot image, the API image, `requirements.txt`, and `requirements-all.txt` therefore all contain the real execution engine. This prevents a minimal developer install from silently collecting only mock/InMemory graph tests while production runs a different dependency surface.
+ADR-0001 was reversed on 2026-06-15 and the graph subsequently became the sole summarize path for URLs (see ADR-0013/0015). Since 2026-07-18, LangGraph and its PostgreSQL checkpointer are base dependencies rather than an optional extra. A plain `uv sync`, the bot image, the API image, `requirements.txt`, and `requirements-all.txt` therefore all contain the real execution engine. This prevents a minimal developer install from silently collecting only mock/InMemory graph tests while production runs a different dependency surface.
 
 The direct constraints in `pyproject.toml` and their current `uv.lock` resolutions are:
 

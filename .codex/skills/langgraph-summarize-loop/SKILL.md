@@ -1,6 +1,6 @@
 ---
 name: langgraph-summarize-loop
-description: Debug the LangGraph summarize graph (the sole summarize path) -- node walk, validate/repair retry loop, and the LLM attempt trail. Trigger keywords -- LangGraph, summarize graph, graph node, retry, repair loop, attempt_trigger, attempt_index, graph_node, validation failure, self-correction, summarization agent.
+description: Debug the LangGraph summarize graph (the sole summarize path for URLs) -- node walk, validate/repair retry loop, and the LLM attempt trail. Trigger keywords -- LangGraph, summarize graph, graph node, retry, repair loop, attempt_trigger, attempt_index, graph_node, validation failure, self-correction, summarization agent.
 version: 2.0.0
 allowed-tools: Bash, Read, Grep
 ---
@@ -242,4 +242,8 @@ redis-cli KEYS "llm:*" | xargs redis-cli DEL
   shared grounding-guard wording.
 - The legacy `url_processor.py` / `pure_summary_service.py` /
   `interactive_summary_service.py` and the `SUMMARIZE_GRAPH_ENABLED` flag are
-  **deleted** (T9 cutover). There is no flag gate; the graph is the only path.
+  **deleted** (T9 cutover). There is no flag gate; the graph is the only path for
+  URLs. Attachments and forwarded Telegram messages still summarize through
+  `LLMResponseWorkflow` (`app/adapters/attachment/_attachment_llm.py`,
+  `_attachment_content.py`, `app/adapters/telegram/forward_summarizer.py`), which
+  is why `llm_calls` also carries `auto_backfill` and `repair_loop` rows.
