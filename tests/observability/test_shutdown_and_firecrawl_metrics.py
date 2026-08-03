@@ -7,12 +7,14 @@ default handler terminates without running atexit. Every `docker compose down`
 and every deploy therefore dropped the tail of the run: exactly the spans an
 operator wants when a process dies mid-request.
 
-Four of the five processes flush now. uvicorn runs the FastAPI lifespan, taskiq
-fires WORKER_SHUTDOWN, the bot turns SIGTERM into a cancel of its main task, and
-the MCP server hangs the flush off its own ASGI lifespan. The fifth is the taskiq
-scheduler: taskiq's scheduler CLI installs no signal handler at all -- unlike its
-worker CLI -- so SIGTERM kills that process at SIG_DFL and nothing runs. Giving it
-a seam is a separate change.
+All five processes flush now, by two different routes. Four call shutdown_tracing
+from a seam that SIGTERM reaches: uvicorn runs the FastAPI lifespan, taskiq fires
+WORKER_SHUTDOWN, the bot turns SIGTERM into a cancel of its main task, and the
+MCP server hangs the flush off its own ASGI lifespan. The taskiq scheduler has no
+seam to hang anything on -- taskiq's scheduler CLI installs no signal handler,
+unlike its worker CLI -- so it converts SIGTERM into a cancel of the task
+asyncio.run is running, which lets the interpreter exit normally and the SDK's own
+atexit hook do the flush.
 
 record_firecrawl_request was called from nowhere. Its counter is labelled, so no
 child series was ever created, and a Prometheus aggregate over a missing series
@@ -110,22 +112,49 @@ class TestTracingShutdown:
 class TestTheSigtermPathsFlush:
     """init_tracing is called from five processes; shutdown was called from none.
 
-    Each of these owns a different seam -- the FastAPI lifespan, taskiq's
+    Every one of them owns a different seam -- the FastAPI lifespan, taskiq's
     WORKER_SHUTDOWN (app/cli/taskiq_worker.py forwards the signal to the child
-    process group), a SIGTERM-to-cancel handler, the MCP server's own ASGI
-    lifespan -- so there is nothing to share and nothing but this list to notice
-    when one of them is dropped. The taskiq scheduler is the one process still
-    missing from it; see the module docstring for why it needs its own change.
+    process group), the bot's SIGTERM-to-cancel handler, the MCP server's own
+    ASGI lifespan, the scheduler's cancel of the task asyncio.run is running --
+    so there is nothing to share, and nothing but this list to notice when one of
+    them is dropped. The token is what proves that process reaches a flush.
     """
 
     @pytest.mark.parametrize(
-        "path",
-        ["app/api/main.py", "app/tasks/broker.py", "bot.py", "app/mcp/server.py"],
-        ids=["mobile-api", "taskiq-worker", "bot", "mcp"],
+        ("path", "token"),
+        [
+            ("app/api/main.py", "shutdown_tracing"),
+            ("app/tasks/broker.py", "shutdown_tracing"),
+            ("bot.py", "shutdown_tracing"),
+            ("app/mcp/server.py", "shutdown_tracing"),
+            # No seam to call it from; it exits normally instead, and the SDK's
+            # own atexit hook flushes. tests/tasks/test_scheduler_sigterm_and_
+            # tracing.py is the behavioural half of this.
+            ("app/tasks/scheduler.py", "add_signal_handler"),
+        ],
+        ids=["mobile-api", "taskiq-worker", "bot", "mcp", "scheduler"],
     )
-    def test_the_shutdown_seams_flush_the_span_buffer(self, path: str) -> None:
+    def test_the_shutdown_seams_flush_the_span_buffer(self, path: str, token: str) -> None:
         source = (Path(__file__).resolve().parents[2] / path).read_text()
-        assert "shutdown_tracing" in source, f"{path} never flushes its span buffer"
+        assert token in source, f"{path} never reaches a flush of its span buffer"
+
+    def test_every_tracing_process_is_in_that_list(self) -> None:
+        """The list is the whole guard, so a sixth caller must not slip past it."""
+        root = Path(__file__).resolve().parents[2]
+        callers = {
+            str(path.relative_to(root))
+            for path in [*root.glob("*.py"), *(root / "app").rglob("*.py")]
+            if "init_tracing" in path.read_text(encoding="utf-8")
+            and path.name != "otel.py"  # where init_tracing is defined
+        }
+        listed = {
+            "app/api/main.py",
+            "app/tasks/broker.py",
+            "bot.py",
+            "app/mcp/server.py",
+            "app/tasks/scheduler.py",
+        }
+        assert callers == listed, f"unlisted process starts tracing: {sorted(callers - listed)}"
 
 
 class TestFirecrawlRequestsAreCounted:
