@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 import re
-from functools import lru_cache
 from html import unescape
 from html.parser import HTMLParser
-from threading import Lock
-from typing import Any
 
 from app.core.logging_utils import get_logger
 
@@ -23,7 +20,6 @@ except Exception:  # pragma: no cover
 
 
 _BLANK_LINE_RE = re.compile(r"\n{3,}")
-_SPACY_SENTENCIZER_LOCK = Lock()
 
 
 def _collapse_blank_lines(text: str) -> str:
@@ -256,15 +252,3 @@ def chunk_sentences(sentences: list[str], max_chars: int = 2000) -> list[str]:
     if buf:
         chunks.append(" ".join(buf))
     return chunks
-
-
-@lru_cache(maxsize=4)
-def _get_spacy_sentencizer(lang: str) -> Any:
-    """Return a cached spaCy blank pipeline with a sentencizer component."""
-    with _SPACY_SENTENCIZER_LOCK:
-        import spacy
-
-        nlp = spacy.blank(lang)
-        if "sentencizer" not in nlp.pipe_names:
-            nlp.add_pipe("sentencizer")
-        return nlp
