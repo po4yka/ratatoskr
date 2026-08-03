@@ -168,5 +168,12 @@ async def main() -> None:
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except KeyboardInterrupt:  # pragma: no cover
+    except (KeyboardInterrupt, asyncio.CancelledError):  # pragma: no cover
+        # CancelledError is our own SIGTERM handler doing its job, so it is a
+        # graceful stop and must exit 0. It only surfaces here when the signal
+        # lands outside the idle window -- idle() catches it and returns, so a
+        # steady-state stop unwinds normally -- but a deploy that restarts a
+        # container mid-startup would otherwise print a traceback and exit 1 for
+        # a shutdown we asked for. The teardown finally has already run either
+        # way; this only decides what the exit code says about it.
         logging.getLogger(__name__).info("shutdown")
