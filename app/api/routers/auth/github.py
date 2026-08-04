@@ -21,7 +21,11 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from app.api.exceptions import APIException, ErrorCode, ErrorType
-from app.api.models.responses.common import AliasCompatibleResponseModel
+from app.api.models.responses.common import (
+    AliasCompatibleResponseModel,
+    TypedSuccessResponse,
+    success_response,
+)
 from app.api.routers.auth.dependencies import get_current_user
 from app.application.exceptions.github import InsufficientScopeError, InvalidGitHubTokenError
 from app.application.ports.github_integration import GitHubAuthMethod
@@ -210,13 +214,13 @@ class DeviceFlowPollResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.post("/pat", response_model=PATSubmitResponse, status_code=200)
+@router.post("/pat", response_model=TypedSuccessResponse[PATSubmitResponse], status_code=200)
 async def submit_pat(
     body: PATSubmitRequest,
     user: dict[str, Any] = Depends(get_current_user),
     use_case: ManageGitHubIntegrationUseCase = Depends(_get_use_case),
     correlation_id: str = Depends(_get_correlation_id),
-) -> PATSubmitResponse:
+) -> dict[str, Any]:
     """Store and validate a GitHub Personal Access Token."""
     try:
         integration, scope_warnings = await use_case.validate_and_store(
@@ -229,38 +233,42 @@ async def submit_pat(
         raise _github_token_invalid(str(exc), status_code=422) from exc
     except InvalidGitHubTokenError as exc:
         raise _github_token_invalid("Invalid or revoked GitHub token") from exc
-    return PATSubmitResponse(
-        login=integration.github_login,
-        github_user_id=integration.github_user_id,
-        auth_method="pat",
-        status="active",
-        scope_warnings=scope_warnings or None,
+    return success_response(
+        PATSubmitResponse(
+            login=integration.github_login,
+            github_user_id=integration.github_user_id,
+            auth_method="pat",
+            status="active",
+            scope_warnings=scope_warnings or None,
+        )
     )
 
 
-@router.get("/status", response_model=GitHubStatusResponse)
+@router.get("/status", response_model=TypedSuccessResponse[GitHubStatusResponse])
 async def get_status(
     user: dict[str, Any] = Depends(get_current_user),
     use_case: ManageGitHubIntegrationUseCase = Depends(_get_use_case),
-) -> GitHubStatusResponse:
+) -> dict[str, Any]:
     """Return the current GitHub integration status for the authenticated user."""
     s = await use_case.get_status(user["user_id"])
-    return GitHubStatusResponse(
-        is_connected=s.is_connected,
-        auth_method=s.auth_method.value if s.auth_method else None,
-        github_login=s.github_login,
-        github_user_id=s.github_user_id,
-        status=s.status.value if s.status else None,
-        last_synced_at=s.last_synced_at,
-        repo_count=s.repo_count,
+    return success_response(
+        GitHubStatusResponse(
+            is_connected=s.is_connected,
+            auth_method=s.auth_method.value if s.auth_method else None,
+            github_login=s.github_login,
+            github_user_id=s.github_user_id,
+            status=s.status.value if s.status else None,
+            last_synced_at=s.last_synced_at,
+            repo_count=s.repo_count,
+        )
     )
 
 
-@router.post("/sync", response_model=GitHubSyncResponse, status_code=202)
+@router.post("/sync", response_model=TypedSuccessResponse[GitHubSyncResponse], status_code=202)
 async def trigger_sync(
     user: dict[str, Any] = Depends(get_current_user),
     use_case: ManageGitHubIntegrationUseCase = Depends(_get_use_case),
-) -> GitHubSyncResponse:
+) -> dict[str, Any]:
     """Trigger a best-effort sync for the authenticated user's GitHub integration."""
     status = await use_case.get_status(user["user_id"])
     if not status.is_connected:
@@ -269,7 +277,7 @@ async def trigger_sync(
     task = asyncio.create_task(_run_user_sync(user["user_id"], sync_id=sync_id))
     _BACKGROUND_TASKS.add(task)
     task.add_done_callback(_BACKGROUND_TASKS.discard)
-    return GitHubSyncResponse(status="queued", sync_id=sync_id)
+    return success_response(GitHubSyncResponse(status="queued", sync_id=sync_id))
 
 
 @router.delete("", status_code=204)
@@ -281,12 +289,14 @@ async def revoke(
     await use_case.revoke(user["user_id"])
 
 
-@router.post("/device/start", response_model=DeviceFlowStartResponse, status_code=200)
+@router.post(
+    "/device/start", response_model=TypedSuccessResponse[DeviceFlowStartResponse], status_code=200
+)
 async def device_flow_start(
     request: Request,
     user: dict[str, Any] = Depends(get_current_user),
     redis: Any = Depends(_get_redis_or_503),
-) -> DeviceFlowStartResponse:
+) -> dict[str, Any]:
     """Initiate GitHub OAuth Device Flow.
 
     POSTs to GitHub to get a device_code and user_code, stores
@@ -342,12 +352,14 @@ async def device_flow_start(
     }
     await redis.set(redis_key, json.dumps(state), ex=expires_in)
 
-    return DeviceFlowStartResponse(
-        user_code=data["user_code"],
-        verification_uri=data["verification_uri"],
-        device_code=device_code,
-        interval=interval,
-        expires_in=expires_in,
+    return success_response(
+        DeviceFlowStartResponse(
+            user_code=data["user_code"],
+            verification_uri=data["verification_uri"],
+            device_code=device_code,
+            interval=interval,
+            expires_in=expires_in,
+        )
     )
 
 
@@ -389,7 +401,9 @@ async def _run_user_sync(user_id: int, *, sync_id: str) -> None:
     )
 
 
-@router.post("/device/poll", response_model=DeviceFlowPollResponse, status_code=200)
+@router.post(
+    "/device/poll", response_model=TypedSuccessResponse[DeviceFlowPollResponse], status_code=200
+)
 async def device_flow_poll(
     body: DeviceFlowPollRequest,
     request: Request,
@@ -397,7 +411,7 @@ async def device_flow_poll(
     redis: Any = Depends(_get_redis_or_503),
     use_case: ManageGitHubIntegrationUseCase = Depends(_get_use_case),
     correlation_id: str = Depends(_get_correlation_id),
-) -> DeviceFlowPollResponse:
+) -> dict[str, Any]:
     """Poll GitHub for the Device Flow access token.
 
     CSRF protection: the device_code Redis entry is bound to the user_id that
@@ -424,20 +438,20 @@ async def device_flow_poll(
     redis_key = f"{_DEVICE_KEY_PREFIX}:{body.device_code}"
     raw = await redis.get(redis_key)
     if raw is None:
-        return DeviceFlowPollResponse(status="expired")
+        return success_response(DeviceFlowPollResponse(status="expired"))
 
     state: dict[str, Any] = json.loads(raw)
 
     # CSRF: device_code must belong to the requesting user
     if int(state["user_id"]) != int(user["user_id"]):
-        return DeviceFlowPollResponse(status="expired")
+        return success_response(DeviceFlowPollResponse(status="expired"))
 
     # Server-side rate-limit: respect the interval negotiated with GitHub
     now = int(time.time())
     last_poll_at: int = int(state.get("last_poll_at", 0))
     stored_interval: int = int(state.get("interval", 5))
     if last_poll_at > 0 and (now - last_poll_at) < (stored_interval - 1):
-        return DeviceFlowPollResponse(status="slow_down")
+        return success_response(DeviceFlowPollResponse(status="slow_down"))
 
     # Update last_poll_at in Redis before hitting GitHub
     state["last_poll_at"] = now
@@ -462,27 +476,27 @@ async def device_flow_poll(
     error = data.get("error")
 
     if error == "authorization_pending":
-        return DeviceFlowPollResponse(status="pending")
+        return success_response(DeviceFlowPollResponse(status="pending"))
 
     if error == "slow_down":
         # GitHub wants a longer interval — bump and persist it
         new_interval = stored_interval + 5
         state["interval"] = new_interval
         await redis.set(redis_key, json.dumps(state), ex=ttl_remaining)
-        return DeviceFlowPollResponse(status="slow_down")
+        return success_response(DeviceFlowPollResponse(status="slow_down"))
 
     if error == "expired_token":
         await redis.delete(redis_key)
-        return DeviceFlowPollResponse(status="expired")
+        return success_response(DeviceFlowPollResponse(status="expired"))
 
     if error == "access_denied":
         await redis.delete(redis_key)
-        return DeviceFlowPollResponse(status="denied")
+        return success_response(DeviceFlowPollResponse(status="denied"))
 
     if error:
         # Unknown error — treat as expired to avoid polling loops
         await redis.delete(redis_key)
-        return DeviceFlowPollResponse(status="expired")
+        return success_response(DeviceFlowPollResponse(status="expired"))
 
     # --- Success: exchange token for integration record ---
     access_token: str = data["access_token"]
@@ -500,11 +514,13 @@ async def device_flow_poll(
     except InvalidGitHubTokenError as exc:
         raise _github_token_invalid("Invalid or revoked GitHub token") from exc
 
-    return DeviceFlowPollResponse(
-        status="ok",
-        login=integration.github_login,
-        github_user_id=integration.github_user_id,
-        auth_method="oauth_device",
-        integration_status="active",
-        scope_warnings=scope_warnings or None,
+    return success_response(
+        DeviceFlowPollResponse(
+            status="ok",
+            login=integration.github_login,
+            github_user_id=integration.github_user_id,
+            auth_method="oauth_device",
+            integration_status="active",
+            scope_warnings=scope_warnings or None,
+        )
     )

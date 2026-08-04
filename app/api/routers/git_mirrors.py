@@ -13,7 +13,11 @@ from app.adapters.github.url_patterns import parse_github_repo_url
 from app.api.models.requests import (  # noqa: TC001  # used at runtime by FastAPI body schema
     RegisterMirrorRequest,
 )
-from app.api.models.responses.common import PaginationInfo
+from app.api.models.responses.common import (
+    PaginationInfo,
+    TypedSuccessResponse,
+    success_response,
+)
 from app.api.models.responses.git_mirrors import (
     GitMirrorCompact,
     GitMirrorDetail,
@@ -172,13 +176,13 @@ def _validate_repository_mirror_target(
 # ---------------------------------------------------------------------------
 
 
-@router.get("", response_model=GitMirrorListResponse)
+@router.get("", response_model=TypedSuccessResponse[GitMirrorListResponse])
 async def list_mirrors(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     user: dict[str, Any] = Depends(get_current_user),
     db: Database = Depends(_get_db),
-) -> GitMirrorListResponse:
+) -> dict[str, Any]:
     """List git mirrors for the authenticated user with simple paging."""
     user_id: int = user["user_id"]
 
@@ -203,17 +207,17 @@ async def list_mirrors(
         offset=offset,
         has_more=(offset + len(rows)) < total,
     )
-    return GitMirrorListResponse(mirrors=mirrors, pagination=pagination)
+    return success_response(GitMirrorListResponse(mirrors=mirrors, pagination=pagination))
 
 
-@router.post("", response_model=RegisterMirrorResponse, status_code=202)
+@router.post("", response_model=TypedSuccessResponse[RegisterMirrorResponse], status_code=202)
 async def register_mirror(
     body: RegisterMirrorRequest,
     user: dict[str, Any] = Depends(get_current_user),
     mirror_repo: GitMirrorRepository = Depends(_get_mirror_repo),
     db: Database = Depends(_get_db),
     correlation_id: str = Depends(_get_correlation_id),
-) -> RegisterMirrorResponse:
+) -> dict[str, Any]:
     """Register a git URL as a mirror target (upsert) and schedule it for cloning.
 
     Returns 202 Accepted. The actual clone/fetch happens in the next Taskiq
@@ -265,21 +269,23 @@ async def register_mirror(
             detail=f"Failed to register mirror (correlation_id={correlation_id})",
         ) from exc
 
-    return RegisterMirrorResponse(
-        id=row.id,
-        status=row.status.value if hasattr(row.status, "value") else str(row.status),
-        clone_url=redact_git_url(row.clone_url),
+    return success_response(
+        RegisterMirrorResponse(
+            id=row.id,
+            status=row.status.value if hasattr(row.status, "value") else str(row.status),
+            clone_url=redact_git_url(row.clone_url),
+        )
     )
 
 
-@router.get("/search", response_model=GitMirrorSearchResponse)
+@router.get("/search", response_model=TypedSuccessResponse[GitMirrorSearchResponse])
 async def search_mirrors(
     request: Request,
     q: str = Query(..., min_length=1, description="Semantic search query"),
     limit: int = Query(20, ge=1, le=100),
     user: dict[str, Any] = Depends(get_current_user),
     db: Database = Depends(_get_db),
-) -> GitMirrorSearchResponse:
+) -> dict[str, Any]:
     """Semantic search over non-GitHub git mirror READMEs indexed in Qdrant.
 
     Only mirrors with repository_id IS NULL (manual/arbitrary targets) are
@@ -316,7 +322,7 @@ async def search_mirrors(
             "git_mirror_search_failed",
             extra={"user_id": user_id, "correlation_id": correlation_id},
         )
-        return GitMirrorSearchResponse(items=[], total=0, limit=limit)
+        return success_response(GitMirrorSearchResponse(items=[], total=0, limit=limit))
 
     items = [
         GitMirrorSearchItem(
@@ -332,15 +338,17 @@ async def search_mirrors(
         )
         for r in results.items
     ]
-    return GitMirrorSearchResponse(items=items, total=results.total, limit=results.limit)
+    return success_response(
+        GitMirrorSearchResponse(items=items, total=results.total, limit=results.limit)
+    )
 
 
-@router.get("/{mirror_id}", response_model=GitMirrorDetail)
+@router.get("/{mirror_id}", response_model=TypedSuccessResponse[GitMirrorDetail])
 async def get_mirror(
     mirror_id: int,
     user: dict[str, Any] = Depends(get_current_user),
     db: Database = Depends(_get_db),
-) -> GitMirrorDetail:
+) -> dict[str, Any]:
     """Get full detail for a single git mirror."""
     user_id: int = user["user_id"]
 
@@ -349,7 +357,7 @@ async def get_mirror(
     if row is None:
         raise HTTPException(status_code=404, detail="Git mirror not found")
 
-    return _mirror_to_detail(row)
+    return success_response(_mirror_to_detail(row))
 
 
 @router.delete("/{mirror_id}", status_code=204)

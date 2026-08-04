@@ -20,6 +20,7 @@ from app.api.models.responses.repositories import (
     RepositoryWatch,
     RepositoryWatchListResponse,
 )
+from app.api.models.responses.common import TypedSuccessResponse, success_response
 from app.api.routers.auth import get_current_user
 from app.application.services.repository_service import (
     RepositoryService,
@@ -133,7 +134,7 @@ def _translate_add_error(exc: Exception, *, url: str, correlation_id: str) -> HT
 # ---------------------------------------------------------------------------
 
 
-@router.get("", response_model=RepositoryListResponse)
+@router.get("", response_model=TypedSuccessResponse[RepositoryListResponse])
 async def list_repositories(
     is_starred: bool | None = Query(None),
     language: str | None = Query(None, max_length=100),
@@ -146,7 +147,7 @@ async def list_repositories(
     offset: int = Query(0, ge=0),
     user: dict[str, Any] = Depends(get_current_user),
     svc: RepositoryService = Depends(_get_repository_service),
-) -> RepositoryListResponse:
+) -> dict[str, Any]:
     """List repositories for the authenticated user with optional filters."""
     result = await svc.list_repositories(
         user_id=user["user_id"],
@@ -160,46 +161,46 @@ async def list_repositories(
         limit=limit,
         offset=offset,
     )
-    return RepositoryListResponse.model_validate(result.model_dump())
+    return success_response(RepositoryListResponse.model_validate(result.model_dump()))
 
 
-@router.get("/watched", response_model=RepositoryWatchListResponse)
+@router.get("/watched", response_model=TypedSuccessResponse[RepositoryWatchListResponse])
 async def list_watched_repositories(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     user: dict[str, Any] = Depends(get_current_user),
     svc: RepositoryService = Depends(_get_repository_service),
-) -> RepositoryWatchListResponse:
+) -> dict[str, Any]:
     """List repositories watched by the authenticated user."""
     result = await svc.list_repository_watches(
         user_id=user["user_id"],
         limit=limit,
         offset=offset,
     )
-    return RepositoryWatchListResponse.model_validate(result.model_dump())
+    return success_response(RepositoryWatchListResponse.model_validate(result.model_dump()))
 
 
-@router.get("/{repository_id}", response_model=RepositoryDetail)
+@router.get("/{repository_id}", response_model=TypedSuccessResponse[RepositoryDetail])
 async def get_repository(
     repository_id: int,
     user: dict[str, Any] = Depends(get_current_user),
     svc: RepositoryService = Depends(_get_repository_service),
-) -> RepositoryDetail:
+) -> dict[str, Any]:
     """Get full detail for a single repository."""
     try:
         result = await svc.get_repository(repository_id=repository_id, user_id=user["user_id"])
-        return RepositoryDetail.model_validate(result.model_dump())
+        return success_response(RepositoryDetail.model_validate(result.model_dump()))
     except RepositoryServiceNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Repository not found") from exc
 
 
-@router.post("", response_model=IngestRepositoryResponse, status_code=202)
+@router.post("", response_model=TypedSuccessResponse[IngestRepositoryResponse], status_code=202)
 async def ingest_repository(
     body: IngestRepositoryRequest,
     user: dict[str, Any] = Depends(get_current_user),
     use_case: AddRepositoryUseCase = Depends(_get_add_use_case),
     correlation_id: str = Depends(_get_correlation_id),
-) -> IngestRepositoryResponse:
+) -> dict[str, Any]:
     """Add a GitHub repository by URL.
 
     ``mode=metadata`` (the default) only indexes it. ``mode=track`` also enrolls
@@ -224,26 +225,28 @@ async def ingest_repository(
     except Exception as exc:
         raise _translate_add_error(exc, url=body.url, correlation_id=correlation_id) from exc
 
-    return IngestRepositoryResponse(
-        repository_id=result.repository_id,
-        status="ready" if result.repository_id else "pending",
-        full_name=result.full_name,
-        mode=result.mode,
-        is_starred=result.is_starred,
-        lists_applied=result.lists_applied,
-        list_suggestion_source=result.list_suggestion_source,
-        mirror_id=result.mirror_id,
-        warnings=result.warnings,
+    return success_response(
+        IngestRepositoryResponse(
+            repository_id=result.repository_id,
+            status="ready" if result.repository_id else "pending",
+            full_name=result.full_name,
+            mode=result.mode,
+            is_starred=result.is_starred,
+            lists_applied=result.lists_applied,
+            list_suggestion_source=result.list_suggestion_source,
+            mirror_id=result.mirror_id,
+            warnings=result.warnings,
+        )
     )
 
 
-@router.post("/{repository_id}/watch", response_model=RepositoryWatch)
+@router.post("/{repository_id}/watch", response_model=TypedSuccessResponse[RepositoryWatch])
 async def watch_repository(
     repository_id: int,
     body: RepositoryWatchRequest | None = None,
     user: dict[str, Any] = Depends(get_current_user),
     svc: RepositoryService = Depends(_get_repository_service),
-) -> RepositoryWatch:
+) -> dict[str, Any]:
     """Watch an owned repository for README and release deltas."""
     request_body = body or RepositoryWatchRequest()
     try:
@@ -253,7 +256,7 @@ async def watch_repository(
             watch_readme=request_body.watch_readme,
             watch_releases=request_body.watch_releases,
         )
-        return RepositoryWatch.model_validate(result.model_dump())
+        return success_response(RepositoryWatch.model_validate(result.model_dump()))
     except RepositoryServiceNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Repository not found") from exc
 
@@ -271,14 +274,14 @@ async def unwatch_repository(
         raise HTTPException(status_code=404, detail="Repository watch not found") from exc
 
 
-@router.post("/{repository_id}/reanalyze", response_model=RepositoryDetail)
+@router.post("/{repository_id}/reanalyze", response_model=TypedSuccessResponse[RepositoryDetail])
 async def reanalyze_repository(
     repository_id: int,
     user: dict[str, Any] = Depends(get_current_user),
     use_case: AnalyzeRepositoryUseCase = Depends(_get_analyze_use_case),
     correlation_id: str = Depends(_get_correlation_id),
     svc: RepositoryService = Depends(_get_repository_service),
-) -> RepositoryDetail:
+) -> dict[str, Any]:
     """Force re-analysis of a repository."""
     try:
         result = await svc.reanalyze_repository(
@@ -287,7 +290,7 @@ async def reanalyze_repository(
             use_case=use_case,
             correlation_id=correlation_id,
         )
-        return RepositoryDetail.model_validate(result.model_dump())
+        return success_response(RepositoryDetail.model_validate(result.model_dump()))
     except RepositoryServiceNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Repository not found") from exc
 

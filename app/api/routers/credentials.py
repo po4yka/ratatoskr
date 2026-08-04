@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from app.api.models.responses.common import TypedSuccessResponse, success_response
 from app.api.routers.auth import get_current_user
 from app.core.logging_utils import get_logger
 
@@ -103,36 +104,38 @@ def get_credentials_owner(
     return user
 
 
-@router.get("", response_model=CredentialListResponse)
+@router.get("", response_model=TypedSuccessResponse[CredentialListResponse])
 async def list_credentials(
     request: Request,
     user: dict[str, Any] = Depends(get_credentials_owner),
-) -> CredentialListResponse:
+) -> dict[str, Any]:
     """Return every catalog entry with presence flags -- never the values."""
     statuses = await _get_store(request).list_status(user_id=user["user_id"])
-    return CredentialListResponse(
-        credentials=[
-            CredentialItem(
-                key=s.key,
-                label=s.label,
-                group=s.group,
-                help_url=s.help_url,
-                configured_in_db=s.configured_in_db,
-                configured_in_env=s.configured_in_env,
-                hint=s.hint,
-            )
-            for s in statuses
-        ]
+    return success_response(
+        CredentialListResponse(
+            credentials=[
+                CredentialItem(
+                    key=s.key,
+                    label=s.label,
+                    group=s.group,
+                    help_url=s.help_url,
+                    configured_in_db=s.configured_in_db,
+                    configured_in_env=s.configured_in_env,
+                    hint=s.hint,
+                )
+                for s in statuses
+            ]
+        )
     )
 
 
-@router.put("/{key}", response_model=CredentialSetResponse)
+@router.put("/{key}", response_model=TypedSuccessResponse[CredentialSetResponse])
 async def set_credential(
     key: str,
     payload: CredentialSetRequest,
     request: Request,
     user: dict[str, Any] = Depends(get_credentials_owner),
-) -> CredentialSetResponse:
+) -> dict[str, Any]:
     """Install or replace a credential. Applies without a restart."""
     from app.infrastructure.persistence.credential_store import UnknownCredentialError
 
@@ -146,15 +149,15 @@ async def set_credential(
         raise HTTPException(status_code=404, detail=f"Unknown credential: {key}") from None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return CredentialSetResponse(key=key, hint=hint)
+    return success_response(CredentialSetResponse(key=key, hint=hint))
 
 
-@router.delete("/{key}", response_model=CredentialDeleteResponse)
+@router.delete("/{key}", response_model=TypedSuccessResponse[CredentialDeleteResponse])
 async def delete_credential(
     key: str,
     request: Request,
     user: dict[str, Any] = Depends(get_credentials_owner),
-) -> CredentialDeleteResponse:
+) -> dict[str, Any]:
     """Remove a UI-installed credential, reverting to the environment value."""
     from app.infrastructure.persistence.credential_store import UnknownCredentialError
 
@@ -162,4 +165,4 @@ async def delete_credential(
         deleted = await _get_store(request).delete_credential(user_id=user["user_id"], key=key)
     except UnknownCredentialError:
         raise HTTPException(status_code=404, detail=f"Unknown credential: {key}") from None
-    return CredentialDeleteResponse(key=key, deleted=deleted)
+    return success_response(CredentialDeleteResponse(key=key, deleted=deleted))

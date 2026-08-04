@@ -13,6 +13,7 @@ from typing import Any, cast
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from app.api.models.responses.common import TypedSuccessResponse, success_response
 from app.api.routers.auth import get_current_user
 from app.application.exceptions.github import (
     GitHubAuthError,
@@ -98,25 +99,27 @@ def _translate(exc: Exception) -> HTTPException:
     return HTTPException(status_code=502, detail="GitHub star list operation failed")
 
 
-@router.get("", response_model=StarListsResponse)
+@router.get("", response_model=TypedSuccessResponse[StarListsResponse])
 async def list_star_lists(
     user: dict[str, Any] = Depends(get_current_user),
     use_case: ManageStarListsUseCase = Depends(_get_use_case),
-) -> StarListsResponse:
+) -> dict[str, Any]:
     """List the caller's star lists (metadata only — no repository items)."""
     try:
         entries = await use_case.list_lists(user["user_id"])
     except Exception as exc:
         raise _translate(exc) from exc
-    return StarListsResponse(lists=[StarListResponse(**vars(entry)) for entry in entries])
+    return success_response(
+        StarListsResponse(lists=[StarListResponse(**vars(entry)) for entry in entries])
+    )
 
 
-@router.post("", response_model=StarListResponse, status_code=201)
+@router.post("", response_model=TypedSuccessResponse[StarListResponse], status_code=201)
 async def create_star_list(
     body: CreateStarListRequest,
     user: dict[str, Any] = Depends(get_current_user),
     use_case: ManageStarListsUseCase = Depends(_get_use_case),
-) -> StarListResponse:
+) -> dict[str, Any]:
     """Create a star list. GitHub caps a user at 32 and rejects the 33rd itself."""
     try:
         created = await use_case.create_list(
@@ -127,16 +130,16 @@ async def create_star_list(
         )
     except Exception as exc:
         raise _translate(exc) from exc
-    return StarListResponse(**vars(created))
+    return success_response(StarListResponse(**vars(created)))
 
 
-@router.patch("/{slug}", response_model=StarListResponse)
+@router.patch("/{slug}", response_model=TypedSuccessResponse[StarListResponse])
 async def update_star_list(
     slug: str,
     body: UpdateStarListRequest,
     user: dict[str, Any] = Depends(get_current_user),
     use_case: ManageStarListsUseCase = Depends(_get_use_case),
-) -> StarListResponse:
+) -> dict[str, Any]:
     """Rename or re-describe a list, addressed by slug or exact name."""
     try:
         updated = await use_case.update_list(
@@ -148,7 +151,7 @@ async def update_star_list(
         )
     except Exception as exc:
         raise _translate(exc) from exc
-    return StarListResponse(**vars(updated))
+    return success_response(StarListResponse(**vars(updated)))
 
 
 @router.delete("/{slug}", status_code=204)
@@ -164,13 +167,13 @@ async def delete_star_list(
         raise _translate(exc) from exc
 
 
-@router.put("/repositories/{repository_id}", response_model=StarListsResponse)
+@router.put("/repositories/{repository_id}", response_model=TypedSuccessResponse[StarListsResponse])
 async def set_repository_lists(
     repository_id: int,
     body: SetRepositoryListsRequest,
     user: dict[str, Any] = Depends(get_current_user),
     use_case: ManageStarListsUseCase = Depends(_get_use_case),
-) -> StarListsResponse:
+) -> dict[str, Any]:
     """Replace the lists a repository belongs to and refresh the local mirror.
 
     PUT semantics: the body is the complete desired membership, so an empty
@@ -184,6 +187,6 @@ async def set_repository_lists(
         )
     except Exception as exc:
         raise _translate(exc) from exc
-    return StarListsResponse(
-        lists=[StarListResponse(id="", name=name, slug="") for name in applied]
+    return success_response(
+        StarListsResponse(lists=[StarListResponse(id="", name=name, slug="") for name in applied])
     )

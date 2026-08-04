@@ -1073,7 +1073,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PATSubmitResponse"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_PATSubmitResponse_"
                 }
               }
             }
@@ -1109,7 +1109,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GitHubStatusResponse"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_GitHubStatusResponse_"
                 }
               }
             }
@@ -1145,7 +1145,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GitHubSyncResponse"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_GitHubSyncResponse_"
                 }
               }
             }
@@ -1210,7 +1210,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DeviceFlowStartResponse"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_DeviceFlowStartResponse_"
                 }
               }
             }
@@ -1256,7 +1256,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DeviceFlowPollResponse"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_DeviceFlowPollResponse_"
                 }
               }
             }
@@ -3943,7 +3943,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RepositoryListResponse"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_RepositoryListResponse_"
                 }
               }
             }
@@ -3987,7 +3987,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/IngestRepositoryResponse"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_IngestRepositoryResponse_"
                 }
               }
             }
@@ -4048,7 +4048,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RepositoryWatchListResponse"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_RepositoryWatchListResponse_"
                 }
               }
             }
@@ -4095,7 +4095,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RepositoryDetail"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_RepositoryDetail_"
                 }
               }
             }
@@ -4197,7 +4197,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RepositoryWatch"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_RepositoryWatch_"
                 }
               }
             }
@@ -4282,7 +4282,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RepositoryDetail"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_RepositoryDetail_"
                 }
               }
             }
@@ -4313,7 +4313,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StarListsResponse"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_StarListsResponse_"
                 }
               }
             }
@@ -4357,7 +4357,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StarListResponse"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_StarListResponse_"
                 }
               }
             }
@@ -4419,7 +4419,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StarListResponse"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_StarListResponse_"
                 }
               }
             }
@@ -4514,7 +4514,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StarListsResponse"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_StarListsResponse_"
                 }
               }
             }
@@ -4575,7 +4575,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GitMirrorListResponse"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_GitMirrorListResponse_"
                 }
               }
             }
@@ -4619,7 +4619,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RegisterMirrorResponse"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_RegisterMirrorResponse_"
                 }
               }
             }
@@ -4681,7 +4681,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GitMirrorSearchResponse"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_GitMirrorSearchResponse_"
                 }
               }
             }
@@ -4728,7 +4728,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GitMirrorDetail"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_GitMirrorDetail_"
                 }
               }
             }
@@ -5287,7 +5287,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CredentialListResponse"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_CredentialListResponse_"
                 }
               }
             }
@@ -5349,7 +5349,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CredentialSetResponse"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_CredentialSetResponse_"
                 }
               }
             }
@@ -5394,7 +5394,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CredentialDeleteResponse"
+                  "$ref": "#/components/schemas/TypedSuccessResponse_CredentialDeleteResponse_"
                 }
               }
             }
@@ -32951,6 +32951,66 @@
         ],
         "title": "TypedSuccessResponse[CollectionTreeResponse]"
       },
+      "TypedSuccessResponse_CredentialDeleteResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/CredentialDeleteResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[CredentialDeleteResponse]"
+      },
+      "TypedSuccessResponse_CredentialListResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/CredentialListResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[CredentialListResponse]"
+      },
+      "TypedSuccessResponse_CredentialSetResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/CredentialSetResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[CredentialSetResponse]"
+      },
       "TypedSuccessResponse_DatabaseInfoData_": {
         "properties": {
           "success": {
@@ -33010,6 +33070,46 @@
           "data"
         ],
         "title": "TypedSuccessResponse[DetailedHealthData]"
+      },
+      "TypedSuccessResponse_DeviceFlowPollResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/DeviceFlowPollResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[DeviceFlowPollResponse]"
+      },
+      "TypedSuccessResponse_DeviceFlowStartResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/DeviceFlowStartResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[DeviceFlowStartResponse]"
       },
       "TypedSuccessResponse_DeviceRegistrationResponse_": {
         "properties": {
@@ -33170,6 +33270,106 @@
           "data"
         ],
         "title": "TypedSuccessResponse[FullSyncResponseData]"
+      },
+      "TypedSuccessResponse_GitHubStatusResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/GitHubStatusResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[GitHubStatusResponse]"
+      },
+      "TypedSuccessResponse_GitHubSyncResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/GitHubSyncResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[GitHubSyncResponse]"
+      },
+      "TypedSuccessResponse_GitMirrorDetail_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/GitMirrorDetail"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[GitMirrorDetail]"
+      },
+      "TypedSuccessResponse_GitMirrorListResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/GitMirrorListResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[GitMirrorListResponse]"
+      },
+      "TypedSuccessResponse_GitMirrorSearchResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/GitMirrorSearchResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[GitMirrorSearchResponse]"
       },
       "TypedSuccessResponse_GoalDeletionResponse_": {
         "properties": {
@@ -33371,6 +33571,26 @@
         ],
         "title": "TypedSuccessResponse[ImportJobResponse]"
       },
+      "TypedSuccessResponse_IngestRepositoryResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/IngestRepositoryResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[IngestRepositoryResponse]"
+      },
       "TypedSuccessResponse_LivenessData_": {
         "properties": {
           "success": {
@@ -33450,6 +33670,26 @@
           "data"
         ],
         "title": "TypedSuccessResponse[MessageResponse]"
+      },
+      "TypedSuccessResponse_PATSubmitResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/PATSubmitResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[PATSubmitResponse]"
       },
       "TypedSuccessResponse_PreferencesData_": {
         "properties": {
@@ -33531,6 +33771,26 @@
         ],
         "title": "TypedSuccessResponse[ReadinessData]"
       },
+      "TypedSuccessResponse_RegisterMirrorResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/RegisterMirrorResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[RegisterMirrorResponse]"
+      },
       "TypedSuccessResponse_RelatedSummariesResponse_": {
         "properties": {
           "success": {
@@ -33551,6 +33811,46 @@
         ],
         "title": "TypedSuccessResponse[RelatedSummariesResponse]"
       },
+      "TypedSuccessResponse_RepositoryDetail_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/RepositoryDetail"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[RepositoryDetail]"
+      },
+      "TypedSuccessResponse_RepositoryListResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/RepositoryListResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[RepositoryListResponse]"
+      },
       "TypedSuccessResponse_RepositorySearchResponse_": {
         "properties": {
           "success": {
@@ -33570,6 +33870,46 @@
           "data"
         ],
         "title": "TypedSuccessResponse[RepositorySearchResponse]"
+      },
+      "TypedSuccessResponse_RepositoryWatchListResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/RepositoryWatchListResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[RepositoryWatchListResponse]"
+      },
+      "TypedSuccessResponse_RepositoryWatch_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/RepositoryWatch"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[RepositoryWatch]"
       },
       "TypedSuccessResponse_RestoreDryRunResponse_": {
         "properties": {
@@ -33910,6 +34250,46 @@
           "data"
         ],
         "title": "TypedSuccessResponse[SessionRevocationResponse]"
+      },
+      "TypedSuccessResponse_StarListResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/StarListResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[StarListResponse]"
+      },
+      "TypedSuccessResponse_StarListsResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/StarListsResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[StarListsResponse]"
       },
       "TypedSuccessResponse_StreakResponse_": {
         "properties": {

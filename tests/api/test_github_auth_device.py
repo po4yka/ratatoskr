@@ -327,7 +327,7 @@ async def test_device_poll_pending(
         _clear_redis(client)
 
     assert resp.status_code == 200
-    assert resp.json()["status"] == "pending"
+    assert resp.json()["data"]["status"] == "pending"
 
 
 # ---------------------------------------------------------------------------
@@ -405,7 +405,7 @@ async def test_device_poll_unknown_device_code_returns_expired(
         _clear_redis(client_no_db)
 
     assert resp.status_code == 200
-    assert resp.json()["status"] == "expired"
+    assert resp.json()["data"]["status"] == "expired"
 
 
 # ---------------------------------------------------------------------------
@@ -438,7 +438,7 @@ async def test_device_poll_csrf_other_user_returns_expired(
         _clear_redis(client_no_db)
 
     assert resp.status_code == 200
-    assert resp.json()["status"] == "expired"
+    assert resp.json()["data"]["status"] == "expired"
 
 
 # ---------------------------------------------------------------------------
@@ -474,7 +474,7 @@ async def test_device_poll_slow_down_when_polled_too_fast(
         _clear_redis(client_no_db)
 
     assert resp.status_code == 200
-    assert resp.json()["status"] == "slow_down"
+    assert resp.json()["data"]["status"] == "slow_down"
 
 
 # ---------------------------------------------------------------------------
@@ -509,7 +509,7 @@ async def test_device_poll_expired(
         _clear_redis(client)
 
     assert resp.status_code == 200
-    assert resp.json()["status"] == "expired"
+    assert resp.json()["data"]["status"] == "expired"
 
     # Redis key must be gone
     raw = await fake_redis.get(f"gh:device:{_DEVICE_CODE}")

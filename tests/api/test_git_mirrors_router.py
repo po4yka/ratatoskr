@@ -29,14 +29,27 @@ from __future__ import annotations
 import importlib
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, TypeVar
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 # Load the module directly, not via the package __init__.
 _gm = importlib.import_module("app.api.routers.git_mirrors")
+
+_M = TypeVar("_M", bound=BaseModel)
+
+
+def _unwrap(response: Any, model: type[_M]) -> _M:
+    """Assert the {success, data, meta} envelope and rebuild the payload model.
+
+    These tests await the route functions directly, so they see the same dict
+    the client does. Rebuilding the payload keeps the assertions attribute-based
+    while still failing if a route ever drops the envelope again.
+    """
+    assert response["success"] is True
+    return model.model_validate(response["data"])
 
 
 # ---------------------------------------------------------------------------
@@ -391,7 +404,10 @@ async def test_list_mirrors_returns_compact_list() -> None:
     db.session.return_value = _Ctx(session)
 
     user = {"user_id": 1}
-    response = await _gm.list_mirrors(limit=20, offset=0, user=user, db=db)
+    response = _unwrap(
+        await _gm.list_mirrors(limit=20, offset=0, user=user, db=db),
+        _gm.GitMirrorListResponse,
+    )
 
     assert len(response.mirrors) == 1
     assert response.mirrors[0].id == 3
@@ -422,7 +438,10 @@ async def test_list_mirrors_has_more_when_more_rows() -> None:
 
     user = {"user_id": 1}
     # offset=0, 1 row returned, total=5 -> has_more = (0+1) < 5 = True
-    response = await _gm.list_mirrors(limit=2, offset=0, user=user, db=db)
+    response = _unwrap(
+        await _gm.list_mirrors(limit=2, offset=0, user=user, db=db),
+        _gm.GitMirrorListResponse,
+    )
 
     assert response.pagination.total == 5
     assert response.pagination.has_more is True
@@ -448,7 +467,10 @@ async def test_list_mirrors_empty_result() -> None:
     db.session.return_value = _Ctx(session)
 
     user = {"user_id": 1}
-    response = await _gm.list_mirrors(limit=20, offset=0, user=user, db=db)
+    response = _unwrap(
+        await _gm.list_mirrors(limit=20, offset=0, user=user, db=db),
+        _gm.GitMirrorListResponse,
+    )
 
     assert response.mirrors == []
     assert response.pagination.total == 0
@@ -518,11 +540,14 @@ async def test_register_mirror_github_url_classifies_as_github() -> None:
     )
     user = {"user_id": 10}
 
-    response = await _gm.register_mirror(
-        body=body,
-        user=user,
-        mirror_repo=mirror_repo,
-        correlation_id="cid-001",
+    response = _unwrap(
+        await _gm.register_mirror(
+            body=body,
+            user=user,
+            mirror_repo=mirror_repo,
+            correlation_id="cid-001",
+        ),
+        _gm.RegisterMirrorResponse,
     )
 
     assert len(captured_calls) == 1
@@ -560,11 +585,14 @@ async def test_register_mirror_non_github_url_classifies_as_manual() -> None:
     )
     user = {"user_id": 10}
 
-    response = await _gm.register_mirror(
-        body=body,
-        user=user,
-        mirror_repo=mirror_repo,
-        correlation_id="cid-002",
+    response = _unwrap(
+        await _gm.register_mirror(
+            body=body,
+            user=user,
+            mirror_repo=mirror_repo,
+            correlation_id="cid-002",
+        ),
+        _gm.RegisterMirrorResponse,
     )
 
     assert captured_calls[0]["source"] == GitMirrorSource.MANUAL
@@ -626,11 +654,14 @@ async def test_register_mirror_status_plain_string_fallback() -> None:
     )
     user = {"user_id": 5}
 
-    response = await _gm.register_mirror(
-        body=body,
-        user=user,
-        mirror_repo=mirror_repo,
-        correlation_id="cid-003",
+    response = _unwrap(
+        await _gm.register_mirror(
+            body=body,
+            user=user,
+            mirror_repo=mirror_repo,
+            correlation_id="cid-003",
+        ),
+        _gm.RegisterMirrorResponse,
     )
 
     assert response.status == "cloning"
@@ -739,12 +770,15 @@ async def test_register_mirror_accepts_owned_matching_repository(
     mirror_repo = MagicMock()
     mirror_repo.upsert_target = _fake_upsert
 
-    response = await _gm.register_mirror(
-        body=body,
-        user={"user_id": 10},
-        mirror_repo=mirror_repo,
-        db=MagicMock(),
-        correlation_id="cid-owned",
+    response = _unwrap(
+        await _gm.register_mirror(
+            body=body,
+            user={"user_id": 10},
+            mirror_repo=mirror_repo,
+            db=MagicMock(),
+            correlation_id="cid-owned",
+        ),
+        _gm.RegisterMirrorResponse,
     )
 
     assert response.id == 1234
@@ -797,7 +831,7 @@ async def test_get_mirror_returns_detail_when_found() -> None:
     db.session.return_value = _Ctx(session)
 
     user = {"user_id": 1}
-    detail = await _gm.get_mirror(mirror_id=20, user=user, db=db)
+    detail = _unwrap(await _gm.get_mirror(mirror_id=20, user=user, db=db), _gm.GitMirrorDetail)
 
     assert detail.id == 20
     assert detail.clone_url == "https://example.com/repo.git"
@@ -875,7 +909,10 @@ async def test_search_mirrors_returns_items_on_success(
     db.session.return_value = _Ctx(session)
 
     user = {"user_id": 1}
-    response = await _gm.search_mirrors(request=request, q="find repo", limit=20, user=user, db=db)
+    response = _unwrap(
+        await _gm.search_mirrors(request=request, q="find repo", limit=20, user=user, db=db),
+        _gm.GitMirrorSearchResponse,
+    )
 
     assert response.total == 1
     assert len(response.items) == 1
@@ -910,7 +947,10 @@ async def test_search_mirrors_returns_empty_on_exception(
     db.session.return_value = _Ctx(MagicMock())
 
     user = {"user_id": 1}
-    response = await _gm.search_mirrors(request=request, q="anything", limit=10, user=user, db=db)
+    response = _unwrap(
+        await _gm.search_mirrors(request=request, q="anything", limit=10, user=user, db=db),
+        _gm.GitMirrorSearchResponse,
+    )
 
     assert response.items == []
     assert response.total == 0
