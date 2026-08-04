@@ -267,11 +267,17 @@ pi-migrate:
 pi-rollback:
 	bash tools/scripts/build-and-deploy-pi.sh $(if $(filter command line environment override,$(origin SERVICE)),--service $(SERVICE),) --rollback
 
-# End-to-end: build+ship+restart the AI re-auth stack, four application
-# services, and PostgreSQL backup sidecar in one pass. The image includes the
-# reviewed SPA archive, then the smoke check verifies / and /health/ready.
+# End-to-end: build+ship+restart every deployable service in one pass -- the AI
+# re-auth stack, the shared application services (including the three MCP
+# servers), mobile-api, and the PostgreSQL backup sidecar. The image includes
+# the reviewed SPA archive, then the smoke check verifies / and /health/ready.
+#
+# --all expands to the script's own ALL_SERVICES so the set stays in one place.
+# Spelling the list out here once let it drift: it silently omitted mcp,
+# mcp-write and mcp-public, which then kept running stale images through every
+# "deploy everything" pass. Use `--all --resolve-services` to print the set.
 pi-deploy-all:
-	bash tools/scripts/build-and-deploy-pi.sh --services "ai-backup-display-chatgpt ai-backup-display-claude ai-backup-webauthn-bridge-chatgpt ai-backup-webauthn-bridge-claude cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude ratatoskr worker scheduler mobile-api pg-backup"
+	bash tools/scripts/build-and-deploy-pi.sh --all
 	$(MAKE) pi-smoke
 
 # Smoke-test mobile-api on the Pi via its mapped host port. /health/ready exercises
