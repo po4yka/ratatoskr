@@ -24,7 +24,7 @@ from qdrant_client.models import (
 )
 
 from app.core.logging_utils import get_logger
-from app.infrastructure.vector.point_ids import str_to_uuid as _str_to_uuid
+from app.infrastructure.vector.point_ids import normalize_point_id as _point_id
 from app.infrastructure.vector.protocol import VectorStoreError
 from app.infrastructure.vector.qdrant_indexed_entities import QdrantIndexedEntityMixin
 from app.infrastructure.vector.qdrant_schemas import QdrantQueryFilters
@@ -349,7 +349,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
             clean["user_scope"] = self._user_scope
             points.append(
                 PointStruct(
-                    id=_str_to_uuid(raw_id),
+                    id=_point_id(raw_id),
                     vector=list(vec),
                     payload=clean,
                 )
@@ -524,7 +524,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
             raise ValueError(msg)
 
         final_ids = list(ids) if ids else [self._extract_id(m) for m in metadatas]
-        new_uuid_strs = {_str_to_uuid(raw_id) for raw_id in final_ids}
+        new_uuid_strs = {_point_id(raw_id) for raw_id in final_ids}
         points = self._build_points(vectors, metadatas, final_ids)
 
         client = self._client
@@ -601,7 +601,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
             )
             return False
 
-        point_uuid = _str_to_uuid(raw_id)
+        point_uuid = _point_id(raw_id)
         point = PointStruct(id=point_uuid, vector=list(vector), payload=dict(payload))
 
         client = self._client
@@ -698,7 +698,7 @@ class QdrantVectorStore(QdrantIndexedEntityMixin):
             return False
 
         points = [
-            PointStruct(id=_str_to_uuid(raw_id), vector=list(vector), payload=dict(payload))
+            PointStruct(id=_point_id(raw_id), vector=list(vector), payload=dict(payload))
             for raw_id, vector, payload in zip(raw_ids, vectors, payloads, strict=True)
         ]
 

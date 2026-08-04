@@ -402,7 +402,7 @@ async def delete_mirror(
         from qdrant_client.models import PointIdsList
 
         from app.di.shared import build_qdrant_vector_store
-        from app.infrastructure.vector.point_ids import git_mirror_point_id, str_to_uuid
+        from app.infrastructure.vector.point_ids import git_mirror_point_id
 
         cfg = _get_app_config(request)
         qdrant_store = await asyncio.to_thread(build_qdrant_vector_store, cfg)
@@ -415,7 +415,7 @@ async def delete_mirror(
             await asyncio.to_thread(
                 qdrant_store._client.delete,
                 qdrant_store._collection_name,
-                PointIdsList(points=[str_to_uuid(point_id)]),
+                PointIdsList(points=[point_id]),
                 True,
             )
     except Exception:

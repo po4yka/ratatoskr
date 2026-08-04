@@ -41,7 +41,19 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-_ITEMS_PAGE_SIZE = 100
+# The wide first pass multiplies out: every list is asked for its first page of
+# items in one query, so the node count is lists x items. At 100 x 100 GitHub
+# answers 502 rather than a GraphQL error, and the retry loop just burns three
+# attempts on it -- measured against a real account with the 32-list maximum,
+# 25 items still 502s and 10 succeeds. Keep this small; the leftovers are paged
+# per list below, which costs extra round trips but always completes.
+_ITEMS_PAGE_SIZE = 10
+# The follow-up pass re-selects a single list (`lists(first: 1, ...)`), so the
+# product is just this number and a full page is cheap -- draining at the wide
+# pass's size would multiply the round trips for nothing.
+_DRAIN_ITEMS_PAGE_SIZE = 100
+# No list-level pagination exists here, so one page must cover every list.
+# GitHub caps a user at 32, leaving plenty of headroom.
 _LISTS_PAGE_SIZE = 100
 
 # First pass: every list plus its first page of items. ``edges.cursor`` is what
@@ -362,7 +374,7 @@ class GitHubGraphQLClient:
                 {
                     "listCursor": list_cursor,
                     "itemCursor": item_cursor,
-                    "itemPageSize": _ITEMS_PAGE_SIZE,
+                    "itemPageSize": _DRAIN_ITEMS_PAGE_SIZE,
                 },
             )
             nodes = self._dig(data, "viewer", "lists", "nodes") or []

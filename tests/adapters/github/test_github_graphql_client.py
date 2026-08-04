@@ -122,6 +122,69 @@ async def test_fetch_star_lists_pages_overflowing_list_items():
 
 
 @pytest.mark.asyncio
+async def test_wide_pass_asks_for_few_items_and_the_drain_asks_for_many():
+    """The two passes must not share one page size.
+
+    The first query multiplies out -- every list is asked for its first page of
+    items at once -- and GitHub answers 502 rather than a GraphQL error when that
+    product gets large. Measured against a real account at the 32-list maximum,
+    25 items per list already fails and 10 succeeds. The follow-up query
+    re-selects a single list, so a full page there costs nothing and keeps the
+    round trips down. Raising the wide size back up breaks star-list sync
+    silently: the caller swallows the error and leaves list_names empty.
+    """
+    calls: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        body = json.loads(request.content)
+        calls.append(body["variables"])
+        if "listCursor" not in body["variables"]:
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "viewer": {
+                            "lists": {"edges": [_edge("c1", "Big", [1], has_next=True, end="i1")]}
+                        }
+                    }
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "viewer": {
+                        "lists": {
+                            "nodes": [
+                                {
+                                    "name": "Big",
+                                    "items": {
+                                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                                        "nodes": [{"databaseId": 2}],
+                                    },
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+        )
+
+    async with _client_with(handler) as client:
+        await client.fetch_star_lists()
+
+    wide, drain = calls[0], calls[1]
+    assert wide["itemPageSize"] <= 10, "wide pass must stay small or GitHub 502s"
+    assert drain["itemPageSize"] > wide["itemPageSize"], (
+        "the single-list drain should use a bigger page than the wide pass"
+    )
+    # One page of lists has to cover every list -- there is no list-level paging.
+    assert wide["listPageSize"] >= 32, "GitHub allows a user up to 32 star lists"
+
+
+@pytest.mark.asyncio
 async def test_non_repository_items_are_skipped():
     """A list can hold an entry that is not a readable Repository node."""
 
