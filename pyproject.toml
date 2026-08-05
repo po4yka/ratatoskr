@@ -214,7 +214,7 @@ dependencies = [
 attachment = [
   "Pillow>=12.3.0",
   "pymupdf>=1.28.0",
-  "markitdown[docx,pptx,xlsx,outlook]>=0.1.5",
+  "markitdown[docx,pptx,xlsx,outlook]>=0.1.7",
 ]
 
 # Browser-based scraper fallback providers (Playwright + Crawlee)
