@@ -204,7 +204,7 @@ async def test_device_start_returns_user_code(
         _clear_redis(client)
 
     assert resp.status_code == 200, resp.text
-    body = resp.json()
+    body = resp.json()["data"]
     assert body["user_code"] == _USER_CODE
     assert body["verification_uri"] == _VERIFICATION_URI
     assert body["device_code"] == _DEVICE_CODE
@@ -371,7 +371,7 @@ async def test_device_poll_ok_stores_token(
         _clear_redis(client)
 
     assert resp.status_code == 200, resp.text
-    body = resp.json()
+    body = resp.json()["data"]
     assert body["status"] == "ok"
     assert body["login"] == "device-flow-user"
     assert body["github_user_id"] == 42

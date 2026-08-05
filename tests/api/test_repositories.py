@@ -111,7 +111,7 @@ async def test_list_returns_user_repos_only(client: Any, db: Database) -> None:
 
     resp = client.get("/v1/repositories", headers=_auth(_USER_A_ID))
     assert resp.status_code == 200
-    data = resp.json()
+    data = resp.json()["data"]
     assert data["pagination"]["total"] == 3
     assert len(data["repositories"]) == 3
 
@@ -129,7 +129,7 @@ async def test_list_filter_by_language(client: Any, db: Database) -> None:
 
     resp = client.get("/v1/repositories?language=Python", headers=_auth(_USER_A_ID))
     assert resp.status_code == 200
-    repos = resp.json()["repositories"]
+    repos = resp.json()["data"]["repositories"]
     assert len(repos) == 2
     assert all(r["primary_language"] == "Python" for r in repos)
 
@@ -147,7 +147,7 @@ async def test_list_filter_by_topic(client: Any, db: Database) -> None:
 
     resp = client.get("/v1/repositories?topic=webdev", headers=_auth(_USER_A_ID))
     assert resp.status_code == 200
-    repos = resp.json()["repositories"]
+    repos = resp.json()["data"]["repositories"]
     assert len(repos) == 2
 
 
@@ -163,14 +163,14 @@ async def test_list_pagination(client: Any, db: Database) -> None:
 
     resp = client.get("/v1/repositories?limit=10&offset=0", headers=_auth(_USER_A_ID))
     assert resp.status_code == 200
-    body = resp.json()
+    body = resp.json()["data"]
     assert body["pagination"]["total"] == 25
     assert len(body["repositories"]) == 10
     assert body["pagination"]["hasMore"] is True
 
     resp2 = client.get("/v1/repositories?limit=10&offset=20", headers=_auth(_USER_A_ID))
     assert resp2.status_code == 200
-    body2 = resp2.json()
+    body2 = resp2.json()["data"]
     assert len(body2["repositories"]) == 5
     assert body2["pagination"]["hasMore"] is False
 
@@ -188,7 +188,7 @@ async def test_list_sort_stars_desc(client: Any, db: Database) -> None:
 
     resp = client.get("/v1/repositories?sort=stars_desc", headers=_auth(_USER_A_ID))
     assert resp.status_code == 200
-    stars = [r["stars"] for r in resp.json()["repositories"]]
+    stars = [r["stars"] for r in resp.json()["data"]["repositories"]]
     assert stars == sorted(stars, reverse=True)
 
 
@@ -216,7 +216,7 @@ async def test_get_detail_returns_full_payload(client: Any, db: Database) -> Non
 
     resp = client.get(f"/v1/repositories/{repo.id}", headers=_auth(_USER_A_ID))
     assert resp.status_code == 200
-    data = resp.json()
+    data = resp.json()["data"]
     assert data["id"] == repo.id
     assert data["has_analysis"] is True
     assert data["analysis"]["confidence"] == 0.9
@@ -291,7 +291,7 @@ async def test_post_ingest_happy_path(client: Any, db: Database) -> None:
         app.dependency_overrides.pop(_get_add_use_case, None)
 
     assert resp.status_code == 202
-    data = resp.json()
+    data = resp.json()["data"]
     assert data["repository_id"] == 42
     assert data["full_name"] == "octocat/hello-world"
     assert data["status"] == "ready"
@@ -334,7 +334,7 @@ async def test_post_reanalyze_calls_use_case_with_force_true(client: Any, db: Da
 
     # 200 with full repository detail
     assert resp.status_code == 200
-    assert resp.json()["id"] == repo.id
+    assert resp.json()["data"]["id"] == repo.id
 
 
 async def test_post_reanalyze_404_for_other_users_repo(client: Any, db: Database) -> None:
@@ -436,7 +436,7 @@ async def test_watch_repository_creates_updates_lists_and_unwatches(
         headers=_auth(_USER_A_ID),
     )
     assert create_resp.status_code == 200
-    created = create_resp.json()
+    created = create_resp.json()["data"]
     assert created["repository"]["id"] == repo.id
     assert created["watch_readme"] is True
     assert created["watch_releases"] is False
@@ -447,13 +447,13 @@ async def test_watch_repository_creates_updates_lists_and_unwatches(
         headers=_auth(_USER_A_ID),
     )
     assert update_resp.status_code == 200
-    updated = update_resp.json()
+    updated = update_resp.json()["data"]
     assert updated["watch_readme"] is False
     assert updated["watch_releases"] is True
 
     list_resp = client.get("/v1/repositories/watched", headers=_auth(_USER_A_ID))
     assert list_resp.status_code == 200
-    watched = list_resp.json()
+    watched = list_resp.json()["data"]
     assert watched["pagination"]["total"] == 1
     assert watched["watches"][0]["repository"]["id"] == repo.id
 

@@ -97,7 +97,7 @@ async def test_post_pat_with_valid_token_stores_encrypted(
         )
 
     assert resp.status_code == 200, resp.text
-    body = resp.json()
+    body = resp.json()["data"]
     assert body["login"] == "gh-test-user"
     assert body["github_user_id"] == 99001
     assert body["auth_method"] == "pat"
@@ -163,7 +163,7 @@ async def test_post_pat_requires_jwt(client: Any, db: Database) -> None:
 async def test_get_status_no_integration(client: Any, db: Database, gh_user: Any) -> None:
     resp = client.get("/v1/auth/github/status", headers=_auth_headers())
     assert resp.status_code == 200
-    body = resp.json()
+    body = resp.json()["data"]
     assert body["is_connected"] is False
     assert body["repo_count"] == 0
     assert body["github_login"] is None
@@ -206,7 +206,7 @@ async def test_get_status_with_integration(
 
     resp = client.get("/v1/auth/github/status", headers=_auth_headers())
     assert resp.status_code == 200
-    body = resp.json()
+    body = resp.json()["data"]
     assert body["is_connected"] is True
     assert body["github_login"] == "gh-test-user"
     assert body["repo_count"] == 3
@@ -389,7 +389,7 @@ async def test_pat_scope_warnings_in_response(client: Any, db: Database, gh_user
         )
 
     assert resp.status_code == 200
-    body = resp.json()
+    body = resp.json()["data"]
     assert "scope_warnings" in body
     assert isinstance(body["scope_warnings"], list)
     assert len(body["scope_warnings"]) == 1

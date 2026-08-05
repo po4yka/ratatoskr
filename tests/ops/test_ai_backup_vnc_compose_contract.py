@@ -262,10 +262,7 @@ def test_pi_deploy_orders_display_then_browser_then_mobile_api_and_keeps_them_is
     assert "--ozone-platform=x11" in script
     assert "ops/docker/ai-backup-webauthn-bridge/Dockerfile" in script
     assert "is_isolated_reauth_service" in script
-    assert (
-        '--services "ai-backup-display-chatgpt ai-backup-display-claude ai-backup-webauthn-bridge-chatgpt ai-backup-webauthn-bridge-claude cloakbrowser-reauth-chatgpt cloakbrowser-reauth-claude ratatoskr worker scheduler mobile-api pg-backup"'
-        in makefile
-    )
+    assert "bash tools/scripts/build-and-deploy-pi.sh --all" in makefile
 
 
 def test_pi_deploy_rejects_pinned_browser_rollback_before_remote_mutation() -> None:

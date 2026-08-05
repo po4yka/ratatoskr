@@ -13,6 +13,7 @@ from app.api.models.requests import (
     RepositoryListSort,
     RepositoryWatchRequest,
 )
+from app.api.models.responses.common import TypedSuccessResponse, success_response
 from app.api.models.responses.repositories import (
     IngestRepositoryResponse,
     RepositoryDetail,
@@ -20,7 +21,6 @@ from app.api.models.responses.repositories import (
     RepositoryWatch,
     RepositoryWatchListResponse,
 )
-from app.api.models.responses.common import TypedSuccessResponse, success_response
 from app.api.routers.auth import get_current_user
 from app.application.services.repository_service import (
     RepositoryService,
