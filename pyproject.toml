@@ -312,7 +312,7 @@ monitoring = [
 
 # MCP (Model Context Protocol) server for AI agent integrations
 mcp = [
-  "mcp>=1.28.1,<2",
+  "mcp>=2.0.0,<3",
 ]
 
 # OpenTelemetry distributed tracing (Tempo backend)
