@@ -5827,19 +5827,6 @@ paths:
           default: 10
           title: Limit
         description: Maximum matches to return
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       responses:
         '200':
           description: Successful Response
@@ -6175,28 +6162,12 @@ paths:
       summary: Register Device
       description: Register or update a device token for push notifications.
       operationId: register_device_v1_notifications_device_post
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       requestBody:
-        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/DeviceRegistrationPayload'
+        required: true
       responses:
         '200':
           description: Successful Response
@@ -6210,6 +6181,8 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '500':
           $ref: '#/components/responses/InternalServerError'
+      security:
+      - HTTPBearer: []
   /v1/digest/channels:
     get:
       tags:
@@ -7368,22 +7341,6 @@ paths:
       summary: List Subscriptions
       description: List user's webhook subscriptions.
       operationId: list_subscriptions_v1_webhooks__get
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       responses:
         '200':
           description: Successful Response
@@ -7391,40 +7348,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TypedSuccessResponse_WebhookSubscriptionListResponse_'
-        '422':
-          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
           $ref: '#/components/responses/InternalServerError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+      security:
+      - HTTPBearer: []
     post:
       tags:
       - Webhooks
       summary: Create Subscription
       description: Create a new webhook subscription.
       operationId: create_subscription_v1_webhooks__post
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       requestBody:
-        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateWebhookRequest'
+        required: true
       responses:
         '201':
           description: Successful Response
@@ -7438,6 +7381,8 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '500':
           $ref: '#/components/responses/InternalServerError'
+      security:
+      - HTTPBearer: []
   /v1/webhooks/{webhook_id}:
     get:
       tags:
@@ -7454,19 +7399,6 @@ paths:
         schema:
           type: integer
           title: Webhook Id
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       responses:
         '200':
           description: Successful Response
@@ -7495,19 +7427,6 @@ paths:
         schema:
           type: integer
           title: Webhook Id
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       requestBody:
         required: true
         content:
@@ -7542,19 +7461,6 @@ paths:
         schema:
           type: integer
           title: Webhook Id
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       responses:
         '200':
           description: Successful Response
@@ -7584,19 +7490,6 @@ paths:
         schema:
           type: integer
           title: Webhook Id
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       responses:
         '200':
           description: Successful Response
@@ -7643,19 +7536,6 @@ paths:
           minimum: 0
           default: 0
           title: Offset
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       responses:
         '200':
           description: Successful Response
@@ -7685,19 +7565,6 @@ paths:
         schema:
           type: integer
           title: Webhook Id
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       responses:
         '200':
           description: Successful Response
@@ -7712,63 +7579,12 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
   /v1/backups/:
-    post:
-      tags:
-      - Backups
-      summary: Create Backup
-      description: Create a new backup archive. Processing happens in the background.
-      operationId: create_backup_v1_backups__post
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
-      responses:
-        '201':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TypedSuccessResponse_BackupResponse_'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
     get:
       tags:
       - Backups
       summary: List Backups
       description: List user's backups.
       operationId: list_backups_v1_backups__get
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       responses:
         '200':
           description: Successful Response
@@ -7776,12 +7592,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TypedSuccessResponse_BackupListResponse_'
-        '422':
-          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
           $ref: '#/components/responses/InternalServerError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - Backups
+      summary: Create Backup
+      description: Create a new backup archive. Processing happens in the background.
+      operationId: create_backup_v1_backups__post
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TypedSuccessResponse_BackupResponse_'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+      security:
+      - HTTPBearer: []
   /v1/backups/restore:
     post:
       tags:
@@ -7839,71 +7678,41 @@ paths:
       security:
       - HTTPBearer: []
   /v1/backups/schedule:
-    patch:
-      tags:
-      - Backups
-      summary: Update Backup Schedule
-      description: Update the user's backup schedule preferences.
-      operationId: update_backup_schedule_v1_backups_schedule_patch
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-              title: Body
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TypedSuccessResponse_BackupScheduleResponse_'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
     get:
       tags:
       - Backups
       summary: Get Backup Schedule
       description: Read the user's backup schedule preferences.
       operationId: get_backup_schedule_v1_backups_schedule_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TypedSuccessResponse_BackupScheduleResponse_'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
       security:
       - HTTPBearer: []
-      parameters:
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
+    patch:
+      tags:
+      - Backups
+      summary: Update Backup Schedule
+      description: Update the user's backup schedule preferences.
+      operationId: update_backup_schedule_v1_backups_schedule_patch
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: true
+              type: object
+              title: Body
+        required: true
       responses:
         '200':
           description: Successful Response
@@ -7917,6 +7726,8 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '500':
           $ref: '#/components/responses/InternalServerError'
+      security:
+      - HTTPBearer: []
   /v1/backups/{backup_id}:
     get:
       tags:
@@ -7933,19 +7744,6 @@ paths:
         schema:
           type: integer
           title: Backup Id
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       responses:
         '200':
           description: Successful Response
@@ -7974,19 +7772,6 @@ paths:
         schema:
           type: integer
           title: Backup Id
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       responses:
         '200':
           description: Successful Response
@@ -8016,19 +7801,6 @@ paths:
         schema:
           type: integer
           title: Backup Id
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       responses:
         '200':
           description: Successful Response
@@ -8054,19 +7826,6 @@ paths:
         schema:
           type: integer
           title: Backup Id
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       responses:
         '200':
           description: Successful Response
@@ -8087,22 +7846,6 @@ paths:
       summary: List Rules
       description: List all automation rules for the current user.
       operationId: list_rules_v1_rules__get
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       responses:
         '200':
           description: Successful Response
@@ -8110,40 +7853,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TypedSuccessResponse_RuleListResponse_'
-        '422':
-          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '500':
           $ref: '#/components/responses/InternalServerError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+      security:
+      - HTTPBearer: []
     post:
       tags:
       - Rules
       summary: Create Rule
       description: Create a new automation rule.
       operationId: create_rule_v1_rules__post
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       requestBody:
-        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateRuleRequest'
+        required: true
       responses:
         '201':
           description: Successful Response
@@ -8157,6 +7886,8 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '500':
           $ref: '#/components/responses/InternalServerError'
+      security:
+      - HTTPBearer: []
   /v1/rules/{rule_id}:
     get:
       tags:
@@ -8173,19 +7904,6 @@ paths:
         schema:
           type: integer
           title: Rule Id
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       responses:
         '200':
           description: Successful Response
@@ -8214,19 +7932,6 @@ paths:
         schema:
           type: integer
           title: Rule Id
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       requestBody:
         required: true
         content:
@@ -8261,19 +7966,6 @@ paths:
         schema:
           type: integer
           title: Rule Id
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       responses:
         '200':
           description: Successful Response
@@ -8303,19 +7995,6 @@ paths:
         schema:
           type: integer
           title: Rule Id
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       requestBody:
         required: true
         content:
@@ -8368,19 +8047,6 @@ paths:
           minimum: 0
           default: 0
           title: Offset
-      - name: session_manager
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Session Manager
-      - name: request
-        in: query
-        required: false
-        schema:
-          title: Request
       responses:
         '200':
           description: Successful Response
