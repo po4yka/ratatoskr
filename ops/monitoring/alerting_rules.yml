@@ -563,6 +563,23 @@ groups:
           description: "The scheduled digest runner saw active subscribers in the last 24 hours, but no successful or empty digest delivery outcomes were recorded. Check the scheduler, Taskiq worker, Redis lock, userbot session, and delivery logs."
           runbook_url: "https://github.com/po4yka/ratatoskr/blob/main/docs/reference/digest-subsystem-ops.md"
 
+      - alert: RatatoskrScheduledDigestRunFailing
+        # `or vector(0)` is load-bearing: a digest that has only ever failed has no
+        # status="ok" series at all, so the bare sum() is an empty vector, and an
+        # `and` against an empty vector yields nothing -- the alert would stay
+        # silent in exactly the case it exists for.
+        expr: |
+          sum(increase(ratatoskr_digest_scheduled_runs_total{status="failed"}[6h])) > 0
+          and
+          (sum(increase(ratatoskr_digest_scheduled_runs_total{status="ok"}[6h])) or vector(0)) == 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Every scheduled channel digest run is failing outright"
+          description: "Scheduled digest runs are raising before completing, and none has succeeded in the last 6 hours. Unlike RatatoskrScheduledDigestNoDeliveries this does not depend on the run reaching per-user work, so it also covers a run that dies at startup -- an unusable or unauthorized userbot session being the usual cause. Check scheduled_digest_failed in the worker log, then the session file and /init_session."
+          runbook_url: "https://github.com/po4yka/ratatoskr/blob/main/docs/reference/digest-subsystem-ops.md"
+
       - alert: RatatoskrDigestUserbotReconnectsHigh
         expr: increase(ratatoskr_digest_userbot_reconnects_total[1h]) > 3
         for: 5m

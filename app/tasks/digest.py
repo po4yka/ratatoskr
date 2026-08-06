@@ -14,6 +14,7 @@ from app.infrastructure.locks.redis_lock import RedisDistributedLock
 from app.infrastructure.redis import get_redis
 from app.observability.metrics_digest import (
     record_digest_delivery,
+    record_digest_scheduled_run,
     set_digest_active_subscription_users,
 )
 from app.tasks.broker import broker
@@ -110,7 +111,10 @@ async def _channel_digest_body(cfg: AppConfig) -> None:
                         )
                         record_digest_delivery("failed")
 
+            record_digest_scheduled_run("ok")
+
         except Exception as exc:
+            record_digest_scheduled_run("failed")
             logger.exception(
                 "scheduled_digest_failed",
                 extra={"cid": correlation_id, "error": str(exc)},

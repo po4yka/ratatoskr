@@ -213,3 +213,135 @@ async def test_digest_body_uses_distributed_lock_and_skips_when_held(monkeypatch
     assert digest_mod._LOCK_TTL_SECONDS == 600
     # Lock held elsewhere -> the run short-circuits before any work.
     create_userbot.assert_not_called()
+
+
+def _capture_run_outcomes(monkeypatch, digest_mod) -> list[str]:
+    recorded: list[str] = []
+    monkeypatch.setattr(digest_mod, "record_digest_scheduled_run", recorded.append)
+    return recorded
+
+
+@pytest.mark.asyncio
+async def test_failed_run_is_recorded_when_userbot_cannot_start(monkeypatch):
+    """The outage case: start() raises, so no other digest series ever moves.
+
+    An unusable userbot session aborts the run before the delivery counter or
+    the active-subscription gauge is written, which is how a three-month digest
+    failure stayed invisible. This counter has to move on that path.
+    """
+    _stub_taskiq(monkeypatch)
+    for mod in list(sys.modules):
+        if mod.startswith("app.tasks"):
+            sys.modules.pop(mod, None)
+
+    from app.tasks import digest as digest_mod
+
+    class DeadUserbot:
+        start = AsyncMock(side_effect=RuntimeError("no such table: entities"))
+        stop = AsyncMock()
+
+    monkeypatch.setattr(digest_mod, "create_digest_userbot", lambda _cfg: DeadUserbot())
+    recorded = _capture_run_outcomes(monkeypatch, digest_mod)
+
+    await digest_mod._channel_digest_body(_build_cfg())
+
+    assert recorded == ["failed"]
+
+
+@pytest.mark.asyncio
+async def test_successful_run_is_recorded_as_ok(monkeypatch):
+    _stub_taskiq(monkeypatch)
+    for mod in list(sys.modules):
+        if mod.startswith("app.tasks"):
+            sys.modules.pop(mod, None)
+
+    from app.tasks import digest as digest_mod
+
+    class FakeUserbot:
+        start = AsyncMock()
+        stop = AsyncMock()
+
+    class FakeLLMClient:
+        aclose = AsyncMock()
+
+    class FakeBotCtx:
+        send_message = AsyncMock()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+    class FakeDigestService:
+        async def async_get_users_with_subscriptions(self):
+            return [1001]
+
+        async def async_get_user_locale(self, _uid):
+            return "en"
+
+        async def generate_digest(self, **_kwargs):
+            return SimpleNamespace(post_count=2, errors=[])
+
+    monkeypatch.setattr(digest_mod, "create_digest_userbot", lambda _cfg: FakeUserbot())
+    monkeypatch.setattr(digest_mod, "create_digest_llm_client", lambda _cfg: FakeLLMClient())
+    monkeypatch.setattr(digest_mod, "create_digest_bot_client", lambda _cfg: FakeBotCtx())
+    monkeypatch.setattr(
+        digest_mod, "create_digest_service", lambda _cfg, **_kw: FakeDigestService()
+    )
+    recorded = _capture_run_outcomes(monkeypatch, digest_mod)
+
+    await digest_mod._channel_digest_body(_build_cfg())
+
+    assert recorded == ["ok"]
+
+
+@pytest.mark.asyncio
+async def test_per_user_failure_still_records_the_run_as_ok(monkeypatch):
+    """A single user's digest failing is already covered by the delivery counter.
+
+    The run itself completed, so it must not look like a total outage -- that
+    distinction is what keeps the failing-run alert quiet during partial trouble.
+    """
+    _stub_taskiq(monkeypatch)
+    for mod in list(sys.modules):
+        if mod.startswith("app.tasks"):
+            sys.modules.pop(mod, None)
+
+    from app.tasks import digest as digest_mod
+
+    class FakeUserbot:
+        start = AsyncMock()
+        stop = AsyncMock()
+
+    class FakeLLMClient:
+        aclose = AsyncMock()
+
+    class FakeBotCtx:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+    class BrokenDigestService:
+        async def async_get_users_with_subscriptions(self):
+            return [42]
+
+        async def async_get_user_locale(self, _uid):
+            return "en"
+
+        async def generate_digest(self, **_kwargs):
+            raise RuntimeError("LLM quota exceeded")
+
+    monkeypatch.setattr(digest_mod, "create_digest_userbot", lambda _cfg: FakeUserbot())
+    monkeypatch.setattr(digest_mod, "create_digest_llm_client", lambda _cfg: FakeLLMClient())
+    monkeypatch.setattr(digest_mod, "create_digest_bot_client", lambda _cfg: FakeBotCtx())
+    monkeypatch.setattr(
+        digest_mod, "create_digest_service", lambda _cfg, **_kw: BrokenDigestService()
+    )
+    recorded = _capture_run_outcomes(monkeypatch, digest_mod)
+
+    await digest_mod._channel_digest_body(_build_cfg())
+
+    assert recorded == ["ok"]
