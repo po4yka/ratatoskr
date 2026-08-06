@@ -144,7 +144,7 @@ else:
     )
 
 
-_POSTGRES_FIXTURE_NAMES = frozenset({"database", "db", "session"})
+_POSTGRES_FIXTURE_NAMES = frozenset({"database", "db", "mcp_test_db", "session"})
 _QUARANTINE_REQUIRED_FIELDS = frozenset({"issue", "owner", "expires"})
 _QUARANTINE_RERUNS = 2
 _QUARANTINE_RERUN_DELAY_SECONDS = 1
@@ -221,8 +221,9 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
     The marker is attached before pytest evaluates ``-m`` expressions. This
     keeps mixed test modules split correctly: pure unit tests stay in the fast
-    job, while tests using the shared ``database``/``session`` fixtures or the
-    API ``db`` fixture move to the single Postgres job.
+    job, while tests using the shared ``database``/``session`` fixtures, the
+    API ``db`` fixture, or the MCP ``mcp_test_db`` fixture move to the single
+    Postgres job.
 
     Tests that open Postgres directly without a shared fixture must declare
     ``@pytest.mark.postgres`` explicitly.

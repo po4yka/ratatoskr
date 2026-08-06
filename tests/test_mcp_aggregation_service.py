@@ -15,12 +15,12 @@ from app.application.services.multi_source_aggregation_service import (
     MultiSourceAggregationRunResult,
 )
 from app.config import load_config
-from app.db.models import User
 from app.di.repositories import build_aggregation_session_repository
 from app.domain.models.source import SourceKind
 from app.mcp.aggregation_service import AggregationMcpService
 from app.mcp.context import McpServerContext
 from app.mcp.http_auth import McpRequestIdentity
+from tests.mcp_test_support import create_mcp_user
 
 pytest_plugins = ("tests.mcp_test_support",)
 
@@ -32,7 +32,7 @@ def _fake_api_runtime(db) -> SimpleNamespace:
         background_processor=SimpleNamespace(
             url_processor=SimpleNamespace(content_extractor=MagicMock())
         ),
-        core=SimpleNamespace(llm_client=MagicMock()),
+        core=SimpleNamespace(llm_client=MagicMock(), db=db),
     )
 
 
@@ -40,8 +40,8 @@ def _fake_api_runtime(db) -> SimpleNamespace:
 async def test_list_aggregation_bundles_is_scoped_to_user(mcp_test_db) -> None:
     user_id = 1001
     other_user_id = 1002
-    User.create(telegram_user_id=user_id, username="mcp-user", is_owner=False)  # type: ignore[attr-defined]
-    User.create(telegram_user_id=other_user_id, username="other-user", is_owner=False)  # type: ignore[attr-defined]
+    await create_mcp_user(mcp_test_db, telegram_user_id=user_id, username="mcp-user")
+    await create_mcp_user(mcp_test_db, telegram_user_id=other_user_id, username="other-user")
 
     repo = build_aggregation_session_repository(mcp_test_db)
     visible_session_id = await repo.async_create_aggregation_session(
@@ -71,8 +71,8 @@ async def test_list_aggregation_bundles_is_scoped_to_user(mcp_test_db) -> None:
 async def test_get_aggregation_bundle_rejects_foreign_session(mcp_test_db) -> None:
     user_id = 2001
     other_user_id = 2002
-    User.create(telegram_user_id=user_id, username="mcp-user", is_owner=False)  # type: ignore[attr-defined]
-    User.create(telegram_user_id=other_user_id, username="other-user", is_owner=False)  # type: ignore[attr-defined]
+    await create_mcp_user(mcp_test_db, telegram_user_id=user_id, username="mcp-user")
+    await create_mcp_user(mcp_test_db, telegram_user_id=other_user_id, username="other-user")
 
     repo = build_aggregation_session_repository(mcp_test_db)
     foreign_session_id = await repo.async_create_aggregation_session(
@@ -94,7 +94,7 @@ async def test_get_aggregation_bundle_rejects_foreign_session(mcp_test_db) -> No
 @pytest.mark.asyncio
 async def test_create_aggregation_bundle_returns_workflow_payload(mcp_test_db) -> None:
     user_id = 3001
-    User.create(telegram_user_id=user_id, username="mcp-user", is_owner=False)  # type: ignore[attr-defined]
+    await create_mcp_user(mcp_test_db, telegram_user_id=user_id, username="mcp-user")
 
     fake_result = MultiSourceAggregationRunResult(
         extraction=MultiSourceExtractionOutput(
@@ -162,7 +162,7 @@ async def test_create_aggregation_bundle_uses_request_scoped_identity_and_client
     mcp_test_db,
 ) -> None:
     user_id = 3101
-    User.create(telegram_user_id=user_id, username="mcp-user", is_owner=False)  # type: ignore[attr-defined]
+    await create_mcp_user(mcp_test_db, telegram_user_id=user_id, username="mcp-user")
 
     fake_result = MultiSourceAggregationRunResult(
         extraction=MultiSourceExtractionOutput(

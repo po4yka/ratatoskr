@@ -16,12 +16,13 @@ from starlette.testclient import TestClient
 
 from app.api.routers.auth.tokens import create_access_token
 from app.config import load_config
-from app.db.models import User
+from app.config.settings import clear_config_cache
 from app.di.repositories import build_aggregation_session_repository
 from app.mcp.aggregation_service import AggregationMcpService
 from app.mcp.context import McpServerContext
 from app.mcp.http_auth import McpHttpAuthMiddleware
 from app.mcp.resource_registrations import register_resources
+from tests.mcp_test_support import create_mcp_user
 
 pytest_plugins = ("tests.mcp_test_support",)
 
@@ -50,7 +51,7 @@ def _fake_api_runtime(db) -> SimpleNamespace:
         background_processor=SimpleNamespace(
             url_processor=SimpleNamespace(content_extractor=MagicMock())
         ),
-        core=SimpleNamespace(llm_client=MagicMock()),
+        core=SimpleNamespace(llm_client=MagicMock(), db=db),
     )
 
 
@@ -105,17 +106,25 @@ async def test_aggregation_detail_resource_returns_session_payload() -> None:
 
 def test_hosted_mcp_resource_uses_request_scoped_identity(mcp_test_db, monkeypatch) -> None:
     user_id = 4101
-    User.create(telegram_user_id=user_id, username="resource-user", is_owner=False)  # type: ignore[attr-defined]
+    # The allowlists must be in place before the first `load_config()` call in
+    # this test, because `load_config` memoizes per process and the middleware
+    # reads the cached value through `Config.is_user_allowed`.
+    monkeypatch.setenv("ALLOWED_USER_IDS", str(user_id))
+    monkeypatch.setenv("ALLOWED_CLIENT_IDS", "mcp-public-v1")
+    clear_config_cache()
 
     repo = build_aggregation_session_repository(mcp_test_db)
-    session_id = asyncio.run(
-        repo.async_create_aggregation_session(
+
+    async def _seed() -> int:
+        await create_mcp_user(mcp_test_db, telegram_user_id=user_id, username="resource-user")
+        return await repo.async_create_aggregation_session(
             user_id=user_id,
             correlation_id="cid-resource-scope",
             total_items=1,
             bundle_metadata={"entrypoint": "mcp"},
         )
-    )
+
+    session_id = asyncio.run(_seed())
 
     context = McpServerContext(user_id=None)
     context.ensure_api_runtime = AsyncMock(return_value=_fake_api_runtime(mcp_test_db))  # type: ignore[method-assign]
@@ -155,8 +164,6 @@ def test_hosted_mcp_resource_uses_request_scoped_identity(mcp_test_db, monkeypat
     lowlevel_any: Any = lowlevel_module
     lowlevel_any.request_ctx = request_ctx
     monkeypatch.setitem(sys.modules, "mcp.server.lowlevel.server", lowlevel_module)
-    monkeypatch.setenv("ALLOWED_USER_IDS", str(user_id))
-    monkeypatch.setenv("ALLOWED_CLIENT_IDS", "mcp-public-v1")
 
     async def bundle_resource(request):
         token = request_ctx.set(SimpleNamespace(request=request))

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import json
 import sys
@@ -21,12 +22,13 @@ from app.application.dto.aggregation import (
     SourceExtractionItemResult,
 )
 from app.config import load_config
-from app.db.models import User
+from app.config.settings import clear_config_cache
 from app.domain.models.source import SourceKind
 from app.mcp.aggregation_service import AggregationMcpService
 from app.mcp.context import McpServerContext
 from app.mcp.http_auth import McpHttpAuthMiddleware
 from app.mcp.tool_registrations import register_tools
+from tests.mcp_test_support import create_mcp_user
 
 pytest_plugins = ("tests.mcp_test_support",)
 
@@ -53,7 +55,7 @@ def _fake_api_runtime(db: Any) -> SimpleNamespace:
         background_processor=SimpleNamespace(
             url_processor=SimpleNamespace(content_extractor=MagicMock())
         ),
-        core=SimpleNamespace(llm_client=MagicMock()),
+        core=SimpleNamespace(llm_client=MagicMock(), db=db),
     )
 
 
@@ -220,7 +222,14 @@ def test_hosted_mcp_tool_uses_request_scoped_identity_and_client_id(
     )
 
     user_id = 4201
-    User.create(telegram_user_id=user_id, username="tool-user", is_owner=False)  # type: ignore[attr-defined]
+    # The allowlists must be in place before the first `load_config()` call in
+    # this test, because `load_config` memoizes per process and the middleware
+    # reads the cached value through `Config.is_user_allowed`.
+    monkeypatch.setenv("ALLOWED_USER_IDS", str(user_id))
+    monkeypatch.setenv("ALLOWED_CLIENT_IDS", "mcp-public-v1")
+    clear_config_cache()
+
+    asyncio.run(create_mcp_user(mcp_test_db, telegram_user_id=user_id, username="tool-user"))
 
     fake_result = MultiSourceAggregationRunResult(
         extraction=MultiSourceExtractionOutput(
@@ -306,8 +315,6 @@ def test_hosted_mcp_tool_uses_request_scoped_identity_and_client_id(
     lowlevel_any: Any = lowlevel_module
     lowlevel_any.request_ctx = request_ctx
     monkeypatch.setitem(sys.modules, "mcp.server.lowlevel.server", lowlevel_module)
-    monkeypatch.setenv("ALLOWED_USER_IDS", str(user_id))
-    monkeypatch.setenv("ALLOWED_CLIENT_IDS", "mcp-public-v1")
 
     aggregate_mock = AsyncMock(return_value=fake_result)
 
