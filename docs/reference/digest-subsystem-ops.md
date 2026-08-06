@@ -81,6 +81,17 @@ Structured log events emitted by the digest task:
 
 All events carry `cid` (correlation ID) of the form `digest_YYYYMMDD_HHMMSS`. Per-user events additionally carry `uid`.
 
+Alerts covering the scheduled run (`ops/monitoring/alerting_rules.yml`):
+
+| Alert | Fires when | Notes |
+|---|---|---|
+| `RatatoskrScheduledDigestRunFailing` | Failed runs with no successful run over 6h | Keyed on `ratatoskr_digest_scheduled_runs_total`, which is written on both the success and the failure path — so it still fires for a run that aborts before any per-user work |
+| `RatatoskrScheduledDigestNoDeliveries` | Active subscribers over 24h but no `sent`/`empty` delivery | Only reachable once a run gets far enough to set `ratatoskr_digest_active_subscription_users`; a run that dies at startup is covered by the alert above, not this one |
+| `RatatoskrDigestDeliveryFailureRateHigh` | Over 10% of deliveries failed in 1h | Partial trouble, not a total outage |
+| `RatatoskrDigestUserbotReconnectsHigh` | More than 3 userbot session starts in 1h | Session churn |
+
+When adding a digest alert, check whether its expression can produce an empty vector — `sum()` over a label value with no series returns nothing, not 0, and an `and` against an empty vector silently never fires. Guard the zero-comparison side with `or vector(0)`.
+
 Query recent deliveries:
 
 ```sql
@@ -113,6 +124,28 @@ LIMIT 20;
 1. Check `DIGEST_SESSION_NAME` — ensure the session file exists at the expected path inside the container (`/data/<session_name>.session`).
 2. Re-run the OTP/2FA flow via `/init_session` in the Telegram bot to re-authorise the session.
 3. After re-auth, the next scheduled run will succeed automatically.
+
+---
+
+### Session file belongs to another library
+
+**Symptom**: `scheduled_digest_failed` on every run. Before the guard existed the message was a bare `sqlite3.OperationalError: no such table: entities`; it now reads `Session file /data/<session_name>.session is not a usable Telethon session`.
+
+**Cause**: a session written by a different Telegram library sits at the digest userbot path — a Pyrogram file left behind by the Telethon migration is the case seen in production. Telethon identifies its own sessions by the `version` table alone, and Pyrogram writes that table too, so it accepts the file and then walks into a schema upgrade against tables that never existed there.
+
+**Detection**: the file is SQLite; inspect its schema without printing contents (session files are secrets):
+
+```bash
+docker exec ratatoskr-worker python -c "
+import sqlite3
+c = sqlite3.connect('/data/channel_digest_userbot.session')
+print(sorted(r[0] for r in c.execute(\"select name from sqlite_master where type='table'\")))
+"
+```
+
+A Telethon session has `entities` and `sent_files`. A Pyrogram session has `peers` and `usernames` and no `entities`.
+
+**Resolution**: run `/init_session` in the Telegram bot. It authenticates into a separate pending path and, on promotion, moves the unusable file aside to `<session_name>.legacy.bak.session` — no manual deletion needed.
 
 ---
 

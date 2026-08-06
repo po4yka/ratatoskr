@@ -80,6 +80,7 @@ docker exec -i ratatoskr-postgres psql -U ratatoskr_app -d ratatoskr -c \
 ## Triage
 
 - Missing/expired session: complete `/init_session` again and verify `/data/<session_name>.session` in the worker container.
+- Session file rejected as "not a usable Telethon session": the file belongs to another Telegram library (a Pyrogram session left by the Telethon migration is the case seen in production). `/init_session` repairs it — it authenticates into a pending path and moves the old file aside on promotion. See `docs/reference/digest-subsystem-ops.md`.
 - No scheduled run: inspect the `scheduler` service, `DIGEST_ENABLED`, `DIGEST_TIMES`, timezone, and broker connectivity.
 - Task queued but no delivery: inspect the `worker` service and `scheduled_digest_*` structured events.
 - Duplicate delivery: inspect Redis availability and `ratatoskr:digest:scheduled:lock` warnings.
