@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import socket
 from typing import Any
 from unittest.mock import patch
@@ -10,6 +11,34 @@ import httpx
 import pytest
 
 from app.security.ssrf import allow_private_network_urls, is_ip_blocked, is_url_safe
+
+
+def resolve_ip_literal(host: str, port: Any, **_: Any) -> list[Any]:
+    """Return what the system resolver returns for a host that is already an address.
+
+    The transport tests below hand the transport an IP literal, so a live
+    ``getaddrinfo`` adds nothing to what they assert -- and on macOS it is actively
+    destructive. Resolving any non-loopback address *with a port* initialises
+    Network.framework, whose ``pthread_atfork`` child handler then segfaults on every
+    subsequent ``fork()`` in the process (``nw_settings_child_has_forked`` ->
+    ``nw_path_release_globals``). One such call poisoned the whole session: every later
+    test that shelled out -- ``rg``-based architecture guards, the agent-hook and
+    OpenAPI-generator subprocesses -- got signal 11 with empty stdout and stderr.
+    Every other test in this file already patches the resolver; these did not.
+    """
+    address = ipaddress.ip_address(host)
+    if address.version == 6:
+        return [
+            (
+                socket.AF_INET6,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                (str(address), port, 0, 0),
+            )
+        ]
+    return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (str(address), port))]
+
 
 # ---------------------------------------------------------------------------
 # is_ip_blocked — individual IP payload checks
@@ -148,8 +177,9 @@ async def test_safe_async_transport_blocks_private_ip_literal() -> None:
 
     transport = SafeAsyncTransport()
     request = httpx.Request("GET", "http://192.168.1.1/")
-    with pytest.raises(httpx.ConnectError, match="SSRF blocked"):
-        await transport.handle_async_request(request)
+    with patch("app.security.ssrf.socket.getaddrinfo", side_effect=resolve_ip_literal):
+        with pytest.raises(httpx.ConnectError, match="SSRF blocked"):
+            await transport.handle_async_request(request)
 
 
 @pytest.mark.asyncio
@@ -158,8 +188,9 @@ async def test_safe_async_transport_blocks_ipv6_loopback() -> None:
 
     transport = SafeAsyncTransport()
     request = httpx.Request("GET", "http://[::1]/")
-    with pytest.raises(httpx.ConnectError, match="SSRF blocked"):
-        await transport.handle_async_request(request)
+    with patch("app.security.ssrf.socket.getaddrinfo", side_effect=resolve_ip_literal):
+        with pytest.raises(httpx.ConnectError, match="SSRF blocked"):
+            await transport.handle_async_request(request)
 
 
 @pytest.mark.asyncio
@@ -168,8 +199,9 @@ async def test_safe_async_transport_blocks_aws_metadata() -> None:
 
     transport = SafeAsyncTransport()
     request = httpx.Request("GET", "http://169.254.169.254/latest/meta-data/")
-    with pytest.raises(httpx.ConnectError, match="SSRF blocked"):
-        await transport.handle_async_request(request)
+    with patch("app.security.ssrf.socket.getaddrinfo", side_effect=resolve_ip_literal):
+        with pytest.raises(httpx.ConnectError, match="SSRF blocked"):
+            await transport.handle_async_request(request)
 
 
 @pytest.mark.asyncio
@@ -325,8 +357,9 @@ def test_safe_sync_transport_blocks_private_ip_literal() -> None:
 
     transport = SafeSyncTransport()
     request = httpx.Request("GET", "http://10.0.0.1/")
-    with pytest.raises(httpx.ConnectError, match="SSRF blocked"):
-        transport.handle_request(request)
+    with patch("app.security.ssrf.socket.getaddrinfo", side_effect=resolve_ip_literal):
+        with pytest.raises(httpx.ConnectError, match="SSRF blocked"):
+            transport.handle_request(request)
 
 
 def test_safe_sync_transport_blocks_dns_rebinding() -> None:

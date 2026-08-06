@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import sys
 import types
 from types import SimpleNamespace
@@ -8,68 +9,102 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-try:
-    import yt_dlp
-except ModuleNotFoundError:
 
-    class _DownloadError(Exception):
-        pass
+class _DownloadError(Exception):
+    pass
 
-    class _FallbackYoutubeDL:
-        def __init__(self, *args, **kwargs):
-            self._opts = kwargs
 
-        def __enter__(self):
-            return self
+class _FallbackYoutubeDL:
+    def __init__(self, *args, **kwargs):
+        self._opts = kwargs
 
-        def __exit__(self, exc_type, exc, tb):
-            return False
+    def __enter__(self):
+        return self
 
-        def extract_info(self, *args, **kwargs):
-            return {}
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
-        def download(self, *args, **kwargs):
-            return None
+    def extract_info(self, *args, **kwargs):
+        return {}
 
-        def prepare_filename(self, _info):
-            return "/tmp/fallback.mp4"
+    def download(self, *args, **kwargs):
+        return None
 
-    yt_dlp = types.ModuleType("yt_dlp")
-    yt_dlp.YoutubeDL = _FallbackYoutubeDL  # type: ignore[attr-defined]
-    yt_dlp.utils = types.SimpleNamespace(DownloadError=_DownloadError)  # type: ignore[attr-defined]
-    sys.modules["yt_dlp"] = yt_dlp
+    def prepare_filename(self, _info):
+        return "/tmp/fallback.mp4"
 
-try:
-    from youtube_transcript_api import YouTubeTranscriptApi  # noqa: F401
-except ModuleNotFoundError:
 
-    class NoTranscriptFound(Exception):
-        pass
+class NoTranscriptFound(Exception):
+    pass
 
-    class TranscriptsDisabled(Exception):
-        pass
 
-    class VideoUnavailable(Exception):
-        pass
+class TranscriptsDisabled(Exception):
+    pass
 
-    sys.modules["youtube_transcript_api"] = MagicMock(YouTubeTranscriptApi=MagicMock())
-    sys.modules["youtube_transcript_api._errors"] = MagicMock(
-        NoTranscriptFound=NoTranscriptFound,
-        TranscriptsDisabled=TranscriptsDisabled,
-        VideoUnavailable=VideoUnavailable,
+
+class VideoUnavailable(Exception):
+    pass
+
+
+@contextlib.contextmanager
+def _stubbed_youtube_extra():
+    """Fake the optional ``youtube`` extra for the duration of this module's imports.
+
+    ``app.adapters.youtube.download_pipeline`` imports ``yt_dlp`` and
+    ``youtube_transcript_api`` at module level, so without the extra installed this
+    file cannot import at all. The stubs used to be written straight into
+    ``sys.modules`` and left there for the rest of the session, which made
+    ``pytest.importorskip("youtube_transcript_api")`` in
+    ``tests/test_youtube_stuck_downloads_and_transcripts.py`` resolve to a
+    ``MagicMock`` instead of skipping -- and a ``MagicMock`` answers ``hasattr`` for
+    every name, so the test asserting that the *installed* library no longer has
+    ``list_transcripts`` failed against a mock that claims it does.
+
+    The app modules keep the references they bound during import, so dropping the
+    entries afterwards costs them nothing and leaves ``sys.modules`` telling the
+    truth about what is installed.
+    """
+    added: list[str] = []
+
+    try:
+        import yt_dlp  # noqa: F401
+    except ModuleNotFoundError:
+        yt_dlp_stub = types.ModuleType("yt_dlp")
+        yt_dlp_stub.YoutubeDL = _FallbackYoutubeDL
+        yt_dlp_stub.utils = types.SimpleNamespace(DownloadError=_DownloadError)
+        sys.modules["yt_dlp"] = yt_dlp_stub
+        added.append("yt_dlp")
+
+    try:
+        import youtube_transcript_api  # noqa: F401
+    except ModuleNotFoundError:
+        sys.modules["youtube_transcript_api"] = MagicMock(YouTubeTranscriptApi=MagicMock())
+        sys.modules["youtube_transcript_api._errors"] = MagicMock(
+            NoTranscriptFound=NoTranscriptFound,
+            TranscriptsDisabled=TranscriptsDisabled,
+            VideoUnavailable=VideoUnavailable,
+        )
+        added.extend(["youtube_transcript_api", "youtube_transcript_api._errors"])
+
+    try:
+        yield
+    finally:
+        for name in added:
+            sys.modules.pop(name, None)
+
+
+with _stubbed_youtube_extra():
+    from app.adapters.content.platform_extraction.models import (
+        PlatformExtractionRequest,
+        PlatformExtractionResult,
     )
-
-from app.adapters.content.platform_extraction.models import (
-    PlatformExtractionRequest,
-    PlatformExtractionResult,
-)
-from app.adapters.youtube.download_pipeline import YouTubeDownloadPipeline
-from app.adapters.youtube.feedback_service import YouTubeFeedbackService
-from app.adapters.youtube.platform_extractor import YouTubePlatformExtractor
-from app.adapters.youtube.session_service import (
-    YouTubeDownloadPreparation,
-    YouTubeDownloadSessionService,
-)
+    from app.adapters.youtube.download_pipeline import YouTubeDownloadPipeline
+    from app.adapters.youtube.feedback_service import YouTubeFeedbackService
+    from app.adapters.youtube.platform_extractor import YouTubePlatformExtractor
+    from app.adapters.youtube.session_service import (
+        YouTubeDownloadPreparation,
+        YouTubeDownloadSessionService,
+    )
 
 if TYPE_CHECKING:
     from pathlib import Path
