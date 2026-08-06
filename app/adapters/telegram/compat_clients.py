@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+from pathlib import Path
 from typing import Any
 
 from app.adapters.telegram.compat_adapters import (
@@ -344,6 +346,55 @@ class TelethonBotClient:
         )
 
 
+_SESSION_EXTENSION = ".session"
+
+_UNUSABLE_SESSION_MSG = (
+    "Session file {path} is not a usable Telethon session "
+    "(it looks like a session from another Telegram library or is corrupt). "
+    "Run /init_session to re-authenticate the userbot."
+)
+
+
+def _assert_usable_telethon_session(session_path: str) -> None:
+    """Reject a session file Telethon cannot open, with an actionable message.
+
+    Telethon decides a file is one of its own from the ``version`` table alone
+    (``telethon/sessions/sqlite.py``) and then walks its upgrade chain. A
+    Pyrogram session carries a ``version`` table too -- holding 6 -- so Telethon
+    enters the 6->7 step, ``alter table entities add column date integer``, and
+    dies on a table that never existed in that schema. Left to Telethon, the
+    digest failed every scheduled run with a bare
+    ``sqlite3.OperationalError: no such table: entities``, which names neither
+    the file nor the remedy.
+
+    ``entities`` has been part of the Telethon schema since its first version
+    (the 5->6 upgrade already deletes from it), so its absence next to a
+    ``version`` table is a reliable tell that the file belongs to something
+    else. A file that does not exist yet is fine -- Telethon creates it.
+    """
+    path = Path(session_path)
+    if path.suffix != _SESSION_EXTENSION:
+        path = path.with_name(path.name + _SESSION_EXTENSION)
+    if not path.exists():
+        return
+
+    try:
+        with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as conn:
+            tables = {
+                row[0]
+                for row in conn.execute("select name from sqlite_master where type = 'table'")
+            }
+    except sqlite3.DatabaseError as exc:
+        raise RuntimeError(_UNUSABLE_SESSION_MSG.format(path=path)) from exc
+
+    if "version" in tables and "entities" not in tables:
+        logger.error(
+            "telethon_session_foreign_schema",
+            extra={"path": str(path), "tables": sorted(tables)},
+        )
+        raise RuntimeError(_UNUSABLE_SESSION_MSG.format(path=path))
+
+
 class TelethonUserClient:
     """Small wrapper around a Telethon user session."""
 
@@ -351,6 +402,7 @@ class TelethonUserClient:
         if TelegramClient is None:
             msg = "Telethon is not installed"
             raise RuntimeError(msg)
+        _assert_usable_telethon_session(session_path)
         self._client = TelegramClient(session_path, api_id, api_hash)
 
     @property
