@@ -32,6 +32,15 @@ logger = get_logger(__name__)
 
 TERMINAL_JOB_STATUSES = {"succeeded", "dead_letter"}
 
+# Request statuses past which a sweep must not rewrite the row. Kept beside the
+# job-side set because the two are read together on every terminal transition.
+TERMINAL_REQUEST_STATUSES = (
+    RequestStatus.COMPLETED.value,
+    RequestStatus.ERROR.value,
+    RequestStatus.CANCELLED.value,
+    RequestStatus.X_IMPORTED.value,
+)
+
 
 def _has_telegram_placeholder() -> Any:
     """EXISTS() over requests whose user-facing delivery the taskiq worker owns.
@@ -686,7 +695,7 @@ class RequestProcessingJobRepository:
                     RequestProcessingJob.lease_expires_at <= now,
                     RequestProcessingJob.lease_owner.like("bot:%"),
                     Summary.id.is_(None),
-                    Request.status.notin_(("ok", "error", "cancelled", "x_imported")),
+                    Request.status.notin_(TERMINAL_REQUEST_STATUSES),
                 )
                 .limit(100)
             )
@@ -764,12 +773,28 @@ class RequestProcessingJobRepository:
             return int(result.rowcount or 0)
 
     async def dead_letter_exhausted(self) -> int:
+        """Retire jobs that can never run again, and fail their requests with them.
+
+        Matches on every non-terminal status rather than an allowlist. The
+        allowlist -- ``queued``, ``failed``, ``running`` -- silently omitted
+        ``pending``, which ``reclaim_orphaned_worker_leases``, ``release_lease``
+        and ``requeue_expired_leases`` all write without resetting
+        ``attempt_count``. Since ``lease_next`` only takes rows with
+        ``attempt_count < max_attempts``, a job that landed in ``pending`` on its
+        last attempt was both unleasable and unreachable here, and sat forever
+        with its request never leaving ``pending``.
+
+        The request update keeps the invariant ``mark_failed`` and
+        ``recover_interrupted_synchronous_requests`` already hold: a job in
+        ``dead_letter`` leaves its request terminal. Sweeping the job alone was
+        the other half of that stall.
+        """
         now = _utcnow()
         async with self._database.transaction() as session:
             result = await session.execute(
                 update(RequestProcessingJob)
                 .where(
-                    RequestProcessingJob.status.in_(("queued", "failed", "running")),
+                    RequestProcessingJob.status.notin_(TERMINAL_JOB_STATUSES),
                     RequestProcessingJob.attempt_count >= RequestProcessingJob.max_attempts,
                 )
                 .values(
@@ -779,8 +804,35 @@ class RequestProcessingJobRepository:
                     retry_after=None,
                     updated_at=now,
                 )
+                .returning(RequestProcessingJob.request_id)
             )
-            return int(result.rowcount or 0)
+            request_ids = [row[0] for row in result]
+            if not request_ids:
+                return 0
+
+            # Correlated so each request carries the code its own job recorded
+            # (WORKER_RESTARTED, LEASE_EXPIRED, ...) instead of a flat label.
+            await session.execute(
+                update(Request)
+                .where(
+                    Request.id == RequestProcessingJob.request_id,
+                    RequestProcessingJob.request_id.in_(request_ids),
+                    Request.status.notin_(TERMINAL_REQUEST_STATUSES),
+                )
+                .values(
+                    status=RequestStatus.ERROR.value,
+                    error_type=func.coalesce(
+                        RequestProcessingJob.last_error_code, "attempts_exhausted"
+                    ),
+                    error_message=func.coalesce(
+                        RequestProcessingJob.last_error_message,
+                        "Processing attempts were exhausted before completion.",
+                    ),
+                    error_timestamp=now,
+                    updated_at=now,
+                )
+            )
+            return len(request_ids)
 
     async def reconcile_stuck_processing_requests(
         self,
@@ -845,7 +897,11 @@ class RequestProcessingJobRepository:
                 await session.execute(
                     update(Request)
                     .where(Request.id.in_(succeeded_request_ids))
-                    .values(status="success", updated_at=now)
+                    # "success" is not in the vocabulary: RequestStatus has no such
+                    # member, the terminal-status guard above does not recognise it,
+                    # and request_service treats it as a legacy value to normalise.
+                    # It left 7 rows in production that no sweep considered done.
+                    .values(status=RequestStatus.COMPLETED.value, updated_at=now)
                 )
             if succeeded_jobs:
                 await session.execute(
