@@ -18,7 +18,21 @@ if TYPE_CHECKING:
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False is load-bearing, not cosmetic.
+    #
+    # fileConfig defaults to True, and alembic.ini declares only
+    # root/sqlalchemy/alembic — so every OTHER logger that already exists gets
+    # Logger.disabled = True. Migrations run in-process (Database.migrate ->
+    # bootstrap -> command.upgrade), so after the first migration every `app.*`
+    # module logger created at import time is silently dead for the rest of the
+    # process: a disabled logger drops records inside Logger.handle(), and
+    # nothing downstream ever sees them.
+    #
+    # That is invisible in production (the loggers are re-created per process)
+    # but it silently disarmed four log-assertion tests, which passed alone and
+    # failed after any DB-backed test had migrated first. pytest cannot undo it
+    # either — caplog only re-enables what its own level handling turned off.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 
