@@ -12,6 +12,7 @@ from app.application.use_cases.summary_read_model import SummaryReadModelUseCase
 from app.core.logging_utils import get_logger
 from app.di.database import clear_cached_runtime_database, get_or_create_runtime_database_from_env
 
+
 def _unset() -> None:
     """FastAPI sub-dependency that always resolves to ``None``.
 
