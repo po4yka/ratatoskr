@@ -9088,6 +9088,93 @@
         ]
       }
     },
+    "/v1/users/search": {
+      "get": {
+        "tags": [
+          "User"
+        ],
+        "summary": "Search Users",
+        "description": "Resolve a username prefix to user ids, for adding collection collaborators.\n\nSharing a collection takes a numeric user id (`POST /v1/collections/{id}/share`),\nwhich nobody knows by heart; this is how a client turns a handle into one.\n\nRate limiting is not declared here because it cannot be: `rate_limit_middleware`\nruns on every request and picks its bucket from the path, and the substring branch\nat `app/api/middleware.py:582` maps anything containing `/search` to the `search`\nbucket (50/60s, `API_RATE_LIMIT_SEARCH`). That coupling is real but accidental --\nrenaming this route to `/lookup` would silently relax it to the 100/60s default --\nso a test pins it rather than leaving it to be rediscovered.\n\n`min_length=2` is the one policy choice: without it `?q=` degrades into \"return\nthe whole user table\".\n\nAccounts created through magic-link or Apple sign-in carry `username=None` and are\ntherefore unreachable here; see `async_search_users_by_username_prefix`.",
+        "operationId": "search_users_v1_users_search_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 64,
+              "description": "Username prefix to match",
+              "title": "Q"
+            },
+            "description": "Username prefix to match"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 25,
+              "minimum": 1,
+              "description": "Maximum matches to return",
+              "default": 10,
+              "title": "Limit"
+            },
+            "description": "Maximum matches to return"
+          },
+          {
+            "name": "session_manager",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {},
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Manager"
+            }
+          },
+          {
+            "name": "request",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "title": "Request"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TypedSuccessResponse_UserSearchResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
     "/v1/users/me": {
       "get": {
         "tags": [
@@ -34631,6 +34718,26 @@
         ],
         "title": "TypedSuccessResponse[UserMeResponse]"
       },
+      "TypedSuccessResponse_UserSearchResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/UserSearchResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "TypedSuccessResponse[UserSearchResponse]"
+      },
       "TypedSuccessResponse_UserStatsData_": {
         "properties": {
           "success": {
@@ -35537,6 +35644,58 @@
           "defaultSummaryLanguage"
         ],
         "title": "UserProfileResponse"
+      },
+      "UserSearchResponse": {
+        "properties": {
+          "users": {
+            "items": {
+              "$ref": "#/components/schemas/UserSearchResult"
+            },
+            "type": "array",
+            "title": "Users"
+          }
+        },
+        "type": "object",
+        "required": [
+          "users"
+        ],
+        "title": "UserSearchResponse"
+      },
+      "UserSearchResult": {
+        "properties": {
+          "userId": {
+            "type": "integer",
+            "title": "Userid"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          },
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Displayname"
+          }
+        },
+        "type": "object",
+        "required": [
+          "userId"
+        ],
+        "title": "UserSearchResult",
+        "description": "One match from a username lookup.\n\nDeliberately three fields. `user_id` is what the caller needs (collection\nsharing takes an id); the other two only exist so a human can tell two\nmatches apart. Nothing else from the `users` row belongs to a stranger."
       },
       "UserStatsData": {
         "properties": {

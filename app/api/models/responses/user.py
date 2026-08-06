@@ -42,6 +42,23 @@ class UserMeResponse(BaseModel):
     profile: UserProfileResponse
 
 
+class UserSearchResult(AliasCompatibleResponseModel):
+    """One match from a username lookup.
+
+    Deliberately three fields. `user_id` is what the caller needs (collection
+    sharing takes an id); the other two only exist so a human can tell two
+    matches apart. Nothing else from the `users` row belongs to a stranger.
+    """
+
+    user_id: int = Field(serialization_alias="userId")
+    username: str | None = None
+    display_name: str | None = Field(default=None, serialization_alias="displayName")
+
+
+class UserSearchResponse(BaseModel):
+    users: list[UserSearchResult]
+
+
 class UserFeedTokenResponse(AliasCompatibleResponseModel):
     token: str
     feed_url: str = Field(serialization_alias="feedUrl")

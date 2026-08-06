@@ -217,6 +217,8 @@ from .user import (
     UserFeedTokenSuccessResponse,
     UserMeResponse,
     UserProfileResponse,
+    UserSearchResponse,
+    UserSearchResult,
     UserStatsData,
 )
 from .webhooks import (
@@ -416,6 +418,8 @@ __all__ = [
     "UserInfo",
     "UserMeResponse",
     "UserProfileResponse",
+    "UserSearchResponse",
+    "UserSearchResult",
     "UserStatsData",
     "WebhookCreatedResponse",
     "WebhookDeletionResponse",

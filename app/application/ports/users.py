@@ -49,6 +49,21 @@ class UserRepositoryPort(Protocol):
     ) -> None:
         """Upsert user metadata, changing the owner role only when explicitly supplied."""
 
+    async def async_search_users_by_username_prefix(
+        self, *, prefix: str, limit: int
+    ) -> list[dict[str, Any]]:
+        """Return users whose ``username`` starts with *prefix*, case-insensitively.
+
+        Yields only ``user_id``, ``username`` and ``display_name``: the caller resolves
+        a handle to an id, and nothing else on the row is theirs to see.
+
+        Accounts with ``username IS NULL`` are unreachable through this call. That is a
+        property of the data rather than a filter applied here -- the magic-link and
+        Apple sign-up paths both persist ``username=None``
+        (``app/api/routers/auth/magic_link.py:106``, ``app/api/routers/auth/apple.py:127``),
+        so those rows carry no handle in ``users`` at all.
+        """
+
     async def async_upsert_chat(
         self,
         *,

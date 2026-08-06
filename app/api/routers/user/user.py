@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.api.dependencies.database import get_summary_repository, get_user_repository
 from app.api.models.requests import (
@@ -24,6 +24,8 @@ from app.api.models.responses import (
     TypedSuccessResponse,
     UserMeResponse,
     UserProfileResponse,
+    UserSearchResponse,
+    UserSearchResult,
     UserStatsData,
     success_response,
 )
@@ -119,6 +121,37 @@ async def _get_or_create_current_user_record(user: dict[str, Any]) -> dict[str, 
         is_owner=False,
     )
     return user_record
+
+
+@profile_router.get("/search", response_model=TypedSuccessResponse[UserSearchResponse])
+async def search_users(
+    q: str = Query(..., min_length=2, max_length=64, description="Username prefix to match"),
+    limit: int = Query(10, ge=1, le=25, description="Maximum matches to return"),
+    _user: dict[str, Any] = Depends(get_current_user),
+    user_repo: Any = Depends(get_user_repository),
+) -> Any:
+    """Resolve a username prefix to user ids, for adding collection collaborators.
+
+    Sharing a collection takes a numeric user id (`POST /v1/collections/{id}/share`),
+    which nobody knows by heart; this is how a client turns a handle into one.
+
+    Rate limiting is not declared here because it cannot be: `rate_limit_middleware`
+    runs on every request and picks its bucket from the path, and the substring branch
+    at `app/api/middleware.py:582` maps anything containing `/search` to the `search`
+    bucket (50/60s, `API_RATE_LIMIT_SEARCH`). That coupling is real but accidental --
+    renaming this route to `/lookup` would silently relax it to the 100/60s default --
+    so a test pins it rather than leaving it to be rediscovered.
+
+    `min_length=2` is the one policy choice: without it `?q=` degrades into "return
+    the whole user table".
+
+    Accounts created through magic-link or Apple sign-in carry `username=None` and are
+    therefore unreachable here; see `async_search_users_by_username_prefix`.
+    """
+    matches = await user_repo.async_search_users_by_username_prefix(prefix=q, limit=limit)
+    return success_response(
+        UserSearchResponse(users=[UserSearchResult(**match) for match in matches])
+    )
 
 
 @profile_router.get("/me", response_model=TypedSuccessResponse[UserMeResponse])

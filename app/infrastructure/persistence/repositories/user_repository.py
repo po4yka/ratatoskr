@@ -177,6 +177,35 @@ class UserRepositoryAdapter:
             )
             await session.execute(stmt)
 
+    async def async_search_users_by_username_prefix(
+        self, *, prefix: str, limit: int
+    ) -> list[dict[str, Any]]:
+        """Return users whose username starts with *prefix*, case-insensitively.
+
+        Three columns are selected explicitly rather than going through
+        `model_to_dict`: the `users` row also carries `link_nonce`,
+        `preferences_json`, and the whole `linked_telegram_*` block, none of which
+        belong in a response served to a different user. Keeping the projection
+        narrow means the caller cannot leak them by accident later.
+        """
+        # ILIKE treats %, _ and \ as pattern syntax, so an unescaped caller string
+        # would widen the match instead of narrowing it -- "a_" would match "axbc",
+        # and "%" alone would match the entire table.
+        escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        async with self._database.session() as session:
+            rows = (
+                await session.execute(
+                    select(User.telegram_user_id, User.username, User.display_name)
+                    .where(User.username.ilike(f"{escaped}%", escape="\\"))
+                    .order_by(User.username.asc())
+                    .limit(limit)
+                )
+            ).all()
+        return [
+            {"user_id": telegram_user_id, "username": username, "display_name": display_name}
+            for telegram_user_id, username, display_name in rows
+        ]
+
     async def async_upsert_chat(
         self,
         *,
