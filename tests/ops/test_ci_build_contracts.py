@@ -9,6 +9,7 @@ from typing import Any
 
 import yaml
 
+from tests.conftest import _POSTGRES_FIXTURE_NAMES
 from tools.scripts.build_web_bundle import _write_bundle
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -203,7 +204,15 @@ def test_postgres_tests_have_one_marker_driven_ci_job() -> None:
 
     conftest = (ROOT / "tests/conftest.py").read_text(encoding="utf-8")
     assert "@pytest.hookimpl(tryfirst=True)" in conftest
-    assert '_POSTGRES_FIXTURE_NAMES = frozenset({"database", "db", "session"})' in conftest
+
+    # Assert on the value, not on the source line. This used to match the
+    # frozenset literal verbatim, so adding ``mcp_test_db`` to it -- a correct
+    # change, widening the auto-marking to the MCP suites -- turned the build
+    # red. Growth is the healthy direction for this set; what the three-way CI
+    # split actually depends on is that the shared DB fixtures stay covered, so
+    # that every test using one lands in the Postgres job rather than the unit
+    # job, where no database is running.
+    assert {"database", "db", "session"} <= _POSTGRES_FIXTURE_NAMES
 
 
 def test_setup_uv_cache_is_not_duplicated_by_actions_cache() -> None:
