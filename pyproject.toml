@@ -489,6 +489,7 @@ markers = [
     "uses_real_yaml: opts out of the autouse stub that disables ratatoskr.yaml loading",
     "uses_real_vector_store: opts out of the autouse fixture that stops QdrantVectorStore from connecting (for tests that substitute an in-memory or fake QdrantClient and exercise the connect path)",
     "uses_real_embedding_model: opts out of the autouse fixture that stops EmbeddingService from loading model weights (for tests that exercise _ensure_model against a stubbed sentence-transformers)",
+    "uses_real_dns: opts out of the autouse fixture that answers socket.getaddrinfo from a table (for tests that must reach the real resolver)",
     "characterization: marks characterization/behavioral-spec tests ported from Kotlin",
 ]
 asyncio_mode = "auto"

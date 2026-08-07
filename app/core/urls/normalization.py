@@ -6,7 +6,11 @@ from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunpa
 
 from app.core.logging_utils import get_logger, redact_url_for_logging
 from app.core.urls.twitter import canonicalize_twitter_url
-from app.core.urls.validation import _ALLOWED_SCHEMES, _DANGEROUS_SCHEMES, validate_url_input
+from app.core.urls.validation import (
+    _ALLOWED_SCHEMES,
+    _DANGEROUS_SCHEMES,
+    validate_url_input_syntactic,
+)
 from app.core.urls.youtube import canonicalize_youtube_url
 
 logger = get_logger(__name__)
@@ -37,8 +41,18 @@ def extract_domain(url: str | None) -> str | None:
 
 
 def normalize_url(url: str) -> str:
-    """Normalize a URL for deduplication as per SPEC.md."""
-    validate_url_input(url)
+    """Normalize a URL for deduplication as per SPEC.md.
+
+    Validation here is deliberately syntactic: normalization is a pure string
+    transform feeding ``dedupe_hash``, and resolving the hostname would make
+    every dedupe lookup pay a blocking DNS round trip -- including for URLs
+    already stored in the database, which a resolver outage would then make
+    un-hashable. SSRF enforcement is the fetch path's job and happens in
+    :mod:`app.security.ssrf`, whose safe clients check the resolved address at
+    connect time rather than in a preflight that a rebinding DNS server can
+    outrun.
+    """
+    validate_url_input_syntactic(url)
 
     if "://" not in url:
         url = f"http://{url}"
