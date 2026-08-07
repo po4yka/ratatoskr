@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import ipaddress
 import json
 import os
+import re
 import time
+from functools import lru_cache
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from fastapi.responses import JSONResponse
@@ -198,16 +203,27 @@ _DEFAULT_PERMISSIONS_POLICY = "geolocation=(), microphone=(), camera=(), payment
 # - script-src allows https://telegram.org: the Telegram Login Widget
 #   (ratatoskr-web src/auth/TelegramLoginButton.tsx) injects
 #   <script src="https://telegram.org/js/telegram-widget.js">.
-# - style-src-attr (narrower than style-src) carries 'unsafe-inline' because
-#   every inline style in the SPA today is a `style={{...}}` attribute --
-#   tag color swatches (TagRow.tsx) and indent depth (CollectionTreeNode.tsx).
-#   Browsers without style-src-attr support (pre-16.4 Safari) ignore that
-#   directive and fall back to enforcing style-src for attributes too, which
-#   would block those two cosmetic sites on such browsers; accepted as a
-#   narrow residual. If stratum-web's ChartContainer
-#   (components/ui/chart.tsx, which injects a <style> block via
-#   dangerouslySetInnerHTML) is ever wired in, style-src will need
-#   'unsafe-inline' added as well.
+# - style-src-attr (narrower than style-src) carries 'unsafe-inline' for the
+#   SPA's `style={{...}}` attributes -- tag color swatches (TagRow.tsx) and
+#   indent depth (CollectionTreeNode.tsx). Browsers without style-src-attr
+#   support (pre-16.4 Safari) ignore that directive and fall back to enforcing
+#   style-src for attributes too, which would block those two cosmetic sites on
+#   such browsers; accepted as a narrow residual.
+# - style-src carries a sha256 hash per <style> block in the SPA's index.html,
+#   computed from the file actually served (see _spa_inline_style_hashes).
+#   index.html has carried one since ratatoskr-web's 198d504: an anti-flash
+#   block that paints the html background before app CSS loads, so a dark-mode
+#   user does not get a white flash. It is a <style> element, not an attribute,
+#   so style-src-attr never covered it and 'self' silently dropped it -- the
+#   flash it exists to prevent happened on every cold load. Hashing keeps the
+#   fix without opening style-src to 'unsafe-inline'.
+# - Still blocked, deliberately: next-themes injects its own <style> element to
+#   suppress transitions during a theme switch (ThemeProvider's
+#   disableTransitionOnChange in ratatoskr-web src/App.tsx). Its content is a
+#   library-internal string that would change under a version bump and rot the
+#   hash silently, so it is not hashed. The cost is that colors animate briefly
+#   when toggling the theme; the fix, if that ever matters, belongs in the
+#   frontend (drop the prop), not in a looser policy here.
 # - img-src allows any https origin plus data: because article cover images
 #   and markdown body images load directly from their third-party origin --
 #   the backend's /v1/proxy/image endpoint requires an Authorization: Bearer
@@ -234,12 +250,46 @@ _DEFAULT_PERMISSIONS_POLICY = "geolocation=(), microphone=(), camera=(), payment
 _DEFAULT_CSP_CONNECT_SRC_EXTRA = ""
 
 
+_SPA_INDEX_HTML = Path(__file__).resolve().parent.parent / "static" / "web" / "index.html"
+_STYLE_BLOCK_RE = re.compile(r"<style[^>]*>(.*?)</style>", re.DOTALL)
+
+
+@lru_cache(maxsize=1)
+def _spa_inline_style_hashes() -> tuple[str, ...]:
+    """CSP source tokens for the <style> blocks in the SPA's index.html.
+
+    Derived from the file this process serves rather than pinned as a constant.
+    index.html ships inside the reviewed frontend bundle
+    (ops/docker/ratatoskr-web.bundle.tar.gz) and is replaced wholesale whenever
+    the pin moves, so a literal hash here would go stale on a bundle bump and
+    fail the only way that matters: silently, with the browser dropping the
+    style and nothing failing a build. Reading the served file cannot drift.
+
+    Trust is unchanged: this file is baked into the image from a pinned
+    revision, and anyone able to rewrite it could inject a <script src> that
+    'self' already permits.
+
+    Returns () when the SPA is not staged -- a bare API or test run serves no
+    index.html and needs no hash. Cached because the CSP is built per response
+    and the file cannot change under a running process.
+    """
+    try:
+        html = _SPA_INDEX_HTML.read_text(encoding="utf-8")
+    except OSError:
+        return ()
+    return tuple(
+        f"'sha256-{base64.b64encode(hashlib.sha256(block.encode()).digest()).decode()}'"
+        for block in _STYLE_BLOCK_RE.findall(html)
+    )
+
+
 def _app_csp(connect_src_extra: str) -> str:
     connect_src = "'self'" if not connect_src_extra else f"'self' {connect_src_extra}"
+    style_src = " ".join(("'self'", *_spa_inline_style_hashes()))
     return (
         "default-src 'self'; "
         "script-src 'self' https://telegram.org; "
-        "style-src 'self'; "
+        f"style-src {style_src}; "
         "style-src-attr 'unsafe-inline'; "
         "img-src 'self' https: data: blob:; "
         "font-src 'self'; "
