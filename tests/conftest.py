@@ -235,25 +235,85 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
 
 @pytest.fixture(autouse=True)
-def fast_qdrant_retries(monkeypatch):
-    """Skip Qdrant connect-retry sleeps so bot tests don't pay 6s/test.
+def offline_qdrant_store(request, monkeypatch):
+    """Keep `QdrantVectorStore` from opening a live connection during unit tests.
 
-    Production Qdrant retries 3 times with 2s/4s backoff. In test environments
-    Qdrant is rarely running and the bot tolerates absence (`required=False`).
-    Forcing one attempt with zero delay keeps behaviour identical (the store
-    still ends up uninitialized) but skips ~6 seconds of `time.sleep`.
+    Any test that builds a DI stack -- the thirteen `TelegramBot` suites, the CLI
+    backfills -- constructs the store, and construction connects: `__init__` calls
+    `_connect_with_retry`, because DI reads `.available` synchronously right after.
+    Qdrant is rarely running under test, so that is a doomed TCP connect plus (off
+    the event loop) 2s/4s of `time.sleep` per store. This fixture used to shorten
+    the backoff to one attempt with no delay; it now skips the attempt entirely.
+
+    The end state is identical -- `_available` stays False, which is what the
+    shortened-retry version left behind too and what the bot already tolerates
+    (`required=False`) -- but nothing dials out. That matters beyond speed: a
+    successful resolution of a non-loopback host *with a port* initialises
+    Network.framework on macOS, and its `pthread_atfork` child handler then
+    segfaults every later `fork()` in the process, which takes down every
+    subprocess-spawning test in the session (see `resolve_ip_literal` in
+    tests/security/test_ssrf.py).
+
+    Tests that mean to exercise the connect path -- all of which substitute an
+    in-memory or fake `QdrantClient` first -- opt out with
+    `@pytest.mark.uses_real_vector_store`.
     """
+    if request.node.get_closest_marker("uses_real_vector_store") is not None:
+        return
+
     try:
         from app.infrastructure.vector import qdrant_store as qmod
     except ImportError:
         return
 
-    original = qmod.QdrantVectorStore._connect_with_retry
+    def do_not_connect(self, max_attempts: int = 3, base_delay: float = 2.0) -> None:
+        return None
 
-    def fast(self, max_attempts: int = 3, base_delay: float = 2.0) -> None:
-        original(self, max_attempts=1, base_delay=0)
+    monkeypatch.setattr(qmod.QdrantVectorStore, "_connect_with_retry", do_not_connect)
 
-    monkeypatch.setattr(qmod.QdrantVectorStore, "_connect_with_retry", fast)
+
+@pytest.fixture(autouse=True)
+def offline_embedding_models(request, monkeypatch):
+    """Keep `EmbeddingService` from loading -- and downloading -- real model weights.
+
+    `_ensure_model` calls `SentenceTransformer(model_name)`, which fetches from
+    huggingface.co on a cold cache. A summarize flow driven end-to-end through a
+    real runtime reaches it, so a JSON-repair unit test was quietly resolving
+    `huggingface.co:443` and pulling weights on a worker thread -- slow, offline-
+    hostile, live egress from CI, and the same fork-poisoning shape described in
+    `offline_qdrant_store`.
+
+    Cold loads now raise the typed failure the service already models and already
+    caches, so callers take the path they take when the backend is genuinely
+    absent. A model pre-seeded into `_models` is still returned, so tests that
+    inject a fake keep working untouched.
+
+    `tests/services/test_embedding_service_dependency.py` exercises `_ensure_model`
+    itself against a stubbed `sentence_transformers` and opts out with
+    `@pytest.mark.uses_real_embedding_model`.
+    """
+    if request.node.get_closest_marker("uses_real_embedding_model") is not None:
+        return
+
+    try:
+        from app.application.ports.search import EmbeddingDependencyUnavailableError
+        from app.infrastructure.embedding import embedding_service as emod
+    except ImportError:
+        return
+
+    def do_not_load(self, model_name: str):
+        cached = self._models.get(model_name)
+        if cached is not None:
+            return cached
+        error = EmbeddingDependencyUnavailableError(
+            f"refusing to load embedding model {model_name!r}: tests must not fetch "
+            "weights. Pre-seed `_models`, patch `_ensure_model`, or mark the test "
+            "@pytest.mark.uses_real_embedding_model."
+        )
+        self._dependency_error = error
+        raise error
+
+    monkeypatch.setattr(emod.EmbeddingService, "_ensure_model", do_not_load)
 
 
 # Hosts a `no_network` test may still reach: loopback and the unspecified

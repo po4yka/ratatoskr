@@ -26,6 +26,10 @@ from app.infrastructure.vector.summary_point import build_summary_qdrant_payload
 if TYPE_CHECKING:
     from collections.abc import Generator
 
+# These build a real store over an in-memory client and assert on what the
+# connect path produced, so they need `_connect_with_retry` to actually run.
+pytestmark = pytest.mark.uses_real_vector_store
+
 EMBEDDING_DIM = 8
 
 

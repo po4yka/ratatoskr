@@ -19,6 +19,11 @@ from app.application.ports.search import EmbeddingDependencyUnavailableError
 from app.infrastructure.embedding.embedding_service import EmbeddingService
 
 
+# These call the real `_ensure_model` against a stubbed `sentence_transformers`,
+# which is exactly what the autouse offline fixture replaces.
+pytestmark = pytest.mark.uses_real_embedding_model
+
+
 def _install_fake_sentence_transformers(monkeypatch: pytest.MonkeyPatch, fake_cls: type) -> None:
     module = types.ModuleType("sentence_transformers")
     module.SentenceTransformer = fake_cls  # type: ignore[attr-defined]

@@ -12,6 +12,10 @@ from qdrant_client.models import Filter, PointIdsList
 from app.infrastructure.vector.point_ids import str_to_uuid
 from app.infrastructure.vector.qdrant_store import QdrantVectorStore
 
+# These build a real store over a fake client and assert on what the connect
+# path produced, so they need `_connect_with_retry` to actually run.
+pytestmark = pytest.mark.uses_real_vector_store
+
 EMBEDDING_DIM = 3
 
 
@@ -182,10 +186,11 @@ def test_returns_empty_set_when_store_unavailable() -> None:
 
 
 def test_returns_empty_set_when_scroll_raises() -> None:
-    failing_client = MagicMock()
-    failing_client.get_collections.return_value = None
-    failing_client.collection_exists.return_value = True
-    failing_client.scroll.side_effect = RuntimeError("qdrant offline mid-scan")
+    # Faithful up to the point under test: a bare MagicMock reports a MagicMock
+    # collection dimension, so `_try_connect` fails on the mismatch and the store
+    # never becomes available -- which is not the failure this test is about.
+    failing_client = _FakeQdrantClient(scroll_records=[])
+    failing_client.scroll = MagicMock(side_effect=RuntimeError("qdrant offline mid-scan"))
 
     with patch(
         "app.infrastructure.vector.qdrant_store.QdrantClient",
@@ -198,10 +203,15 @@ def test_returns_empty_set_when_scroll_raises() -> None:
             user_scope="unit",
             embedding_dim=EMBEDDING_DIM,
         )
-
-    paths = store.get_indexed_x_wiki_paths()
+        # `get_indexed_x_wiki_paths` re-checks the connection through
+        # `ensure_available`, so the failing client has to stay patched in.
+        # Outside the block that re-check built a real client and dialled
+        # localhost:6333, left the store unavailable, and the empty set below
+        # came from the never-connected path -- `scroll` was never reached.
+        paths = store.get_indexed_x_wiki_paths()
 
     assert paths == set()
+    assert failing_client.scroll.called
 
 
 @pytest.fixture
@@ -267,10 +277,11 @@ def test_path_hashes_returns_only_paths_with_hash(
 
 
 def test_path_hashes_returns_empty_when_scroll_raises() -> None:
-    failing_client = MagicMock()
-    failing_client.get_collections.return_value = None
-    failing_client.collection_exists.return_value = True
-    failing_client.scroll.side_effect = RuntimeError("qdrant offline mid-scan")
+    # Faithful up to the point under test: a bare MagicMock reports a MagicMock
+    # collection dimension, so `_try_connect` fails on the mismatch and the store
+    # never becomes available -- which is not the failure this test is about.
+    failing_client = _FakeQdrantClient(scroll_records=[])
+    failing_client.scroll = MagicMock(side_effect=RuntimeError("qdrant offline mid-scan"))
 
     with patch(
         "app.infrastructure.vector.qdrant_store.QdrantClient",
@@ -283,8 +294,13 @@ def test_path_hashes_returns_empty_when_scroll_raises() -> None:
             user_scope="unit",
             embedding_dim=EMBEDDING_DIM,
         )
+        # Same as above: keep the failing client in place through the call, or
+        # `ensure_available` reconnects for real and the empty mapping proves
+        # nothing about `scroll` raising.
+        hashes = store.get_indexed_x_wiki_path_hashes()
 
-    assert store.get_indexed_x_wiki_path_hashes() == {}
+    assert hashes == {}
+    assert failing_client.scroll.called
 
 
 def test_delete_x_wiki_paths_uses_deterministic_uuids(

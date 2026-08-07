@@ -487,6 +487,8 @@ markers = [
     "contracts: marks API and schema contract consistency tests",
     "no_network: marks tests that must never perform live network I/O (enforced by the enforce_no_network fixture in tests/conftest.py, which blocks non-loopback socket connects)",
     "uses_real_yaml: opts out of the autouse stub that disables ratatoskr.yaml loading",
+    "uses_real_vector_store: opts out of the autouse fixture that stops QdrantVectorStore from connecting (for tests that substitute an in-memory or fake QdrantClient and exercise the connect path)",
+    "uses_real_embedding_model: opts out of the autouse fixture that stops EmbeddingService from loading model weights (for tests that exercise _ensure_model against a stubbed sentence-transformers)",
     "characterization: marks characterization/behavioral-spec tests ported from Kotlin",
 ]
 asyncio_mode = "auto"

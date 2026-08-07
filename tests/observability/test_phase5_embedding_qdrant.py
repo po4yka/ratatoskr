@@ -28,6 +28,11 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
+# The Qdrant span tests build a real store over a fake client and assert on the
+# spans the connect path emits, so they need `_connect_with_retry` to run.
+pytestmark = pytest.mark.uses_real_vector_store
+
+
 class TestEmbeddingServiceSpans:
     """EmbeddingService must open spans wrapping asyncio.to_thread calls."""
 

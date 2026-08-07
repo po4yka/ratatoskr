@@ -14,6 +14,10 @@ from app.infrastructure.vector.result_types import VectorQueryResult
 if TYPE_CHECKING:
     from collections.abc import Generator
 
+# These build a real store over an in-memory client and assert on what the
+# connect path produced, so they need `_connect_with_retry` to actually run.
+pytestmark = pytest.mark.uses_real_vector_store
+
 EMBEDDING_DIM = 3
 
 
@@ -304,8 +308,11 @@ def test_unavailable_store_query_returns_empty() -> None:
             embedding_dim=EMBEDDING_DIM,
             required=False,
         )
-    assert not s.available
-    result = s.query(query_vector=[0.1, 0.2, 0.3], filters=None, top_k=5)
+        assert not s.available
+        # `query` retries the connection through `ensure_available`, so the
+        # refusing client has to stay patched in. Outside the block that retry
+        # reached the real resolver and dialled bad-host:6333 for real.
+        result = s.query(query_vector=[0.1, 0.2, 0.3], filters=None, top_k=5)
     assert result == VectorQueryResult.empty()
 
 
