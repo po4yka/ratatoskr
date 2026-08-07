@@ -7,30 +7,14 @@ These tests ensure URL normalization remains performant as the codebase evolves.
 
 from __future__ import annotations
 
-import socket
-
 import pytest
 
 # Try to import pytest-benchmark, skip tests if not available
 pytest_benchmark = pytest.importorskip("pytest_benchmark")
 
-
-@pytest.fixture(autouse=True)
-def deterministic_public_dns(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep normalization benchmarks focused on CPU work, not live DNS latency."""
-    resolved = [
-        (
-            socket.AF_INET,
-            socket.SOCK_STREAM,
-            socket.IPPROTO_TCP,
-            "",
-            ("93.184.216.34", 0),
-        )
-    ]
-    monkeypatch.setattr(
-        "app.core.urls.validation._resolve_hostname_to_addrs",
-        lambda _hostname, _hostname_lower: resolved,
-    )
+# The local `deterministic_public_dns` fixture that used to live here is gone.
+# `normalize_url` no longer resolves at all, and the `deterministic_dns` fixture
+# in tests/conftest.py covers every remaining lookup suite-wide.
 
 
 class TestURLNormalizationBenchmarks:

@@ -3,6 +3,7 @@
 This module provides common fixtures for all tests.
 """
 
+import ipaddress
 import os
 import socket
 import sys
@@ -314,6 +315,99 @@ def offline_embedding_models(request, monkeypatch):
         raise error
 
     monkeypatch.setattr(emod.EmbeddingService, "_ensure_model", do_not_load)
+
+
+# Deterministic answers for `socket.getaddrinfo`. Anything not listed resolves
+# to `_DEFAULT_RESOLVED_ADDR` -- example.com's long-standing address, chosen
+# only because it is public and routable, so a hostname reads as "safe, not
+# internal", which is what the live resolver returned for the real hosts the
+# suite uses. Add an entry here (or monkeypatch this dict) when a test needs a
+# specific hostname to resolve somewhere specific.
+_DEFAULT_RESOLVED_ADDR = "93.184.216.34"
+_FAKE_DNS_TABLE: dict[str, str] = {
+    "localhost": "127.0.0.1",
+    "localhost.localdomain": "127.0.0.1",
+    "ip6-localhost": "::1",
+}
+_PORT_ALIASES = {"http": 80, "https": 443, "": 0}
+
+
+def _fake_port(port: Any) -> int:
+    if isinstance(port, int):
+        return port
+    if isinstance(port, str):
+        if port.isdigit():
+            return int(port)
+        return _PORT_ALIASES.get(port, 0)
+    return 0
+
+
+def _fake_addrinfo(host: Any, port: Any, family: int, socktype: int, proto: int) -> list[Any]:
+    """Build a getaddrinfo-shaped result for *host* without touching the network."""
+    name = str(host).strip("[]").lower()
+    try:
+        addr = str(ipaddress.ip_address(name))  # IP literal: answer with itself.
+    except ValueError:
+        addr = _FAKE_DNS_TABLE.get(name, _DEFAULT_RESOLVED_ADDR)
+
+    is_v6 = ":" in addr
+    addr_family = socket.AF_INET6 if is_v6 else socket.AF_INET
+    if family not in (0, socket.AF_UNSPEC, addr_family):
+        raise socket.gaierror(
+            socket.EAI_ADDRFAMILY, f"fake resolver: {name!r} has no address for family {family}"
+        )
+
+    resolved_port = _fake_port(port)
+    sockaddr: tuple[Any, ...] = (addr, resolved_port, 0, 0) if is_v6 else (addr, resolved_port)
+    return [
+        (
+            addr_family,
+            socktype or socket.SOCK_STREAM,
+            proto or socket.IPPROTO_TCP,
+            "",
+            sockaddr,
+        )
+    ]
+
+
+@pytest.fixture(autouse=True)
+def deterministic_dns(request, monkeypatch):
+    """Answer every hostname lookup from a table instead of the live resolver.
+
+    A full run used to make ~983 real `getaddrinfo` calls. Almost all of them
+    came from one place: `normalize_url` -> `validate_url_input` ->
+    `_resolve_hostname_to_addrs`, so merely computing a dedupe hash cost a
+    resolver round trip. That made the unit suite slow, dependent on working
+    DNS (it hangs or fails offline and behind a captive portal), and it leaked
+    the test corpus -- including hypothesis-generated hostnames -- to whatever
+    resolver CI happens to use.
+
+    `normalize_url` no longer resolves at all (it validates syntactically; see
+    its docstring). This fixture covers what is left: the SSRF preflights in
+    `app/core/urls/validation.py`, `app/security/ssrf.py`, and
+    `app/core/git_url_safety.py`. It patches `socket.getaddrinfo` rather than
+    each of those three call sites because that is the one seam they share --
+    including `loop.getaddrinfo`, which asyncio services from the same function
+    on a worker thread -- so a newly added resolver cannot quietly reintroduce
+    live DNS.
+
+    A test that patches `socket.getaddrinfo` itself still wins: monkeypatch
+    applies its override after this fixture and undoes it first. Use
+    `@pytest.mark.uses_real_dns` only for a test that must reach the real
+    resolver.
+    """
+    if request.node.get_closest_marker("uses_real_dns") is not None:
+        return
+
+    real_getaddrinfo = socket.getaddrinfo
+
+    def fake_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        if host is None or host == "":
+            # Wildcard/bind lookups are local and never leave the machine.
+            return real_getaddrinfo(host, port, family, type, proto, flags)
+        return _fake_addrinfo(host, port, family, type, proto)
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
 
 
 # Hosts a `no_network` test may still reach: loopback and the unspecified

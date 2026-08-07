@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 from app.core.logging_utils import get_logger
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator
 
 logger = get_logger(__name__)
 
@@ -66,14 +66,47 @@ def dns_cache_scope() -> Generator[None]:
 
 
 def validate_url_input(url: str) -> None:
-    """Validate URL input for security."""
-    _validate_url_input_basics(url)
+    """Validate URL input for security, resolving the hostname as the last step.
 
+    Use :func:`validate_url_input_syntactic` instead on any path that only
+    parses or canonicalises a URL: resolution is a blocking network round trip,
+    and the authoritative SSRF enforcement lives in :mod:`app.security.ssrf`.
+    """
+    _validate_url_input_basics(url)
+    _check_url_hostname(url, _validate_hostname_security)
+
+
+def validate_url_input_syntactic(url: str) -> None:
+    """Validate URL input using only the checks that need no DNS resolution.
+
+    Runs everything :func:`validate_url_input` runs except the final "resolve
+    the hostname and reject blocked addresses" step, so it still rejects
+    disallowed schemes, dangerous substrings, control characters, ``localhost``,
+    blocked IP literals, and suspicious internal-domain suffixes.
+
+    This is the right entry point for canonicalisation (see
+    :func:`app.core.urls.normalization.normalize_url`), which must reject
+    malformed and obviously hostile input but has no business doing network
+    I/O. It is deliberately *not* an SSRF gate: every fetch path goes through
+    :mod:`app.security.ssrf`, whose safe HTTP clients validate the resolved
+    address at connect time and therefore also close the DNS-rebinding TOCTOU
+    window that a preflight resolve here cannot.
+    """
+    _validate_url_input_basics(url)
+    _check_url_hostname(url, _validate_hostname_syntactic_only)
+
+
+def _check_url_hostname(url: str, check: Callable[[str], None]) -> None:
+    """Parse *url* and apply *check* to its hostname.
+
+    ``ValueError`` is the rejection signal and propagates; any other parse
+    failure is logged and treated as "no hostname to check".
+    """
     try:
         parsed = urlparse(url if "://" in url else f"http://{url}")
         hostname = parsed.hostname or parsed.netloc
         if hostname:
-            _validate_hostname_security(hostname)
+            check(hostname)
     except ValueError:
         raise
     except Exception as exc:
@@ -117,7 +150,13 @@ def _validate_url_input_basics(url: str) -> None:
         raise ValueError(msg)
 
 
-def _validate_hostname_security(hostname: str) -> None:
+def _validate_hostname_syntactic(hostname: str) -> str | None:
+    """Run every hostname check that reaches a verdict without DNS.
+
+    Returns the lowercased hostname when resolution is still needed to decide,
+    or ``None`` when these checks already settled it -- a policy-permitted
+    ``localhost``, or an allowed IP literal, neither of which resolves.
+    """
     import ipaddress
 
     from app.security.ssrf import allow_private_network_urls, is_ip_blocked
@@ -125,7 +164,7 @@ def _validate_hostname_security(hostname: str) -> None:
     hostname_lower = hostname.lower()
     if hostname_lower in ("localhost", "localhost.localdomain"):
         if allow_private_network_urls():
-            return
+            return None
         msg = "Localhost access not allowed"
         raise ValueError(msg)
 
@@ -138,11 +177,21 @@ def _validate_hostname_security(hostname: str) -> None:
         if is_ip_blocked(str(ip_obj)):
             msg = f"Blocked IP address: {ip_obj}"
             raise ValueError(msg)
-        return
+        return None
 
     _validate_suspicious_domain_pattern(hostname_lower)
+    return hostname_lower
 
-    resolved_ips = _resolve_hostname_to_addrs(hostname, hostname_lower)
+
+def _validate_hostname_syntactic_only(hostname: str) -> None:
+    """``_check_url_hostname`` adapter that drops the "needs DNS" signal."""
+    _validate_hostname_syntactic(hostname)
+
+
+def _reject_blocked_resolved_addrs(hostname: str, resolved_ips: list[Any]) -> None:
+    """Reject an empty resolution set or any resolved address in a blocked range."""
+    from app.security.ssrf import is_ip_blocked
+
     if not resolved_ips:
         # Fail closed on an empty resolution set, matching ssrf.py's
         # _verdict_for_resolved_ips. getaddrinfo normally raises rather than
@@ -155,6 +204,13 @@ def _validate_hostname_security(hostname: str) -> None:
         if is_ip_blocked(addr_str):
             msg = f"Hostname resolves to blocked IP address: {addr_str}"
             raise ValueError(msg)
+
+
+def _validate_hostname_security(hostname: str) -> None:
+    hostname_lower = _validate_hostname_syntactic(hostname)
+    if hostname_lower is None:
+        return
+    _reject_blocked_resolved_addrs(hostname, _resolve_hostname_to_addrs(hostname, hostname_lower))
 
 
 def _validate_suspicious_domain_pattern(hostname_lower: str) -> None:
@@ -235,40 +291,11 @@ async def _async_resolve_hostname_to_addrs(hostname: str, hostname_lower: str) -
 
 
 async def _async_validate_hostname_security(hostname: str) -> None:
-    import ipaddress
-
-    from app.security.ssrf import allow_private_network_urls, is_ip_blocked
-
-    hostname_lower = hostname.lower()
-    if hostname_lower in ("localhost", "localhost.localdomain"):
-        if allow_private_network_urls():
-            return
-        msg = "Localhost access not allowed"
-        raise ValueError(msg)
-
-    try:
-        ip_obj = ipaddress.ip_address(hostname)
-    except ValueError:
-        ip_obj = None
-
-    if ip_obj is not None:
-        if is_ip_blocked(str(ip_obj)):
-            msg = f"Blocked IP address: {ip_obj}"
-            raise ValueError(msg)
+    hostname_lower = _validate_hostname_syntactic(hostname)
+    if hostname_lower is None:
         return
-
-    _validate_suspicious_domain_pattern(hostname_lower)
-
     resolved_ips = await _async_resolve_hostname_to_addrs(hostname, hostname_lower)
-    if not resolved_ips:
-        # Fail closed on an empty resolution set (see the sync twin).
-        msg = f"No DNS records found for {hostname}"
-        raise ValueError(msg)
-    for info in resolved_ips:
-        addr_str = str(info[4][0])
-        if is_ip_blocked(addr_str):
-            msg = f"Hostname resolves to blocked IP address: {addr_str}"
-            raise ValueError(msg)
+    _reject_blocked_resolved_addrs(hostname, resolved_ips)
 
 
 async def async_validate_url_input(url: str) -> None:
@@ -302,4 +329,5 @@ __all__ = [
     "async_validate_url_input",
     "dns_cache_scope",
     "validate_url_input",
+    "validate_url_input_syntactic",
 ]
