@@ -85,12 +85,15 @@ Alerts covering the scheduled run (`ops/monitoring/alerting_rules.yml`):
 
 | Alert | Fires when | Notes |
 |---|---|---|
-| `RatatoskrScheduledDigestRunFailing` | Failed runs with no successful run over 6h | Keyed on `ratatoskr_digest_scheduled_runs_total`, which is written on both the success and the failure path — so it still fires for a run that aborts before any per-user work |
+| `RatatoskrScheduledDigestRunFailing` | Failed runs with nothing succeeding alongside them | Keyed on `ratatoskr_digest_scheduled_runs_total`, which is written on both the success and the failure path — so it still fires for a run that aborts before any per-user work. Two clauses: the counters read directly (catches the first failure) and a 6h windowed view (catches a digest that was healthy and started failing) |
 | `RatatoskrScheduledDigestNoDeliveries` | Active subscribers over 24h but no `sent`/`empty` delivery | Only reachable once a run gets far enough to set `ratatoskr_digest_active_subscription_users`; a run that dies at startup is covered by the alert above, not this one |
 | `RatatoskrDigestDeliveryFailureRateHigh` | Over 10% of deliveries failed in 1h | Partial trouble, not a total outage |
 | `RatatoskrDigestUserbotReconnectsHigh` | More than 3 userbot session starts in 1h | Session churn |
 
-When adding a digest alert, check whether its expression can produce an empty vector — `sum()` over a label value with no series returns nothing, not 0, and an `and` against an empty vector silently never fires. Guard the zero-comparison side with `or vector(0)`.
+Two traps have already produced a silent digest alert here, both worth checking against any new one. Unit tests live in `ops/monitoring/alerting_rules_test.yml`; run them with `make check-alert-rules`.
+
+- **An empty vector swallows the expression.** `sum()` over a label value with no series returns nothing, not 0, so `and ... == 0` yields nothing and never fires — which is how `RatatoskrScheduledDigestNoDeliveries` stayed silent through a three-month outage. Prefer `unless`, which drops the left side only when the right side actually has a matching element.
+- **`increase()` sees nothing on a counter that has moved once.** The digest runs twice a day, so a failure leaves its counter at 1 and every scrape reads 1 — no delta, `increase()` returns 0, measured against production. Any alert keyed on a low-frequency counter needs a clause that reads the counter directly, or it waits for a second occurrence that may be half a day away and that a worker restart resets. Model this in tests with a flat series (`values: "1x120"`); a counter that increments every minute passes an alert that cannot fire in practice.
 
 Query recent deliveries:
 

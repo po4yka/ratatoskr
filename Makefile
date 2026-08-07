@@ -1,4 +1,4 @@
-.PHONY: format lint type type-all test test-unit test-integration test-all all setup-dev bootstrap seed-demo-data teardown-dev extension-zip venv pre-commit-install pre-commit-run check-lock generate-openapi check-openapi check-openapi-validate check-openapi-drift check-file-loc check-layout clean-generated security security-bandit security-deps static-checks
+.PHONY: format lint type type-all test test-unit test-integration test-all all setup-dev bootstrap seed-demo-data teardown-dev extension-zip venv pre-commit-install pre-commit-run check-lock generate-openapi check-openapi check-openapi-validate check-alert-rules check-openapi-drift check-file-loc check-layout clean-generated security security-bandit security-deps static-checks
 
 COMPOSE_FILE := ops/docker/docker-compose.yml
 DEV_COMPOSE_FILE := ops/docker/docker-compose.dev.yml
@@ -135,6 +135,14 @@ sync-openapi: generate-openapi ## Backward-compatible alias for generate-openapi
 
 check-openapi: ## Run OpenAPI spec sync checks (includes generated drift check)
 	uv run --frozen --extra api pytest tests/api/test_openapi_sync.py tests/api/test_openapi_security.py tests/api/test_runtime_openapi_drift.py tests/tools/test_generate_openapi.py -v
+
+PROMETHEUS_IMAGE ?= prom/prometheus:v2.48.0
+
+check-alert-rules: ## Validate Prometheus alerting rules and run their unit tests
+	docker run --rm -v "$(CURDIR)/ops/monitoring:/m" -w /m --entrypoint promtool \
+	  $(PROMETHEUS_IMAGE) check rules alerting_rules.yml
+	docker run --rm -v "$(CURDIR)/ops/monitoring:/m" -w /m --entrypoint promtool \
+	  $(PROMETHEUS_IMAGE) test rules alerting_rules_test.yml
 
 check-openapi-validate: ## Validate OpenAPI spec syntax
 	uv run --frozen --extra api openapi-spec-validator docs/openapi/mobile_api.yaml

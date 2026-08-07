@@ -564,14 +564,45 @@ groups:
           runbook_url: "https://github.com/po4yka/ratatoskr/blob/main/docs/reference/digest-subsystem-ops.md"
 
       - alert: RatatoskrScheduledDigestRunFailing
-        # `or vector(0)` is load-bearing: a digest that has only ever failed has no
-        # status="ok" series at all, so the bare sum() is an empty vector, and an
-        # `and` against an empty vector yields nothing -- the alert would stay
-        # silent in exactly the case it exists for.
+        # Two clauses because neither covers the other, and an earlier
+        # increase()-only version silently covered neither of the cases that
+        # matter most. Measured against production: a digest that fails once
+        # leaves its counter sitting at 1, every scrape reads 1, and
+        # increase() over that is 0 -- no delta to see, because the increment
+        # landed before the first scrape. The digest runs twice a day, so
+        # waiting for a second failure to create a delta costs up to ~14h, and
+        # a worker restart in between resets the counter and starts the wait
+        # over.
+        #
+        # Clause 1 reads the counters directly: failures with no successes at
+        # all for this worker's lifetime. Fires on the very first failed run,
+        # which is the state a broken userbot session leaves behind, and
+        # clears the moment one run succeeds.
+        # Clause 2 keeps the windowed view for the case clause 1 cannot see --
+        # a digest that was succeeding and started failing, where the ok
+        # counter is already non-zero.
+        #
+        # `unless` rather than `and ... == 0`: it drops the left side only when
+        # the right side has a matching element, so an absent ok series (never
+        # succeeded) passes through instead of collapsing the whole expression
+        # to an empty vector.
+        #
+        # Residual: a first-ever failure on a worker that has successes behind
+        # it is reported at the following run, not that one. Accepted -- the
+        # alternative is tracking a last-success timestamp gauge, which resets
+        # on every restart and would alert after each deploy.
         expr: |
-          sum(increase(ratatoskr_digest_scheduled_runs_total{status="failed"}[6h])) > 0
-          and
-          (sum(increase(ratatoskr_digest_scheduled_runs_total{status="ok"}[6h])) or vector(0)) == 0
+          (
+            sum(ratatoskr_digest_scheduled_runs_total{status="failed"}) > 0
+            unless
+            sum(ratatoskr_digest_scheduled_runs_total{status="ok"}) > 0
+          )
+          or
+          (
+            sum(increase(ratatoskr_digest_scheduled_runs_total{status="failed"}[6h])) > 0
+            unless
+            sum(increase(ratatoskr_digest_scheduled_runs_total{status="ok"}[6h])) > 0
+          )
         for: 15m
         labels:
           severity: critical

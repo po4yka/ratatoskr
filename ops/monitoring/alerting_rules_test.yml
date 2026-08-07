@@ -1,0 +1,84 @@
+# promtool unit tests for the digest run-outcome alert.
+#
+#   docker run --rm -v "$PWD/ops/monitoring:/m" -w /m prom/prometheus:v2.48.0 \
+#     promtool test rules alerting_rules_test.yml
+#
+# The first version of RatatoskrScheduledDigestRunFailing passed a test that
+# fed it a counter incrementing every minute. Real traffic looks nothing like
+# that: the digest runs twice a day, so a failure leaves the counter sitting at
+# 1 and increase() over a flat series is 0. The alert was silent against
+# production while the digest was genuinely broken. The flat-counter cases
+# below are the ones that matter.
+rule_files:
+  - alerting_rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  # The production shape: one failed run, counter created at 1 and never moves
+  # again. increase() sees no delta here -- clause 1 is what catches it.
+  - interval: 1m
+    input_series:
+      - series: 'ratatoskr_digest_scheduled_runs_total{status="failed",job="ratatoskr-worker"}'
+        values: "1x120"
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: RatatoskrScheduledDigestRunFailing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Every scheduled channel digest run is failing outright"
+              description: "Scheduled digest runs are raising before completing, and none has succeeded in the last 6 hours. Unlike RatatoskrScheduledDigestNoDeliveries this does not depend on the run reaching per-user work, so it also covers a run that dies at startup -- an unusable or unauthorized userbot session being the usual cause. Check scheduled_digest_failed in the worker log, then the session file and /init_session."
+              runbook_url: "https://github.com/po4yka/ratatoskr/blob/main/docs/reference/digest-subsystem-ops.md"
+
+  # A digest that was healthy and started failing: the ok counter is already
+  # non-zero, so clause 1 is suppressed and clause 2 has to carry it.
+  - interval: 1m
+    input_series:
+      - series: 'ratatoskr_digest_scheduled_runs_total{status="ok",job="ratatoskr-worker"}'
+        values: "5x120"
+      - series: 'ratatoskr_digest_scheduled_runs_total{status="failed",job="ratatoskr-worker"}'
+        values: "0+1x120"
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: RatatoskrScheduledDigestRunFailing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Every scheduled channel digest run is failing outright"
+              description: "Scheduled digest runs are raising before completing, and none has succeeded in the last 6 hours. Unlike RatatoskrScheduledDigestNoDeliveries this does not depend on the run reaching per-user work, so it also covers a run that dies at startup -- an unusable or unauthorized userbot session being the usual cause. Check scheduled_digest_failed in the worker log, then the session file and /init_session."
+              runbook_url: "https://github.com/po4yka/ratatoskr/blob/main/docs/reference/digest-subsystem-ops.md"
+
+  # Past failures but the digest is succeeding now: must not alert on history.
+  - interval: 1m
+    input_series:
+      - series: 'ratatoskr_digest_scheduled_runs_total{status="failed",job="ratatoskr-worker"}'
+        values: "2x120"
+      - series: 'ratatoskr_digest_scheduled_runs_total{status="ok",job="ratatoskr-worker"}'
+        values: "0+1x120"
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: RatatoskrScheduledDigestRunFailing
+        exp_alerts: []
+
+  # Healthy: successes only.
+  - interval: 1m
+    input_series:
+      - series: 'ratatoskr_digest_scheduled_runs_total{status="ok",job="ratatoskr-worker"}'
+        values: "0+1x120"
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: RatatoskrScheduledDigestRunFailing
+        exp_alerts: []
+
+  # No digest activity at all: process-down is the availability group's job.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="ratatoskr-worker"}'
+        values: "1x120"
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: RatatoskrScheduledDigestRunFailing
+        exp_alerts: []
