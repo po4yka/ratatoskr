@@ -11,6 +11,8 @@ from app.config import AppConfig  # noqa: TC001 — taskiq resolves type hints a
 from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
 from app.db.session import Database  # noqa: TC001 — taskiq resolves type hints at runtime
+from app.infrastructure.locks.redis_lock import RedisDistributedLock
+from app.infrastructure.redis import get_redis
 from app.tasks.broker import broker
 from app.tasks.deps import (
     build_rss_poll_task_runtime,
@@ -20,14 +22,37 @@ from app.tasks.deps import (
 
 logger = get_logger(__name__)
 
+_RSS_POLL_LOCK_KEY = "task_lock:rss_poll"
+# Base TTL; RedisDistributedLock renews it via a background heartbeat (~ttl/3)
+# while the run is in progress, so a poll that outlives this keeps its lock
+# rather than losing it to the next scheduled run.
+_RSS_POLL_LOCK_TTL = 1800
+
 
 @broker.task(task_name="ratatoskr.rss.poll", retry_on_error=True, max_retries=3)
 async def run_rss_poll(
     cfg: AppConfig = TaskiqDepends(get_app_config),
     db: Database = TaskiqDepends(get_db),
 ) -> None:
-    """Poll RSS feeds and deliver new items to subscribers."""
-    await _rss_poll_body(cfg, db)
+    """Poll RSS feeds and deliver new items to subscribers.
+
+    Serialized like every other scheduled task, and for a sharper reason than
+    most: delivery sends each message to Telegram *before* marking the
+    (user, item) pair delivered, and the undelivered query takes no row claim.
+    Two overlapping runs therefore read the same ledger and send the same digest
+    twice. Overlap was reachable both ways -- a poll of up to
+    ``max_feeds_per_poll`` feeds with inline summarization can outlast the
+    interval, and this task re-raises, so taskiq's retry middleware re-kicks it
+    immediately while the original may still be winding down.
+    """
+    redis_client = await get_redis(cfg)
+    async with RedisDistributedLock(
+        redis_client, _RSS_POLL_LOCK_KEY, _RSS_POLL_LOCK_TTL
+    ) as acquired:
+        if not acquired:
+            logger.info("rss_poll_skipped_lock_held", extra={"key": _RSS_POLL_LOCK_KEY})
+            return
+        await _rss_poll_body(cfg, db)
 
 
 async def _rss_poll_body(cfg: AppConfig, db: Database) -> None:

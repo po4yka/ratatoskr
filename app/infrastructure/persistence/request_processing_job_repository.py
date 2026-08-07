@@ -772,6 +772,39 @@ class RequestProcessingJobRepository:
             )
             return int(result.rowcount or 0)
 
+    async def list_retryable_telegram_requests(self, *, limit: int = 50) -> list[int]:
+        """Return request ids of Telegram-owned jobs whose backoff has elapsed.
+
+        These rows are the blind spot between the two consumers of this table.
+        ``mark_failed`` parks a failed attempt at ``failed`` with a ``retry_after``
+        backoff and an ``attempt_count`` below ``max_attempts`` -- everything a
+        retry needs -- but nothing ever comes back for it: the API's polling queue
+        refuses Telegram-owned rows on purpose (``_has_telegram_placeholder``,
+        because only the taskiq worker can edit the placeholder), and
+        ``process_url_request`` is kicked exactly once, at enqueue.
+
+        Re-kicking that task is also why this is a query rather than an UPDATE.
+        The task itself re-leases through ``lease_next(by_id=...)``, which already
+        enforces the backoff and the attempt ceiling, so the sweep only has to
+        name the candidates and must not mutate their state -- that would race the
+        very worker it is about to wake.
+        """
+        now = _utcnow()
+        async with self._database.session() as session:
+            result = await session.execute(
+                select(RequestProcessingJob.request_id)
+                .where(
+                    RequestProcessingJob.status == "failed",
+                    RequestProcessingJob.retry_after.is_not(None),
+                    RequestProcessingJob.retry_after <= now,
+                    RequestProcessingJob.attempt_count < RequestProcessingJob.max_attempts,
+                    _has_telegram_placeholder(),
+                )
+                .order_by(RequestProcessingJob.retry_after.asc(), RequestProcessingJob.id)
+                .limit(max(1, limit))
+            )
+            return [int(request_id) for request_id in result.scalars()]
+
     async def dead_letter_exhausted(self) -> int:
         """Retire jobs that can never run again, and fail their requests with them.
 

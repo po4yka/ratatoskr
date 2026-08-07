@@ -14,10 +14,17 @@ from app.core.logging_utils import get_logger
 from app.core.time_utils import UTC
 from app.db.models import DigestDelivery, FeedItem, Topic, UserSignal
 from app.db.session import Database  # noqa: TC001 — taskiq resolves annotations at runtime
+from app.infrastructure.locks.redis_lock import RedisDistributedLock
+from app.infrastructure.redis import get_redis
 from app.tasks.broker import broker
 from app.tasks.deps import create_digest_bot_client, get_app_config, get_db
 
 logger = get_logger(__name__)
+
+_TOPIC_WATCH_LOCK_KEY = "task_lock:topic_change_watch"
+# Renewed by the lock's heartbeat while the run is in progress; the TTL only
+# bounds how long a dead worker can hold it.
+_TOPIC_WATCH_LOCK_TTL = 900
 
 
 @broker.task(task_name="ratatoskr.topic_change_watch.run")
@@ -25,7 +32,26 @@ async def run_topic_change_watches(
     cfg: AppConfig = TaskiqDepends(get_app_config),
     db: Database = TaskiqDepends(get_db),
 ) -> None:
-    """Send one brief per active topic when scored subscription signals changed."""
+    """Send one brief per active topic when scored subscription signals changed.
+
+    Serialized for the same reason as the RSS poll it shares a pipeline with:
+    the "already delivered" watermark is the previous ``DigestDelivery`` row,
+    which is written after the brief is sent, so two overlapping runs both read
+    the same watermark and both send.
+    """
+    redis_client = await get_redis(cfg)
+    async with RedisDistributedLock(
+        redis_client, _TOPIC_WATCH_LOCK_KEY, _TOPIC_WATCH_LOCK_TTL
+    ) as acquired:
+        if not acquired:
+            logger.info(
+                "topic_change_watch_skipped_lock_held", extra={"key": _TOPIC_WATCH_LOCK_KEY}
+            )
+            return
+        await _topic_change_watch_body(cfg, db)
+
+
+async def _topic_change_watch_body(cfg: AppConfig, db: Database) -> None:
     if not getattr(cfg.signal_ingestion, "any_enabled", False):
         return
     bot = create_digest_bot_client(cfg)

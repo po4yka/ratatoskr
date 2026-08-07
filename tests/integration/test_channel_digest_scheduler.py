@@ -182,6 +182,7 @@ class TestSchedulerCronWiring:
         cfg.git_backup.enabled = False
         cfg.ai_backup.enabled = False
         cfg.langgraph_checkpoint.enabled = False
+        cfg.background.job_reaper_enabled = False
         return cfg
 
     @pytest.mark.asyncio

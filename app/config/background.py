@@ -37,6 +37,24 @@ class BackgroundProcessorConfig(BaseModel):
     stuck_processing_seconds: int = Field(
         default=900, validation_alias="BACKGROUND_STUCK_PROCESSING_SECONDS"
     )
+    job_reaper_enabled: bool = Field(
+        default=True,
+        validation_alias="BACKGROUND_JOB_REAPER_ENABLED",
+        description=(
+            "Periodic sweep that re-kicks Telegram URL jobs whose retry backoff has "
+            "elapsed and fails imports abandoned mid-run. Without it a URL request "
+            "gets one attempt regardless of max_attempts, because nothing else "
+            "re-drives a Telegram-owned row."
+        ),
+    )
+    job_reaper_cron: str = Field(
+        default="*/5 * * * *",
+        validation_alias="BACKGROUND_JOB_REAPER_CRON",
+        description=(
+            "Sweep cadence. Five minutes keeps the wait after a transient failure "
+            "short relative to the 30s retry backoff without polling hard."
+        ),
+    )
 
     @field_validator(
         "lock_ttl_ms",

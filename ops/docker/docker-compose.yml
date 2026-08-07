@@ -208,7 +208,7 @@ services:
       - |
         set -e
         python -m app.cli.migrate_db --check
-        exec python -m app.cli.taskiq_worker app.tasks.digest app.tasks.rss app.tasks.github_sync app.tasks.reconcile_vector_index app.tasks.reconcile_source_content app.tasks.import_tasks app.tasks.x_bookmarks_sync app.tasks.x_wiki_sync app.tasks.url_processing app.tasks.langgraph_prune app.tasks.git_backup_sync app.tasks.ai_backup_sync app.tasks.purge_raw_data app.tasks.topic_change_watch
+        exec python -m app.cli.taskiq_worker app.tasks.digest app.tasks.rss app.tasks.github_sync app.tasks.reconcile_vector_index app.tasks.reconcile_source_content app.tasks.import_tasks app.tasks.x_bookmarks_sync app.tasks.x_wiki_sync app.tasks.url_processing app.tasks.langgraph_prune app.tasks.git_backup_sync app.tasks.ai_backup_sync app.tasks.purge_raw_data app.tasks.topic_change_watch app.tasks.job_reaper
     env_file:
       - path: ../../.env
         required: false

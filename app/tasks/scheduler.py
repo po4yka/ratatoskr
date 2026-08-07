@@ -241,6 +241,17 @@ class _AppConfigScheduleSource(ScheduleSource):
                 )
             )
 
+        if cfg.background.job_reaper_enabled:
+            tasks.append(
+                ScheduledTask(
+                    task_name="ratatoskr.jobs.reap",
+                    cron=cfg.background.job_reaper_cron,
+                    labels={"job": "job_reaper"},
+                    args=[],
+                    kwargs={},
+                )
+            )
+
         if cfg.langgraph_checkpoint.enabled:
             tasks.append(
                 ScheduledTask(

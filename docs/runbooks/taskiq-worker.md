@@ -53,6 +53,15 @@ The production default is one Taskiq process with four concurrent async tasks. `
 
 Keep one process for the normal I/O-bound workload. Add processes only when CPU profiling justifies them and PostgreSQL/OpenRouter capacity has been raised accordingly. The worker prints both per-process and aggregate limits at startup. Dead-letter persistence reuses the process's shared database facade instead of opening a second pool.
 
+## Stalled-job sweep
+
+`ratatoskr.jobs.reap` (`app/tasks/job_reaper.py`, every 5 minutes by default) is what actually delivers retries for Telegram URL requests, and what ends imports whose worker died mid-run. Neither happens without it:
+
+- A failed URL job is parked at `failed` with a `retry_after` backoff and attempts remaining, but nothing else re-drives it. `process_url_request` is kicked once at enqueue; taskiq's retry middleware never fires because the task body handles its own failures rather than raising; and the API's polling queue skips Telegram-owned rows on purpose, since only the taskiq worker can edit their placeholder. With the sweep off, `BACKGROUND_RETRY_ATTEMPTS` is effectively 1.
+- An import killed without raising (OOM) leaves `import_jobs.status='processing'` with no lease or TTL to notice. The sweep fails rows idle longer than `BACKGROUND_STUCK_PROCESSING_SECONDS` so the user sees the failure and can re-upload; re-uploading is safe because bookmarks dedupe on their URL hash.
+
+Disable with `BACKGROUND_JOB_REAPER_ENABLED=false` only to stop a requeue loop, and expect no URL retries while it is off. Log lines: `job_reaper_swept`, `job_reaper_requeued_request`, `job_reaper_failed_stale_imports`, `job_reaper_skipped_lock_held`.
+
 ## Escalation
 
 Page the maintainer if Redis data corruption is suspected, multiple unrelated tasks immediately dead-letter after restart, a non-idempotent task may have partially persisted data, or clearing locks/streams manually is required.
