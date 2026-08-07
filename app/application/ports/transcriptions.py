@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 from dataclasses import dataclass
@@ -264,13 +265,29 @@ class TranscribeOptions:
     num_speakers: int | None = None
 
 
-async def audio_sha256(path: Path) -> str:
-    """Return the SHA-256 hex digest of a local audio file."""
+def _sha256_of_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as fh:
         for chunk in iter(lambda: fh.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+async def audio_sha256(path: Path) -> str:
+    """Return the SHA-256 hex digest of a local audio file.
+
+    The read and the hashing both run in a worker thread. They used to run
+    inline in this coroutine, which stalled the caller's whole event loop for as
+    long as the file took to read and digest -- proportional to file size and to
+    the storage latency underneath.
+
+    That loop is the bot's: both callers reach here from Telethon's single event
+    loop, ``create_transcription_job`` directly and ``TranscriptionJobService``
+    via the ``run_forever`` task started during bot startup. So hashing a
+    multi-minute voice message froze message routing for every user, on every
+    transcription request rather than only under load.
+    """
+    return await asyncio.to_thread(_sha256_of_file, path)
 
 
 def redact_local_paths(value: str) -> str:
