@@ -13,7 +13,16 @@ _encoder_loaded = False
 
 
 def _get_encoder() -> Any | None:
-    """Lazily load tiktoken encoder. Returns None if tiktoken unavailable."""
+    """Lazily load tiktoken encoder. Returns None if tiktoken unavailable.
+
+    Catches broadly on purpose. On a cold cache ``tiktoken.get_encoding``
+    downloads the BPE ranks over HTTPS, and the enumerated exception types did
+    not include the network errors that raises -- so a host with no egress (an
+    offline Pi, a CI runner without internet) got a ``requests`` exception out
+    of a helper whose entire contract is "fall back to the heuristic". Token
+    counting is advisory budget estimation; nothing about it justifies
+    propagating a failure to the caller.
+    """
     global _encoder, _encoder_loaded
     if _encoder_loaded:
         return _encoder
@@ -22,8 +31,8 @@ def _get_encoder() -> Any | None:
         import tiktoken
 
         _encoder = tiktoken.get_encoding("cl100k_base")
-    except (ImportError, AttributeError, ValueError, KeyError, RuntimeError):
-        logger.debug("encoder package unavailable, using heuristic budget estimation")
+    except Exception:
+        logger.debug("encoder unavailable, using heuristic budget estimation", exc_info=True)
         _encoder = None
     return _encoder
 
