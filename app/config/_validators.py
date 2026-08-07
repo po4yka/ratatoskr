@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from app.core.logging_utils import get_logger
@@ -43,6 +44,41 @@ def _ensure_api_key(value: str, *, name: str) -> str:
         msg = f"{name} API key contains invalid characters"
         raise ValueError(msg)
     return value
+
+
+def parse_str_sequence(value: Any, *, name: str) -> Any:
+    """Turn an env-supplied scalar into a list for a sequence-typed config field.
+
+    Pydantic rejects a bare string for ``list[str]``/``tuple[str, ...]``, and a
+    field without a ``mode="before"`` parser therefore fails validation the
+    moment an operator sets its env var -- which aborts ``load_config()`` for the
+    bot, the API and the worker alike. Every env-settable sequence field routes
+    through here so setting one can never be the thing that stops the service.
+
+    Accepts a JSON array, a comma-separated string, or an already-parsed
+    sequence (the shape ratatoskr.yaml produces). Values are stripped and empty
+    entries dropped; nothing else is normalized, because callers differ -- hosts
+    are case-insensitive, regex patterns are not.
+    """
+    if value is None or value == "":
+        return []
+    if isinstance(value, list | tuple | set | frozenset):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith("["):
+            try:
+                decoded = json.loads(text)
+            except json.JSONDecodeError as exc:
+                msg = f"{name} looks like a JSON array but does not parse: {exc}"
+                raise ValueError(msg) from exc
+            if not isinstance(decoded, list):
+                msg = f"{name} JSON value must be an array"
+                raise ValueError(msg)
+            return [str(item).strip() for item in decoded if str(item).strip()]
+        return [part.strip() for part in text.split(",") if part.strip()]
+    msg = f"{name} must be a comma-separated string, a JSON array, or a list"
+    raise ValueError(msg)
 
 
 def _parse_allowed_user_ids(value: Any) -> tuple[int, ...]:

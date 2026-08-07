@@ -17,10 +17,13 @@ All four are disabled by default and can be toggled independently.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from ._validators import parse_str_sequence
 
 
 class PriorityRule(BaseModel):
@@ -32,9 +35,11 @@ class PriorityRule(BaseModel):
     collection order (stable sort).
 
     Set via ``ratatoskr.yaml`` under ``git_backup.priorities`` (a list of
-    dicts). Cannot be set meaningfully via a flat env var because it is a
-    structured list; ``GIT_BACKUP_PRIORITIES`` is accepted only as a sentinel
-    to keep pydantic happy — prefer YAML.
+    dicts) — that stays the readable way to express structured rules.
+    ``GIT_BACKUP_PRIORITIES`` also works, as a JSON array of the same objects.
+    It was previously described as "accepted only as a sentinel to keep pydantic
+    happy", but setting it actually aborted startup, so it is parsed explicitly
+    now.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -574,6 +579,49 @@ class GitBackupConfig(BaseModel):
         # costs one API round trip rather than two.
         cleaned = (str(v).strip().lower() for v in value)
         return list(dict.fromkeys(org for org in cleaned if org))
+
+    @field_validator("ignore", mode="before")
+    @classmethod
+    def _parse_ignore(cls, value: Any) -> Any:
+        """Accept the JSON-array form this field's own description documents, plus CSV.
+
+        Without a parser the documented ``GIT_BACKUP_IGNORE='["some-fork"]'``
+        aborted load_config() for every process, so the field had no working env
+        syntax at all -- only ratatoskr.yaml.
+
+        Entries stay verbatim (no lower-casing): these are regex/substring
+        patterns matched against mirror names and clone URLs.
+        """
+        return parse_str_sequence(value, name="GIT_BACKUP_IGNORE")
+
+    @field_validator("priorities", mode="before")
+    @classmethod
+    def _parse_priorities(cls, value: Any) -> Any:
+        """Decode the JSON-array form so a flat env var cannot abort startup.
+
+        PriorityRule's docstring calls GIT_BACKUP_PRIORITIES a sentinel that is
+        "accepted only to keep pydantic happy", but an unparsed string failed
+        validation and took the whole service down instead. YAML remains the
+        sensible way to set structured rules; this only makes the env path
+        behave as advertised.
+        """
+        if value is None or value == "":
+            return []
+        if isinstance(value, str):
+            text = value.strip()
+            try:
+                decoded = json.loads(text)
+            except json.JSONDecodeError as exc:
+                msg = (
+                    "GIT_BACKUP_PRIORITIES must be a JSON array of rule objects "
+                    f"(prefer ratatoskr.yaml for structured rules): {exc}"
+                )
+                raise ValueError(msg) from exc
+            if not isinstance(decoded, list):
+                msg = "GIT_BACKUP_PRIORITIES JSON value must be an array"
+                raise ValueError(msg)
+            return decoded
+        return value
 
     @field_validator("extra_repos")
     @classmethod

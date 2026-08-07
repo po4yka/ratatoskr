@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from ._secret_marker import SECRET_MARKER
+from ._validators import parse_str_sequence
 
 SCRAPER_PROVIDER_TOKENS = {
     "reddit",
@@ -497,6 +498,26 @@ class ScraperConfig(BaseModel):
             normalized.append(token)
 
         return normalized
+
+    @field_validator("webwright_host_allowlist", mode="before")
+    @classmethod
+    def _parse_webwright_host_allowlist(cls, value: Any) -> tuple[str, ...]:
+        """Parse the CSV/JSON/list forms the field's own docs tell operators to use.
+
+        Without this the field rejected every non-empty value, so enabling
+        Webwright by the documented double-gate (flag + non-empty allowlist)
+        aborted load_config() for the bot, the API and the worker.
+
+        Lower-cased here rather than only at match time: WebwrightProvider
+        normalizes, but BrowseCommandHandler forwards the tuple to the sidecar
+        verbatim, so a mixed-case entry would gate /browse differently from the
+        scraper rung.
+        """
+        hosts = parse_str_sequence(value, name="WEBWRIGHT_HOST_ALLOWLIST")
+        seen: dict[str, None] = {}
+        for host in hosts:
+            seen.setdefault(host.lower(), None)
+        return tuple(seen)
 
     @field_validator("js_heavy_hosts", mode="before")
     @classmethod
