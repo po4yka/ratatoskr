@@ -27,6 +27,7 @@ import time
 import weakref
 from typing import Any, cast
 
+from app.adapters.content.scraper.browser_concurrency import run_holding_slot
 from app.adapters.content.scraper.runtime_tuning import tuned_provider_timeout
 from app.adapters.content.scraper.target_safety import reject_unsafe_target_url
 from app.adapters.external.firecrawl.models import FirecrawlResult
@@ -269,11 +270,19 @@ class ScraplingProvider:
                 self._stealth_fetcher_cls = _lazy_import_stealthy_fetcher()
             stealth_cls = self._stealth_fetcher_cls
             # Cap concurrent browser launches so a burst of fallbacks cannot
-            # exhaust file descriptors / RAM / thread-pool workers.
-            async with _stealth_launch_semaphore():
-                html, text = await loop.run_in_executor(
-                    None, _sync_fetch_stealth, url, stealth_cls, max_bytes
-                )
+            # exhaust file descriptors / RAM / thread-pool workers. The slot is
+            # held until the worker thread finishes rather than until the await
+            # is cancelled -- `async with` here handed it back while the browser
+            # was still alive, letting the real count exceed the cap. Unlike the
+            # Playwright rung there is no cooperative abort to add: StealthyFetcher
+            # owns the browser loop, so a cancelled fetch runs to completion.
+            html, text = await run_holding_slot(
+                _stealth_launch_semaphore(),
+                _sync_fetch_stealth,
+                url,
+                stealth_cls,
+                max_bytes,
+            )
 
         return html, text
 

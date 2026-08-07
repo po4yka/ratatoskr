@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
+import threading
 from types import ModuleType
 from unittest.mock import MagicMock, patch
 
@@ -150,3 +152,65 @@ async def test_skips_selector_wait_when_no_js_heavy_hosts_configured() -> None:
         await provider.scrape_markdown("https://www.techradar.com/some-article")
 
     page_mock.wait_for_selector.assert_not_called()
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_aborted_render_stops_before_capturing_content() -> None:
+    """A cancelled scrape must stop the browser early, not burn its timeout budget.
+
+    The chain cancels every loser of the browser-tier race, so without a
+    cooperative check the orphaned Chromium kept scrolling and waiting for
+    networkidle for the full budget while nobody wanted the result.
+    """
+    mock_module, page_mock = _setup_playwright_mocks()
+    Provider = _import_provider(mock_module)
+
+    with patch.dict(
+        sys.modules,
+        {"playwright": MagicMock(), "playwright.sync_api": mock_module},
+    ):
+        provider = Provider(timeout_sec=30, min_text_length=10)
+        abort = threading.Event()
+        abort.set()
+
+        html = provider._render_html_sync("https://example.com/article", abort=abort)
+
+    assert html is None
+    page_mock.content.assert_not_called()
+    page_mock.evaluate.assert_not_called()
+    page_mock.close.assert_called_once()
+
+
+@pytest.mark.asyncio(loop_scope="function")
+async def test_cancelling_render_signals_the_worker_thread() -> None:
+    """_render_html must flip the abort flag the sync body polls."""
+    mock_module, _page = _setup_playwright_mocks()
+    Provider = _import_provider(mock_module)
+
+    entered = threading.Event()
+    observed: list[threading.Event] = []
+
+    def _slow_render(_url: str, **kwargs: object) -> None:
+        abort = kwargs["abort"]
+        assert isinstance(abort, threading.Event)
+        observed.append(abort)
+        entered.set()
+        abort.wait(timeout=5)
+
+    with patch.dict(
+        sys.modules,
+        {"playwright": MagicMock(), "playwright.sync_api": mock_module},
+    ):
+        provider = Provider(timeout_sec=30, min_text_length=10)
+        provider._render_html_sync = _slow_render  # type: ignore[method-assign]
+
+        task = asyncio.create_task(provider._render_html("https://example.com/article"))
+        await asyncio.to_thread(entered.wait, 5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    assert observed, "the sync body never received an abort flag"
+    assert observed[0].is_set(), (
+        "cancelling the scrape left the flag clear, so the browser runs on unwatched"
+    )

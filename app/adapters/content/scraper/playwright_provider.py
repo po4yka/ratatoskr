@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 import time
 import weakref
 from typing import cast
 
+from app.adapters.content.scraper.browser_concurrency import run_holding_slot
 from app.adapters.content.scraper.runtime_tuning import is_js_heavy_url, tuned_provider_timeout
 from app.adapters.content.scraper.target_safety import reject_unsafe_target_url
 from app.adapters.external.firecrawl.models import FirecrawlResult
@@ -178,13 +180,24 @@ class PlaywrightProvider:
     async def _render_html(
         self, url: str, *, mobile: bool = True, timeout_sec: float | None = None
     ) -> str | None:
-        async with _playwright_launch_semaphore():
-            return await asyncio.to_thread(
+        # The chain races the browser tier and cancels the losers, so cancellation
+        # here is routine. Two separate problems follow from that, and both need
+        # handling: the slot must not come back before the browser is gone
+        # (run_holding_slot), and the browser should stop as soon as nobody wants
+        # the result rather than burn its full timeout budget (abort).
+        abort = threading.Event()
+        try:
+            return await run_holding_slot(
+                _playwright_launch_semaphore(),
                 self._render_html_sync,
                 url,
                 mobile=mobile,
                 timeout_sec=timeout_sec,
+                abort=abort,
             )
+        except asyncio.CancelledError:
+            abort.set()
+            raise
 
     def _render_html_sync(
         self,
@@ -192,6 +205,7 @@ class PlaywrightProvider:
         *,
         mobile: bool = True,
         timeout_sec: float | None = None,
+        abort: threading.Event | None = None,
     ) -> str | None:
         try:
             from playwright.sync_api import (
@@ -217,6 +231,10 @@ class PlaywrightProvider:
             _bf_available = True
         except Exception:
             _bf_available = False
+
+        def _aborted() -> bool:
+            """Whether the awaiting coroutine was cancelled and nobody wants this page."""
+            return abort is not None and abort.is_set()
 
         effective_timeout_sec = timeout_sec if timeout_sec is not None else self._timeout_sec
         timeout_ms = max(1_000, int(effective_timeout_sec * 1000))
@@ -290,6 +308,13 @@ class PlaywrightProvider:
                 # resolver and a private IP to the browser is not caught. Mitigate
                 # at the network layer (host firewall / egress policy) for a
                 # complete defence.
+                # Killing in-flight requests is what actually shortens a cancelled
+                # page load: page.goto() has no cooperative interrupt, but it
+                # cannot outlive the requests it is waiting on.
+                if _aborted():
+                    route.abort("blockedbyclient")  # type: ignore[attr-defined]
+                    return
+
                 req_url: str = route.request.url  # type: ignore[attr-defined]
                 safe, reason = is_url_safe(req_url)
                 if not safe:
@@ -321,6 +346,9 @@ class PlaywrightProvider:
                         exc_info=True,
                     )
 
+                if _aborted():
+                    return None
+
                 # For JS-heavy hosts, wait for article content to hydrate
                 # before scrolling. Best-effort -- timeout is non-fatal.
                 if self._js_heavy_hosts and is_js_heavy_url(url, self._js_heavy_hosts):
@@ -337,10 +365,15 @@ class PlaywrightProvider:
 
                 # Try to trigger lazy-loading content without over-delaying fallback chain.
                 for _ in range(4):
+                    if _aborted():
+                        return None
                     page.evaluate("window.scrollBy(0, window.innerHeight)")
                     page.wait_for_timeout(250)
                 page.evaluate("window.scrollTo(0, 0)")
                 page.wait_for_timeout(200)
+
+                if _aborted():
+                    return None
 
                 try:
                     page.wait_for_load_state("networkidle", timeout=min(5_000, timeout_ms))
@@ -350,6 +383,9 @@ class PlaywrightProvider:
                         extra={"url": url},
                         exc_info=True,
                     )
+
+                if _aborted():
+                    return None
 
                 return cast("str | None", page.content())
             finally:
