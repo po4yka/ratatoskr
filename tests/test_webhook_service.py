@@ -76,38 +76,38 @@ class TestValidateWebhookUrl:
             "http://127.0.0.1/hook",
         ],
     )
-    def test_valid_urls(self, url):
+    async def test_valid_urls(self, url):
         with patch(
             "app.domain.services.webhook_service.is_webhook_url_safe",
-            return_value=(True, None),
+            new=AsyncMock(return_value=(True, None)),
         ):
-            valid, error = validate_webhook_url(url)
+            valid, error = await validate_webhook_url(url)
         assert valid is True
         assert error is None
 
-    def test_rejects_ftp_scheme(self):
-        valid, error = validate_webhook_url("ftp://example.com")
+    async def test_rejects_ftp_scheme(self):
+        valid, error = await validate_webhook_url("ftp://example.com")
         assert valid is False
         assert error is not None
 
-    def test_rejects_private_ip(self):
-        valid, error = validate_webhook_url("http://10.0.0.1/hook")
+    async def test_rejects_private_ip(self):
+        valid, error = await validate_webhook_url("http://10.0.0.1/hook")
         assert valid is False
 
-    def test_rejects_private_ip_192(self):
-        valid, error = validate_webhook_url("http://192.168.1.1/hook")
+    async def test_rejects_private_ip_192(self):
+        valid, error = await validate_webhook_url("http://192.168.1.1/hook")
         assert valid is False
 
-    def test_rejects_empty_string(self):
-        valid, error = validate_webhook_url("")
+    async def test_rejects_empty_string(self):
+        valid, error = await validate_webhook_url("")
         assert valid is False
 
-    def test_rejects_no_scheme(self):
-        valid, error = validate_webhook_url("example.com/webhook")
+    async def test_rejects_no_scheme(self):
+        valid, error = await validate_webhook_url("example.com/webhook")
         assert valid is False
 
-    def test_rejects_http_non_localhost(self):
-        valid, error = validate_webhook_url("http://example.com/hook")
+    async def test_rejects_http_non_localhost(self):
+        valid, error = await validate_webhook_url("http://example.com/hook")
         assert valid is False
 
 

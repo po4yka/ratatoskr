@@ -89,10 +89,13 @@ def validate_condition(condition: dict[str, Any]) -> tuple[bool, str | None]:
     return True, None
 
 
-def validate_action(action: dict[str, Any]) -> tuple[bool, str | None]:
+async def validate_action(action: dict[str, Any]) -> tuple[bool, str | None]:
     """Validate a single action dict.
 
     Must contain ``type`` (in *VALID_ACTION_TYPES*) and a ``params`` dict.
+
+    Async because ``send_webhook`` actions resolve the target hostname, which
+    must stay off the event loop.
     """
     action_type = action.get("type")
     if not action_type or action_type not in VALID_ACTION_TYPES:
@@ -104,13 +107,13 @@ def validate_action(action: dict[str, Any]) -> tuple[bool, str | None]:
         url = str(params.get("url", "")).strip()
         if not url:
             return False, "send_webhook action requires params.url"
-        valid_url, url_error = validate_webhook_url(url)
+        valid_url, url_error = await validate_webhook_url(url)
         if not valid_url:
             return False, f"invalid send_webhook URL: {url_error}"
     return True, None
 
 
-def validate_rule(
+async def validate_rule(
     event_type: str,
     conditions: list[dict[str, Any]],
     actions: list[dict[str, Any]],
@@ -136,7 +139,7 @@ def validate_rule(
             return False, err
 
     for act in actions:
-        ok, err = validate_action(act)
+        ok, err = await validate_action(act)
         if not ok:
             return False, err
 

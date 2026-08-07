@@ -10,7 +10,7 @@ from ipaddress import ip_address
 from typing import Any
 from urllib.parse import urlparse
 
-from app.security.ssrf import is_url_safe
+from app.security.ssrf import is_url_safe_async
 
 
 def generate_webhook_secret() -> str:
@@ -29,17 +29,21 @@ def verify_signature(secret: str, payload_bytes: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
-def is_webhook_url_safe(url: str) -> tuple[bool, str | None]:
+async def is_webhook_url_safe(url: str) -> tuple[bool, str | None]:
     """Check if a webhook URL resolves to a public (non-internal) IP.
 
-    Delegates to :func:`app.security.ssrf.is_url_safe` for the actual
+    Delegates to :func:`app.security.ssrf.is_url_safe_async` for the actual
     network-level checks.  This thin wrapper is kept so that callers within
     the webhook domain retain a self-documenting name.
+
+    Async because the DNS lookup underneath must not run on the event loop:
+    every caller is an async API handler, and a slow or blackholed resolver
+    would otherwise freeze the whole process for the resolver timeout.
     """
-    return is_url_safe(url)
+    return await is_url_safe_async(url)
 
 
-def validate_webhook_url(url: str) -> tuple[bool, str | None]:
+async def validate_webhook_url(url: str) -> tuple[bool, str | None]:
     """Validate webhook URL.
 
     Rejects non-HTTPS (except localhost), empty hostnames, private IPs,
@@ -82,7 +86,7 @@ def validate_webhook_url(url: str) -> tuple[bool, str | None]:
     # DNS resolution SSRF check: resolve hostname and verify all IPs are public.
     # Skip for loopback addresses -- already validated above.
     if not is_localhost:
-        safe, err = is_webhook_url_safe(url)
+        safe, err = await is_webhook_url_safe(url)
         if not safe:
             return False, err
 

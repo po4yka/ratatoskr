@@ -106,7 +106,7 @@ async def create_rule(
     rule_repo: Any = Depends(get_rule_repository),
 ) -> dict[str, Any]:
     """Create a new automation rule."""
-    ok, err = validate_rule(body.event_type, body.conditions, body.actions, body.match_mode)
+    ok, err = await validate_rule(body.event_type, body.conditions, body.actions, body.match_mode)
     if not ok:
         raise ValidationError(err or "Invalid rule definition")
 
@@ -186,7 +186,9 @@ async def update_rule(
     final_actions = update_fields.get("actions", rule.get("actions_json") or [])
     final_match_mode = update_fields.get("match_mode", rule["match_mode"])
 
-    ok, err = validate_rule(final_event_type, final_conditions, final_actions, final_match_mode)
+    ok, err = await validate_rule(
+        final_event_type, final_conditions, final_actions, final_match_mode
+    )
     if not ok:
         raise ValidationError(err or "Invalid rule definition")
 

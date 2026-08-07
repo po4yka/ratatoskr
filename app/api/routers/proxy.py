@@ -17,7 +17,7 @@ from app.api.exceptions import (
 )
 from app.api.routers.auth import get_current_user
 from app.core.logging_utils import get_logger, log_exception
-from app.security.ssrf import is_url_safe, make_safe_async_client
+from app.security.ssrf import is_url_safe_async, make_safe_async_client
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -67,7 +67,7 @@ async def proxy_image(
             current_url = url
             for _ in range(max_redirects + 1):
                 # SSRF protection: block requests to internal/private networks
-                safe, reason = is_url_safe(current_url)
+                safe, reason = await is_url_safe_async(current_url)
                 if not safe:
                     logger.warning(
                         "proxy_blocked_ssrf", extra={"url": current_url, "reason": reason}

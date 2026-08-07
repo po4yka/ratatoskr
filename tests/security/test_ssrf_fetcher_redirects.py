@@ -66,7 +66,11 @@ async def test_proxy_image_blocks_redirect_to_private_ip() -> None:
 
     with (
         patch("httpx.AsyncClient", return_value=_AsyncContext(client)),
-        patch("app.api.routers.proxy.is_url_safe", side_effect=[_SAFE_URL, _PRIVATE_REDIRECT]),
+        patch(
+            "app.api.routers.proxy.is_url_safe_async",
+            new_callable=AsyncMock,
+            side_effect=[_SAFE_URL, _PRIVATE_REDIRECT],
+        ),
     ):
         with pytest.raises(AuthorizationError, match="blocked address"):
             await proxy_image("https://example.com/image.jpg")

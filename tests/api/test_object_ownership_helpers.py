@@ -10,6 +10,11 @@ from app.api.routers import backups, webhooks
 from app.api.services.import_export_service import ImportExportService
 
 
+async def _url_is_safe(_url: str) -> tuple[bool, str | None]:
+    """Async stand-in for ``is_webhook_url_safe`` (it resolves DNS off-loop)."""
+    return True, None
+
+
 class _BackupRepository:
     def __init__(self, backup: dict | None) -> None:
         self.async_get_backup = AsyncMock(return_value=backup)
@@ -99,7 +104,7 @@ async def test_send_test_webhook_uses_safe_client(monkeypatch: pytest.MonkeyPatc
         calls["client_kwargs"] = kwargs
         return _Client()
 
-    monkeypatch.setattr("app.api.routers.webhooks.is_webhook_url_safe", lambda _url: (True, None))
+    monkeypatch.setattr("app.api.routers.webhooks.is_webhook_url_safe", _url_is_safe)
     monkeypatch.setattr("app.api.routers.webhooks.make_safe_async_client", _safe_client_factory)
 
     result = await webhooks.send_test_webhook(
@@ -137,7 +142,7 @@ async def test_send_test_webhook_logs_dns_rebinding_block(
         }
     )
 
-    monkeypatch.setattr("app.api.routers.webhooks.is_webhook_url_safe", lambda _url: (True, None))
+    monkeypatch.setattr("app.api.routers.webhooks.is_webhook_url_safe", _url_is_safe)
     monkeypatch.setattr(
         "app.security.ssrf.socket.getaddrinfo",
         lambda host, port, **_kwargs: [

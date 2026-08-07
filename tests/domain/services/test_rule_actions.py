@@ -23,6 +23,16 @@ from app.domain.services.rule_engine import (
     validate_rule,
 )
 
+
+def _webhook_url_verdict(verdict: tuple[bool, str | None]):
+    """Async stand-in for ``validate_webhook_url`` (it resolves DNS off-loop)."""
+
+    async def _validate(_url: str) -> tuple[bool, str | None]:
+        return verdict
+
+    return _validate
+
+
 # ---------------------------------------------------------------------------
 # validate_event_type
 # ---------------------------------------------------------------------------
@@ -92,80 +102,80 @@ class TestValidateCondition:
 
 
 class TestValidateAction:
-    def test_valid_action_for_each_type(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_valid_action_for_each_type(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
             "app.domain.services.rule_engine.validate_webhook_url",
-            lambda _url: (True, None),
+            _webhook_url_verdict((True, None)),
         )
 
         for action_type in VALID_ACTION_TYPES:
             action = {"type": action_type, "params": {"key": "value"}}
             if action_type == "send_webhook":
                 action["params"] = {"url": "https://example.com/hook"}
-            valid, err = validate_action(action)
+            valid, err = await validate_action(action)
             assert valid, f"action type '{action_type}' should be valid"
             assert err is None
 
-    def test_valid_add_tag(self) -> None:
+    async def test_valid_add_tag(self) -> None:
         action = {"type": "add_tag", "params": {"tag_name": "test"}}
-        valid, err = validate_action(action)
+        valid, err = await validate_action(action)
         assert valid
 
-    def test_valid_send_webhook(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_valid_send_webhook(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
             "app.domain.services.rule_engine.validate_webhook_url",
-            lambda _url: (True, None),
+            _webhook_url_verdict((True, None)),
         )
 
         action = {"type": "send_webhook", "params": {"url": "https://example.com/hook"}}
-        valid, err = validate_action(action)
+        valid, err = await validate_action(action)
         assert valid
 
-    def test_send_webhook_requires_url(self) -> None:
+    async def test_send_webhook_requires_url(self) -> None:
         action = {"type": "send_webhook", "params": {}}
 
-        valid, err = validate_action(action)
+        valid, err = await validate_action(action)
 
         assert not valid
         assert "params.url" in (err or "")
 
-    def test_send_webhook_rejects_unsafe_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_send_webhook_rejects_unsafe_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
             "app.domain.services.rule_engine.validate_webhook_url",
-            lambda _url: (False, "private IP address"),
+            _webhook_url_verdict((False, "private IP address")),
         )
 
         action = {"type": "send_webhook", "params": {"url": "http://127.0.0.1/hook"}}
 
-        valid, err = validate_action(action)
+        valid, err = await validate_action(action)
 
         assert not valid
         assert "invalid send_webhook URL" in (err or "")
         assert "private IP address" in (err or "")
 
-    def test_invalid_type(self) -> None:
+    async def test_invalid_type(self) -> None:
         action = {"type": "invalid_action", "params": {}}
-        valid, err = validate_action(action)
+        valid, err = await validate_action(action)
         assert not valid
         assert "invalid_action" in (err or "")
 
-    def test_missing_type(self) -> None:
-        valid, err = validate_action({"params": {}})
+    async def test_missing_type(self) -> None:
+        valid, err = await validate_action({"params": {}})
         assert not valid
 
-    def test_missing_params(self) -> None:
+    async def test_missing_params(self) -> None:
         action = {"type": "add_tag"}
-        valid, err = validate_action(action)
+        valid, err = await validate_action(action)
         assert not valid
         assert "params" in (err or "")
 
-    def test_params_not_dict(self) -> None:
+    async def test_params_not_dict(self) -> None:
         action = {"type": "add_tag", "params": "not_a_dict"}
-        valid, err = validate_action(action)
+        valid, err = await validate_action(action)
         assert not valid
 
-    def test_empty_dict(self) -> None:
-        valid, err = validate_action({})
+    async def test_empty_dict(self) -> None:
+        valid, err = await validate_action({})
         assert not valid
 
 
@@ -183,8 +193,8 @@ class TestValidateRule:
     def _action(tag: str = "auto") -> dict:
         return {"type": "add_tag", "params": {"tag_name": tag}}
 
-    def test_valid_rule(self) -> None:
-        valid, err = validate_rule(
+    async def test_valid_rule(self) -> None:
+        valid, err = await validate_rule(
             "summary.created",
             [self._condition()],
             [self._action()],
@@ -193,8 +203,8 @@ class TestValidateRule:
         assert valid
         assert err is None
 
-    def test_valid_rule_any_mode(self) -> None:
-        valid, err = validate_rule(
+    async def test_valid_rule_any_mode(self) -> None:
+        valid, err = await validate_rule(
             "summary.created",
             [self._condition()],
             [self._action()],
@@ -202,8 +212,8 @@ class TestValidateRule:
         )
         assert valid
 
-    def test_invalid_event_type(self) -> None:
-        valid, err = validate_rule(
+    async def test_invalid_event_type(self) -> None:
+        valid, err = await validate_rule(
             "bad.event",
             [self._condition()],
             [self._action()],
@@ -211,8 +221,8 @@ class TestValidateRule:
         )
         assert not valid
 
-    def test_invalid_match_mode(self) -> None:
-        valid, err = validate_rule(
+    async def test_invalid_match_mode(self) -> None:
+        valid, err = await validate_rule(
             "summary.created",
             [self._condition()],
             [self._action()],
@@ -221,9 +231,9 @@ class TestValidateRule:
         assert not valid
         assert "match_mode" in (err or "")
 
-    def test_too_many_conditions(self) -> None:
+    async def test_too_many_conditions(self) -> None:
         conditions = [self._condition(f"test{i}") for i in range(MAX_CONDITIONS_PER_RULE + 1)]
-        valid, err = validate_rule(
+        valid, err = await validate_rule(
             "summary.created",
             conditions,
             [self._action()],
@@ -232,9 +242,9 @@ class TestValidateRule:
         assert not valid
         assert "conditions" in (err or "").lower()
 
-    def test_too_many_actions(self) -> None:
+    async def test_too_many_actions(self) -> None:
         actions = [self._action(f"tag{i}") for i in range(MAX_ACTIONS_PER_RULE + 1)]
-        valid, err = validate_rule(
+        valid, err = await validate_rule(
             "summary.created",
             [self._condition()],
             actions,
@@ -243,8 +253,8 @@ class TestValidateRule:
         assert not valid
         assert "actions" in (err or "").lower()
 
-    def test_invalid_condition_propagates(self) -> None:
-        valid, err = validate_rule(
+    async def test_invalid_condition_propagates(self) -> None:
+        valid, err = await validate_rule(
             "summary.created",
             [{"type": "bad_type", "operator": "eq", "value": "x"}],
             [self._action()],
@@ -252,8 +262,8 @@ class TestValidateRule:
         )
         assert not valid
 
-    def test_invalid_action_propagates(self) -> None:
-        valid, err = validate_rule(
+    async def test_invalid_action_propagates(self) -> None:
+        valid, err = await validate_rule(
             "summary.created",
             [self._condition()],
             [{"type": "bad_action", "params": {}}],
@@ -261,13 +271,15 @@ class TestValidateRule:
         )
         assert not valid
 
-    def test_invalid_send_webhook_url_propagates(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_invalid_send_webhook_url_propagates(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(
             "app.domain.services.rule_engine.validate_webhook_url",
-            lambda _url: (False, "private IP address"),
+            _webhook_url_verdict((False, "private IP address")),
         )
 
-        valid, err = validate_rule(
+        valid, err = await validate_rule(
             "summary.created",
             [self._condition()],
             [{"type": "send_webhook", "params": {"url": "http://127.0.0.1/hook"}}],
@@ -277,8 +289,8 @@ class TestValidateRule:
         assert not valid
         assert "invalid send_webhook URL" in (err or "")
 
-    def test_empty_conditions_and_actions(self) -> None:
-        valid, err = validate_rule("summary.created", [], [], "all")
+    async def test_empty_conditions_and_actions(self) -> None:
+        valid, err = await validate_rule("summary.created", [], [], "all")
         assert valid
 
     def test_constants_reasonable(self) -> None:

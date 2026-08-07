@@ -28,7 +28,7 @@ def _auth_headers(user_id: int, client_id: str = "test") -> dict[str, str]:
 
 
 def _allow_public_urls():
-    return patch("app.api.routers.content.aggregation.is_url_safe", return_value=(True, None))
+    return patch("app.api.routers.content.aggregation.is_url_safe_async", return_value=(True, None))
 
 
 def _set_runtime(client, db) -> SimpleNamespace | None:
@@ -372,7 +372,7 @@ async def test_create_aggregation_bundle_endpoint_rejects_blocked_ssrf_url(
                 new=aggregate_mock,
             ),
             patch(
-                "app.api.routers.content.aggregation.is_url_safe",
+                "app.api.routers.content.aggregation.is_url_safe_async",
                 return_value=(False, "Localhost is not allowed"),
             ),
             patch(

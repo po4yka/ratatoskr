@@ -45,7 +45,7 @@ from app.di.repositories import (
 from app.di.shared import build_async_audit_sink
 from app.domain.models.source import AggregationSessionStatus  # noqa: TC001
 from app.observability.metrics import record_request
-from app.security.ssrf import is_url_safe
+from app.security.ssrf import is_url_safe_async
 
 router = APIRouter()
 
@@ -89,7 +89,7 @@ def _resolve_db(request: Request) -> Any:
     return get_session_manager(request)
 
 
-def _ensure_public_bundle_urls(
+async def _ensure_public_bundle_urls(
     *,
     body: CreateAggregationBundleRequest,
     audit: Any,
@@ -97,7 +97,7 @@ def _ensure_public_bundle_urls(
 ) -> None:
     for position, item in enumerate(body.items):
         url = str(item.url)
-        safe, reason = is_url_safe(url)
+        safe, reason = await is_url_safe_async(url)
         if safe:
             continue
         details = {
@@ -214,7 +214,7 @@ async def create_aggregation_bundle(
             "lang_preference": body.lang_preference,
         }
         audit("INFO", "aggregation.bundle_create_requested", audit_context)
-        _ensure_public_bundle_urls(body=body, audit=audit, audit_context=audit_context)
+        await _ensure_public_bundle_urls(body=body, audit=audit, audit_context=audit_context)
         submissions = [
             SourceSubmission.from_url(
                 str(item.url),

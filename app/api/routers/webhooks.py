@@ -145,7 +145,7 @@ async def create_subscription(
 ) -> dict[str, Any]:
     """Create a new webhook subscription."""
     # Validate URL
-    url_valid, url_error = validate_webhook_url(body.url)
+    url_valid, url_error = await validate_webhook_url(body.url)
     if not url_valid:
         raise APIException(
             message=f"Invalid webhook URL: {url_error}",
@@ -212,7 +212,7 @@ async def update_subscription(
     if body.name is not None:
         update_fields["name"] = body.name
     if body.url is not None:
-        url_valid, url_error = validate_webhook_url(body.url)
+        url_valid, url_error = await validate_webhook_url(body.url)
         if not url_valid:
             raise APIException(
                 message=f"Invalid webhook URL: {url_error}",
@@ -283,7 +283,7 @@ async def send_test_webhook(
     # Pre-delivery policy check catches stale/unsafe URLs before opening a
     # socket. The safe transport below re-resolves and pins the connection
     # target, closing the DNS-rebinding window between check and connect.
-    url_safe, ssrf_error = is_webhook_url_safe(sub["url"])
+    url_safe, ssrf_error = await is_webhook_url_safe(sub["url"])
     if not url_safe:
         raise APIException(
             message=f"Webhook URL failed SSRF safety check: {ssrf_error}",

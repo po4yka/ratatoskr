@@ -12,7 +12,7 @@ _SAFE_URL = (True, None)
 @pytest.fixture(autouse=True)
 def _bypass_ssrf_check():
     """Bypass SSRF DNS resolution in proxy tests -- tested separately in test_ssrf.py."""
-    with patch("app.api.routers.proxy.is_url_safe", return_value=_SAFE_URL):
+    with patch("app.api.routers.proxy.is_url_safe_async", return_value=_SAFE_URL):
         yield
 
 
