@@ -7,7 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 from app.core.git_url_safety import assert_safe_git_url
-from app.core.url_utils import validate_url_input
+from app.core.url_utils import validate_url_input_syntactic
 
 BULK_API_MAX_IDS = 500
 
@@ -26,7 +26,7 @@ class SubmitURLRequest(BaseModel):
         url_str = str(v)
         if not url_str.startswith(("http://", "https://")):
             raise ValueError("URL must start with http:// or https://")
-        validate_url_input(url_str)
+        validate_url_input_syntactic(url_str)
         return v
 
 
@@ -350,7 +350,7 @@ class AggregationBundleItemRequest(BaseModel):
         url_str = str(value)
         if not url_str.startswith(("http://", "https://")):
             raise ValueError("URL must start with http:// or https://")
-        validate_url_input(url_str)
+        validate_url_input_syntactic(url_str)
         return value
 
     @field_validator("metadata")
@@ -437,7 +437,7 @@ class QuickSaveRequest(BaseModel):
     @field_validator("url")
     @classmethod
     def validate_quick_save_url(cls, value: str) -> str:
-        validate_url_input(value)
+        validate_url_input_syntactic(value)
         return value
 
 

@@ -1,5 +1,7 @@
 """Tests for API request Pydantic models."""
 
+import socket
+
 import pytest
 from pydantic import ValidationError
 
@@ -205,9 +207,6 @@ class TestQuickSaveRequest:
         assert req.summarize is True
 
     def test_with_tags(self):
-        # Uses a resolvable host: QuickSaveRequest.url now validates via
-        # validate_url_input, which fails closed on DNS failure (test.com does
-        # not resolve in CI); this test exercises tag_names, not URL handling.
         req = QuickSaveRequest(url="https://example.com", tag_names=["a", "b"])
         assert len(req.tag_names) == 2
 
@@ -258,6 +257,31 @@ class TestURLSSRFValidation:
     def test_quick_save_rejects_private_target(self) -> None:
         with pytest.raises(ValidationError):
             QuickSaveRequest(url="http://127.0.0.1/admin")
+
+    def test_url_validators_never_resolve(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Pydantic validators are sync and run inside async request handlers.
+
+        A resolve here would block the event loop for every URL-carrying API
+        request (CLAUDE.md operating rule 6). SSRF enforcement belongs to the
+        fetch path, which checks the resolved address at connect time.
+        """
+
+        # Record rather than raise: _check_url_hostname swallows every
+        # non-ValueError exception, so a raising stub would be silently eaten
+        # and the test would pass against a resolving validator.
+        resolved: list[object] = []
+
+        def record(host: object, *args: object, **kwargs: object) -> list[object]:
+            resolved.append(host)
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
+
+        monkeypatch.setattr(socket, "getaddrinfo", record)
+
+        SubmitURLRequest.model_validate({"input_url": "https://example.com/a"})
+        AggregationBundleItemRequest.model_validate({"url": "https://example.com/a"})
+        QuickSaveRequest(url="https://example.com/a")
+
+        assert resolved == []
 
 
 class TestSyncApplyRequest:
