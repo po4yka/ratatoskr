@@ -39,6 +39,12 @@ Runs at session start to validate the development environment:
 
 Displays quick command reference (`make format`, `make lint`, etc.).
 
+## SessionStart Hook (cloud sessions only)
+
+A second `SessionStart` hook, `.claude/hooks/cloud-bootstrap.sh`, runs `make bootstrap` on `startup` and `resume` -- but only inside a Claude Code cloud session, detected via `CLAUDE_CODE_REMOTE_SESSION_ID`. Local sessions exit immediately and print nothing, so the operator keeps owning their own compose stack.
+
+It exists because a cloud environment snapshots the filesystem, not running processes: images pulled by the environment's setup script survive between sessions, but the containers do not. Postgres, Redis, and Qdrant therefore have to be started once per session, which is what makes `make test-integration` usable in the cloud. The hook never fails the session -- on a non-zero `make bootstrap` it reports the failure, points at the log, and says only `make test-unit` is trustworthy. Its 600 s timeout covers the compose pull plus migrations plus demo seed on a cold environment.
+
 ## PostToolUse Hook (Edit | Write | apply_patch)
 
 After modifying Python files, extracts every edited path (including paths embedded in an `apply_patch` payload) and runs the project `.venv/bin/ruff check --select F,E` for quick lint feedback. Shows issues immediately and suggests `make format` for auto-fix.

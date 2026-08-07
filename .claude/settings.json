@@ -42,6 +42,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/cloud-bootstrap.sh\"",
+            "timeout": 600
+          }
+        ]
       }
     ],
     "PostToolUse": [
