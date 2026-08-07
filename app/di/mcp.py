@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any
 
-from app.config import DatabaseConfig, load_config
+from app.config import load_config
 from app.core.embedding_space import resolve_embedding_space_identifier
 from app.core.logging_utils import get_logger
 from app.db.session import Database
@@ -29,7 +29,17 @@ def build_mcp_runtime(
     """Build the MCP runtime with a PostgreSQL database facade and lazy service state."""
     if cfg is None:
         cfg = load_config(allow_stub_telegram=True)
-    database_config = DatabaseConfig(dsn=database_dsn) if database_dsn is not None else cfg.database
+    # Override only the DSN, keeping the operator's configured pool sizing. A bare
+    # DatabaseConfig(dsn=...) rebuilt every other field from its code defaults, so
+    # the three MCP servers were the only role ignoring ratatoskr.yaml's
+    # database.pool_size/max_overflow -- each opened 8+4=12 connections against the
+    # 5+3=8 every other process honours. Backwards, given they are the most
+    # resource-starved services in the deployment (0.20 CPU, 256M).
+    database_config = (
+        cfg.database.model_copy(update={"dsn": database_dsn})
+        if database_dsn is not None
+        else cfg.database
+    )
     database = Database(config=database_config)
     return McpRuntime(
         cfg=cfg,

@@ -64,14 +64,29 @@ Each adapter returns `VectorIndexedEntityStats`; the reconciler aggregates them 
 
 ## Connection budget
 
-Ratatoskr uses two (or three) Postgres connection pools simultaneously:
+Budget per **process**, then multiply. Every process that builds a `Database` opens its own independent SQLAlchemy pool against the same Postgres, so the fleet total is what has to fit under `max_connections` — an earlier version of this section quoted a single-process number as if it were the whole deployment.
+
+Per process:
 
 | Pool | Driver | Connections | Gating |
 |------|--------|-------------|--------|
-| SQLAlchemy (application) | asyncpg | `DB_POOL_SIZE` (default 5) | always on |
-| LangGraph checkpointer | psycopg3 | min=1, **max=5** (ADR-0004) | `LANGGRAPH_CHECKPOINT_ENABLED=true` |
+| SQLAlchemy (application) | asyncpg | `pool_size` + `max_overflow` = **8** (5 + 3) | always on |
+| LangGraph checkpointer | psycopg3 | min=1, **max=5** (ADR-0004) | `LANGGRAPH_CHECKPOINT_ENABLED=true` (off by default) |
 
-Total worst-case (both enabled): ~10 connections. Budget `max_connections` in Postgres accordingly (default 100 is fine).
+The 5 + 3 comes from `database.pool_size` / `database.max_overflow` in `config/ratatoskr.yaml`, which is baked into the image and is where you change it. `DATABASE_POOL_SIZE` / `DATABASE_MAX_OVERFLOW` exist as env aliases but **cannot override the YAML**: non-secret YAML deliberately outranks the environment (`app/config/settings.py`, `_build_nested_from_env`). Code defaults (8 + 4) apply only when the YAML key is absent.
+
+Fleet totals, SQLAlchemy pools only:
+
+| Topology | Processes holding a pool | Ceiling |
+|---|---|---|
+| `docker compose up` / `make pi-deploy` | `ratatoskr`, `worker`, `mobile-api` | 3 x 8 = **24** |
+| `make pi-deploy-all` (adds the `mcp*` profiles) | + `mcp`, `mcp-write`, `mcp-public` | 6 x 8 = **48** |
+
+`scheduler` runs the taskiq scheduler binary and opens no pool. `migrate` is one-shot. On top of the fleet, leave room for `pg-backup`'s `pg_dump`, `postgres-exporter`, ad-hoc CLI runs (`migrate_db`, `backfill_*`), and Postgres's own `superuser_reserved_connections` (3).
+
+The `postgres` service ships no `max_connections` override, so the `postgres:17-alpine` default of 100 applies — enough for both topologies with headroom. Raising a pool size or adding another pool-holding service changes that arithmetic: `tests/ops/test_connection_budget_contract.py` derives the fleet ceiling from the compose files and fails if it stops fitting. `RatatoskrPostgresConnectionsHigh` (warning at 80% for 10m, `with-monitoring` profile) is the runtime backstop, not the budget.
+
+`app.cli.taskiq_worker` prints its own share on startup (`database_connections=N/process (M total)`) — the same per-process-times-processes model.
 
 The LangGraph checkpointer pool is a **separate dedicated psycopg3 `AsyncConnectionPool`** — distinct from the asyncpg `Database` pool. Its max size of 5 is the ADR-0004 authoritative value (`LANGGRAPH_CHECKPOINT_POOL_MAX_SIZE`). When `LANGGRAPH_CHECKPOINT_ENABLED=false` (the default), no psycopg3 pool is opened for the checkpointer and these connections are not consumed.
 

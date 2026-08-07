@@ -49,7 +49,7 @@ The production default is one Taskiq process with four concurrent async tasks. `
 
 - maximum Taskiq tasks = `TASKIQ_WORKER_PROCESSES * TASKIQ_MAX_ASYNC_TASKS_PER_PROCESS`;
 - maximum external calls = `TASKIQ_WORKER_PROCESSES * MAX_CONCURRENT_CALLS`;
-- maximum PostgreSQL connections = `TASKIQ_WORKER_PROCESSES * (DATABASE_POOL_SIZE + DATABASE_MAX_OVERFLOW)`.
+- maximum PostgreSQL connections = `TASKIQ_WORKER_PROCESSES * (pool_size + max_overflow)`, where those two come from `database.*` in `ratatoskr.yaml` unless `TASKIQ_DATABASE_POOL_SIZE_PER_PROCESS` / `TASKIQ_DATABASE_MAX_OVERFLOW_PER_PROCESS` override them. The bare `DATABASE_POOL_SIZE` / `DATABASE_MAX_OVERFLOW` env vars do not: non-secret YAML outranks the environment. This is the worker's share only — see the fleet budget in `docs/vector-index-sync.md`.
 
 Keep one process for the normal I/O-bound workload. Add processes only when CPU profiling justifies them and PostgreSQL/OpenRouter capacity has been raised accordingly. The worker prints both per-process and aggregate limits at startup. Dead-letter persistence reuses the process's shared database facade instead of opening a second pool.
 

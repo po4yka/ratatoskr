@@ -145,8 +145,8 @@ names in YAML unless a deployment genuinely needs an environment override.
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` | SQLAlchemy `postgresql+asyncpg://...` DSN. |
-| `DATABASE_POOL_SIZE` | Async pool size per process. |
-| `DATABASE_MAX_OVERFLOW` | Extra connections allowed per process. |
+| `DATABASE_POOL_SIZE` | Async pool size per process. Set in `ratatoskr.yaml` (`database.pool_size`) — that key outranks this env var, so setting only the env var changes nothing. |
+| `DATABASE_MAX_OVERFLOW` | Extra connections allowed per process. Same precedence caveat as `DATABASE_POOL_SIZE`. |
 | `REDIS_URL` | Redis connection used by the configured role. |
 | `REDIS_PASSWORD` | Password for the bundled Redis service and clients. |
 | `REDIS_REQUIRED` | Fail startup when Redis is unavailable. |
