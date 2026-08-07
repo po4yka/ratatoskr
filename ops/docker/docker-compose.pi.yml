@@ -119,6 +119,12 @@ services:
     # each launched an in-container Chromium alongside the resident embedding
     # model, orphaning the in-flight request. Raise the ceiling here; the Pi host
     # has 15 GiB. Deep-merges over the base deploy block (keeps its cpus limit).
+    #
+    # This service is no longer the only one that needs the headroom, and for
+    # single URLs it is no longer even the one that scrapes: `worker` and
+    # `mobile-api` below carry the same cap for the same reason. The bot keeps it
+    # because batch URLs still run in-process here (url_handler.handle_single_url
+    # only enqueues when `not batch_mode`). See the shared rationale on `worker`.
     deploy:
       resources:
         limits:
@@ -180,6 +186,21 @@ services:
       qdrant:
         condition: service_started
         required: false
+    # Same OOM hardening as the bot, and this is where the exposure actually
+    # lives now. `config/ratatoskr.yaml` sets `url_worker_enqueue_enabled: true`,
+    # so every non-batch Telegram URL is summarized by the `app.tasks.url_processing`
+    # task in THIS container -- scrape included. The workload moved; the 3 GiB
+    # ceiling that was raised for the bot did not follow it, leaving the container
+    # that does the scraping on the base 1 GiB cap that the incident already broke.
+    # Same ingredients as that incident: MAX_CONCURRENT_CALLS=2 above, Playwright
+    # and Crawlee launching in-container Chromium (both enabled above), and a
+    # resident sentence-transformers model. tests/ops/
+    # test_browser_scrape_memory_headroom_contract.py derives the affected set from
+    # the compose commands so the next relocation cannot silently strand the cap.
+    deploy:
+      resources:
+        limits:
+          memory: 3G
 
   mobile-api:
     environment:
@@ -219,6 +240,15 @@ services:
       qdrant:
         condition: service_started
         required: false
+    # Same OOM hardening as the bot and worker: API-submitted URLs are summarized
+    # in-process here by BackgroundProcessor (app/di/api.py -> app/api/background/
+    # executor.py), which drives the same scraper chain and can launch the same
+    # in-container Chromium under the same MAX_CONCURRENT_CALLS=2. The base cap is
+    # 1024M, so this container had even less headroom than the one that OOM-killed.
+    deploy:
+      resources:
+        limits:
+          memory: 3G
 
   prometheus:
     # The Pi runs Qdrant as a native systemd service rather than a Compose
