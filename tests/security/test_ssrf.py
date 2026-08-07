@@ -12,6 +12,10 @@ import pytest
 
 from app.security.ssrf import allow_private_network_urls, is_ip_blocked, is_url_safe
 
+# Every lookup here is patched; the marker keeps it that way. This is the file
+# whose unpatched lookups poisoned fork() for a whole session.
+pytestmark = pytest.mark.no_network
+
 
 def resolve_ip_literal(host: str, port: Any, **_: Any) -> list[Any]:
     """Return what the system resolver returns for a host that is already an address.

@@ -347,6 +347,22 @@ def enforce_no_network(request, monkeypatch):
     asyncio internals, local fixtures, and respx's mock transport keep working.
     monkeypatch restores the real socket functions on teardown, so the guard
     never leaks into unmarked tests.
+
+    Name resolution is guarded too, not just connects. A lookup that never reaches
+    a connect is still egress -- it hands the queried hostname to whatever resolver
+    is configured -- and the resolve is also where the damage starts on macOS: a
+    *successful* ``getaddrinfo`` for a non-loopback host **with a port** initialises
+    Network.framework, whose ``pthread_atfork`` child handler then segfaults every
+    later ``fork()`` in the process. That is the failure this suite hit through
+    ``tests/security/test_ssrf.py`` (see ``resolve_ip_literal`` there); one stray
+    lookup at 63% of a run cost sixteen unrelated tests that shelled out. Blocking
+    at the lookup catches it at the source rather than at a connect that may never
+    happen.
+
+    The guard rejects every non-loopback lookup, not only the port-carrying shape
+    that arms the fork bomb: ``port=None`` is harmless to ``fork()`` but is still a
+    live query, and a marked test has no business making one. No marked test
+    currently resolves anything at all, so this costs nothing today.
     """
     if request.node.get_closest_marker("no_network") is None:
         return
@@ -354,6 +370,7 @@ def enforce_no_network(request, monkeypatch):
     real_connect = socket.socket.connect
     real_connect_ex = socket.socket.connect_ex
     real_create_connection = socket.create_connection
+    real_getaddrinfo = socket.getaddrinfo
 
     def _guard(address: Any, call: str) -> None:
         if not _connect_target_is_loopback(address):
@@ -375,9 +392,21 @@ def enforce_no_network(request, monkeypatch):
         _guard(address, "socket.create_connection")
         return real_create_connection(address, *args, **kwargs)
 
+    def guarded_getaddrinfo(host, port, *args, **kwargs):
+        if str(host) not in _LOOPBACK_HOSTS:
+            raise BlockedNetworkError(
+                f"socket.getaddrinfo({host!r}, {port!r}) blocked: this test is marked "
+                "@pytest.mark.no_network and must not resolve non-loopback hostnames. "
+                "Patch the resolver (tests/security/test_ssrf.py::resolve_ip_literal is "
+                "the pattern for an address that is already an address), or remove the "
+                "marker if the lookup is intended."
+            )
+        return real_getaddrinfo(host, port, *args, **kwargs)
+
     monkeypatch.setattr(socket.socket, "connect", guarded_connect)
     monkeypatch.setattr(socket.socket, "connect_ex", guarded_connect_ex)
     monkeypatch.setattr(socket, "create_connection", guarded_create_connection)
+    monkeypatch.setattr(socket, "getaddrinfo", guarded_getaddrinfo)
 
 
 @pytest.fixture(autouse=True)

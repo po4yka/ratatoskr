@@ -42,14 +42,37 @@ class TestNoNetworkGuardActive:
         finally:
             s.close()
 
+    def test_getaddrinfo_for_non_loopback_host_is_blocked(self) -> None:
+        # A lookup that never reaches a connect is still egress, and on macOS the
+        # resolve is where the damage starts: a successful non-loopback lookup with
+        # a port arms Network.framework's at-fork child handler, which then
+        # segfaults every later fork() in the process.
+        with pytest.raises(BlockedNetworkError):
+            socket.getaddrinfo("example.com", 443)
+
+    def test_getaddrinfo_is_blocked_even_without_a_port(self) -> None:
+        # port=None does not arm the fork bomb, but it is still a live query and a
+        # marked test must not make one. Pins the guard as deliberately broader
+        # than the crash it was prompted by.
+        with pytest.raises(BlockedNetworkError):
+            socket.getaddrinfo("example.com", None)
+
+    def test_loopback_getaddrinfo_is_not_blocked(self) -> None:
+        # Loopback resolution never leaves the host, so local collaborators keep
+        # working unchanged.
+        assert socket.getaddrinfo("127.0.0.1", 6333)
+        assert socket.getaddrinfo("localhost", 6333)
+
     def test_guard_is_installed_for_marked_tests(self) -> None:
         assert socket.create_connection.__name__ == "guarded_create_connection"
+        assert socket.getaddrinfo.__name__ == "guarded_getaddrinfo"
 
 
 def test_guard_is_absent_without_the_marker() -> None:
     # An unmarked test must see the real socket API: the fixture only patches for
     # marked tests and monkeypatch restores the originals on teardown.
     assert socket.create_connection.__name__ != "guarded_create_connection"
+    assert socket.getaddrinfo.__name__ != "guarded_getaddrinfo"
     assert "connect" not in vars(socket.socket) or (
         socket.socket.connect.__name__ != "guarded_connect"
     )
