@@ -155,6 +155,26 @@ class EmbeddingRepositoryAdapter:
             )
             return list(result.scalars())
 
+    async def async_mark_summary_embeddings_unindexed(self, summary_ids: list[int]) -> list[int]:
+        """Clear the indexed marker after a summary's point was removed from Qdrant.
+
+        Keeps the reconciler's prune pass self-terminating: without it every run
+        would re-scan and re-delete the same already-pruned summaries forever.
+        Safe to leave the embedding row itself in place -- ``_fetch_stale_summaries``
+        excludes soft-deleted summaries, so clearing the marker cannot cause a
+        deleted summary to be re-embedded and re-indexed.
+        """
+        if not summary_ids:
+            return []
+        async with self._database.transaction() as session:
+            result = await session.execute(
+                update(SummaryEmbedding)
+                .where(SummaryEmbedding.summary_id.in_(summary_ids))
+                .values(last_indexed_at=None, index_status="pending")
+                .returning(SummaryEmbedding.summary_id)
+            )
+            return list(result.scalars())
+
     async def async_get_summary_embedding(self, summary_id: int) -> dict[str, Any] | None:
         """Retrieve embedding for a summary."""
         async with self._database.session() as session:

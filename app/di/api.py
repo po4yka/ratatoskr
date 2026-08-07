@@ -357,6 +357,8 @@ async def build_api_runtime(
     sync_apply_service = SyncApplyService(
         summary_repository=summary_repository,
         serializer=sync_serializer,
+        # A sync delete must un-index the summary too, like every other delete path.
+        vector_store=search.vector_store,
     )
     sync_deps = SyncDeps(
         user_repository=user_repository,

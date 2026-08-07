@@ -109,6 +109,13 @@ async def test_reconcile_returns_zero_when_no_stale_rows(monkeypatch):
     from app.tasks.reconcile_vector_index import _reconcile_body
 
     monkeypatch.setattr(
+        # The prune pass runs before the staleness scan and issues its own query,
+        # which the MagicMock db cannot serve; covered in
+        # tests/api/services/test_sync_delete_unindexes_summary.py.
+        "app.tasks.reconcile_vector_index._prune_deleted_summary_vectors",
+        AsyncMock(return_value=0),
+    )
+    monkeypatch.setattr(
         "app.tasks.reconcile_vector_index._fetch_stale_summaries",
         AsyncMock(return_value=[]),
     )
@@ -133,6 +140,13 @@ async def test_reconcile_batches_stale_rows_with_force_true(monkeypatch):
         # Non-dict payload — the generator counts it as skipped, not failed.
         {"summary_id": 33, "json_payload": "legacy-string", "lang_detected": None},
     ]
+    monkeypatch.setattr(
+        # The prune pass runs before the staleness scan and issues its own query,
+        # which the MagicMock db cannot serve; covered in
+        # tests/api/services/test_sync_delete_unindexes_summary.py.
+        "app.tasks.reconcile_vector_index._prune_deleted_summary_vectors",
+        AsyncMock(return_value=0),
+    )
     monkeypatch.setattr(
         "app.tasks.reconcile_vector_index._fetch_stale_summaries",
         AsyncMock(return_value=rows),
@@ -176,6 +190,13 @@ async def test_reconcile_surfaces_batch_failure_counts(monkeypatch):
     from app.application.services.summary_embedding_generator import EmbeddingBatchResult
     from app.tasks.reconcile_vector_index import _reconcile_body
 
+    monkeypatch.setattr(
+        # The prune pass runs before the staleness scan and issues its own query,
+        # which the MagicMock db cannot serve; covered in
+        # tests/api/services/test_sync_delete_unindexes_summary.py.
+        "app.tasks.reconcile_vector_index._prune_deleted_summary_vectors",
+        AsyncMock(return_value=0),
+    )
     monkeypatch.setattr(
         "app.tasks.reconcile_vector_index._fetch_stale_summaries",
         AsyncMock(
@@ -243,6 +264,13 @@ async def test_reconcile_records_metrics_for_forced_run(monkeypatch):
             "last_indexed_at": now - dt.timedelta(minutes=30),
         },
     ]
+    monkeypatch.setattr(
+        # The prune pass runs before the staleness scan and issues its own query,
+        # which the MagicMock db cannot serve; covered in
+        # tests/api/services/test_sync_delete_unindexes_summary.py.
+        "app.tasks.reconcile_vector_index._prune_deleted_summary_vectors",
+        AsyncMock(return_value=0),
+    )
     monkeypatch.setattr(
         "app.tasks.reconcile_vector_index._fetch_stale_summaries",
         AsyncMock(return_value=rows),

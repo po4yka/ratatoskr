@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any, cast
 
 from app.api.models.responses import SyncApplyItemResult, SyncEntityEnvelope
+from app.application.ports.summary_index import delete_summary_vectors
 from app.core.time_utils import UTC
 
 from .serializer import SyncEnvelopeSerializer
@@ -31,6 +32,11 @@ class SyncEntityAdapterContext:
     page_mode: bool = False
     limit: int | None = None
     through_version: int | None = None
+    # Needed so a delete arriving over sync un-indexes the summary like every
+    # other delete entrypoint does. Optional because the collect-side adapters
+    # never touch the vector store; when it is absent the delete still applies to
+    # Postgres and the reconciler's prune pass removes the point later.
+    vector_store: Any = None
 
 
 async def _collect_page_projection(
@@ -297,6 +303,16 @@ async def _apply_summary_change(
         is_read=is_read,
         is_favorited=is_favorited,
     )
+
+    if is_deleted:
+        # Soft-deleting in Postgres alone leaves the Qdrant point serving the
+        # deleted title/tldr through /v1/search and RAG grounding, and nothing
+        # ever prunes it on its own. Best-effort, exactly like the bulk-delete
+        # and single-delete paths -- a vector-store outage must not fail the
+        # user's delete, and the reconciler prunes what does not land here.
+        request_id = summary.get("request_id")
+        if isinstance(request_id, int):
+            await delete_summary_vectors(context.vector_store, [request_id])
 
     return SyncApplyItemResult(
         entity_type=change.entity_type,

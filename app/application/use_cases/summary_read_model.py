@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
-import logging
 from typing import TYPE_CHECKING, Any
 
+from app.application.ports.summary_index import delete_summary_vectors
 from app.application.use_cases._tracing import use_case_span
-
-logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from app.application.ports.requests import (
@@ -385,14 +382,4 @@ class SummaryReadModelUseCase:
             )
 
     async def _delete_vectors_by_request_ids(self, request_ids: list[int]) -> None:
-        vector_store = self._vector_store
-        if vector_store is None or not request_ids:
-            return
-        try:
-            await asyncio.to_thread(vector_store.delete_by_request_ids, request_ids)
-        except Exception:
-            logger.warning(
-                "summary_vector_delete_failed",
-                extra={"request_count": len(request_ids)},
-                exc_info=True,
-            )
+        await delete_summary_vectors(self._vector_store, request_ids)

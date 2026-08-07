@@ -419,12 +419,24 @@ class SummaryRepositoryAdapter:
     async def async_get_summaries_by_request_ids(
         self, request_ids: list[int]
     ) -> dict[int, dict[str, Any]]:
-        """Get summaries by their request IDs."""
+        """Get non-deleted summaries by their request IDs.
+
+        The ``is_deleted`` predicate is defense in depth for the vector-store
+        hydration path: /v1/search and /v1/search/semantic resolve Qdrant hits
+        through here, so a point that outlives its summary -- a delete that never
+        reached Qdrant, or one still waiting on the reconciler's prune -- would
+        otherwise serve the deleted content straight back to the user.
+        """
         if not request_ids:
             return {}
         async with self._database.session() as session:
             rows = (
-                await session.execute(select(Summary).where(Summary.request_id.in_(request_ids)))
+                await session.execute(
+                    select(Summary).where(
+                        Summary.request_id.in_(request_ids),
+                        Summary.is_deleted.is_(False),
+                    )
+                )
             ).scalars()
             return {row.request_id: model_to_dict(row) or {} for row in rows}
 

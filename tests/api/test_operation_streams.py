@@ -98,6 +98,12 @@ async def test_vector_reconcile_body_publishes_scanned_requeued_and_done(
             )
         ),
     )
+    # This test pins the scan/requeue event sequence; the prune pass runs first in
+    # _reconcile_body and issues its own query, which the MagicMock db cannot serve.
+    # Its own behavior is covered in test_sync_delete_unindexes_summary.py.
+    monkeypatch.setattr(
+        reconcile_vector_index, "_prune_deleted_summary_vectors", AsyncMock(return_value=0)
+    )
     monkeypatch.setattr(reconcile_vector_index, "_sync_summary_vectors", AsyncMock(return_value=1))
     monkeypatch.setattr(reconcile_vector_index, "_record_reconcile_metrics", lambda *_, **__: None)
 

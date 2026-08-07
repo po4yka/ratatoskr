@@ -23,6 +23,7 @@ class SyncApplyService:
         crawl_result_repository: Any = None,
         llm_repository: Any = None,
         aux_read_port: Any = None,
+        vector_store: Any = None,
         adapters: tuple[SyncEntityAdapter, ...] | None = None,
     ) -> None:
         self._summary_repo = summary_repository
@@ -38,6 +39,7 @@ class SyncApplyService:
             llm_repository=llm_repository,
             aux_read_port=aux_read_port,
             serializer=self._serializer,
+            vector_store=vector_store,
         )
 
     async def apply_change(self, change: Any, user_id: int) -> SyncApplyItemResult:

@@ -409,6 +409,36 @@ async def test_summary_repository_bulk_delete_skips_cross_user_ids(database: Dat
 
 
 @pytest.mark.asyncio
+async def test_get_summaries_by_request_ids_excludes_deleted(database: Database) -> None:
+    """Search hydrates Qdrant hits through here, so a deleted row must not come back.
+
+    Defense in depth for the vector path: a point that outlives its summary --
+    a delete that never reached Qdrant, or one still awaiting the reconciler's
+    prune -- would otherwise serve the deleted content straight back via
+    /v1/search and /v1/search/semantic.
+    """
+    repo = SummaryRepositoryAdapter(database)
+    live = await _create_summary_for_user(
+        database, repo, user_id=7501, url="https://search.example/live"
+    )
+    deleted = await _create_summary_for_user(
+        database, repo, user_id=7501, url="https://search.example/deleted"
+    )
+    live_summary = await repo.async_get_summary_by_id(live)
+    deleted_summary = await repo.async_get_summary_by_id(deleted)
+    assert live_summary is not None
+    assert deleted_summary is not None
+
+    await repo.async_bulk_soft_delete_summaries(user_id=7501, summary_ids=[deleted])
+
+    found = await repo.async_get_summaries_by_request_ids(
+        [int(live_summary["request_id"]), int(deleted_summary["request_id"])]
+    )
+
+    assert set(found) == {int(live_summary["request_id"])}
+
+
+@pytest.mark.asyncio
 async def test_aggregation_source_bundle_is_scoped_to_summary_owner(
     database: Database,
 ) -> None:

@@ -21,6 +21,7 @@ from app.adapters.content.streaming.operation_streams import (
     publish_operation_event,
     vector_reconcile_topic,
 )
+from app.application.ports.summary_index import delete_summary_vectors
 from app.config import AppConfig  # noqa: TC001 — taskiq resolves type hints at runtime
 from app.core.logging_utils import get_logger
 from app.db.models import Request, Summary, SummaryEmbedding
@@ -115,6 +116,12 @@ async def _reconcile_body(
         return summary
 
     batch_size = cfg.vector_reconcile.batch_size
+
+    # Prune before the staleness scan, not after: the scan returns nothing on a
+    # converged index and returns early below, which would skip the prune on
+    # exactly the deployments that have nothing else to do.
+    await _prune_deleted_summary_vectors(cfg, db, limit=batch_size, correlation_id=correlation_id)
+
     _publish_vector_reconcile_event(correlation_id, "phase", {"phase": "scanning"})
     rows = await _fetch_stale_summaries(db, limit=batch_size)
     oldest_lag_seconds = compute_vector_reconcile_oldest_lag_seconds(rows)
@@ -206,6 +213,67 @@ def _vector_terminal_payload(summary: ReconcileSummary) -> dict[str, int]:
         "skipped": summary.skipped,
         "failed": summary.failed,
     }
+
+
+async def _prune_deleted_summary_vectors(
+    cfg: AppConfig,
+    db: Database,
+    *,
+    limit: int,
+    correlation_id: str,
+) -> int:
+    """Drop Qdrant points belonging to soft-deleted summaries. Returns the count.
+
+    The convergence half of summary deletion. Every delete entrypoint calls
+    ``delete_summary_vectors`` on the fast path, but that call is best-effort and
+    swallows vector-store failures, and deployments predating the mobile-sync fix
+    already carry points whose summary was deleted long ago. Without this pass a
+    deleted summary's title and tldr keep surfacing in RAG grounding, which reads
+    payloads straight off the point with no Postgres re-check.
+
+    Deliberately a positive query -- "which indexed rows are deleted" -- and NOT
+    the ``indexed_ids - expected_ids`` set difference the git-mirror reconciler
+    uses. ``expected_ids`` there is an unordered LIMIT scan, so once a deployment
+    holds more summaries than the scan limit, that difference reports live
+    summaries as orphans and would delete their vectors.
+    """
+    if limit <= 0:
+        return 0
+    async with db.session() as session:
+        rows = (
+            await session.execute(
+                select(Summary.id.label("summary_id"), Summary.request_id)
+                .join(SummaryEmbedding, SummaryEmbedding.summary_id == Summary.id)
+                .where(
+                    Summary.is_deleted.is_(True),
+                    SummaryEmbedding.last_indexed_at.is_not(None),
+                )
+                .order_by(Summary.id.asc())
+                .limit(limit)
+            )
+        ).all()
+    if not rows:
+        return 0
+
+    request_ids = [int(row.request_id) for row in rows if isinstance(row.request_id, int)]
+    summary_ids = [int(row.summary_id) for row in rows]
+    runtime = _build_runtime(cfg, db)
+    if not await delete_summary_vectors(runtime.vector_store, request_ids):
+        # Leave last_indexed_at set so the next run retries instead of recording a
+        # deletion that never reached Qdrant.
+        logger.warning(
+            "vector_reconcile_prune_failed",
+            extra={"cid": correlation_id, "summaries": len(summary_ids)},
+        )
+        return 0
+
+    await runtime.embedding_repository.async_mark_summary_embeddings_unindexed(summary_ids)
+    logger.info(
+        "vector_reconcile_pruned_deleted",
+        extra={"cid": correlation_id, "summaries": len(summary_ids)},
+    )
+    _publish_vector_reconcile_event(correlation_id, "phase", {"phase": "pruned", "rows": len(rows)})
+    return len(summary_ids)
 
 
 async def _fetch_stale_summaries(db: Database, *, limit: int) -> list[dict[str, Any]]:
