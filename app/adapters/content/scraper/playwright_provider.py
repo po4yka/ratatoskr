@@ -10,13 +10,14 @@ default for sites that are not strongly bot-protected.  Set ``slim=False``
 from __future__ import annotations
 
 import asyncio
-import os
 import threading
 import time
-import weakref
 from typing import cast
 
-from app.adapters.content.scraper.browser_concurrency import run_holding_slot
+from app.adapters.content.scraper.browser_concurrency import (
+    chromium_launch_semaphore,
+    run_holding_slot,
+)
 from app.adapters.content.scraper.runtime_tuning import is_js_heavy_url, tuned_provider_timeout
 from app.adapters.content.scraper.target_safety import reject_unsafe_target_url
 from app.adapters.external.firecrawl.models import FirecrawlResult
@@ -30,30 +31,13 @@ logger = get_logger(__name__)
 _DEFAULT_TIMEOUT_SEC = 30
 
 
-def _playwright_max_concurrency() -> int:
-    """Max number of concurrent Chromium browser launches for PlaywrightProvider."""
-    try:
-        return max(1, int(os.getenv("PLAYWRIGHT_MAX_CONCURRENT_BROWSERS", "2")))
-    except ValueError:
-        return 2
-
-
 # A Playwright fetch launches a full browser process; without a cap, a burst of
 # upstream failures could spawn one browser per request and exhaust file
-# descriptors, RAM, and thread-pool workers. The semaphore is keyed per event
-# loop so it binds lazily (and stays correct across test loops).
-_playwright_semaphores: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore] = (
-    weakref.WeakKeyDictionary()
-)
-
-
-def _playwright_launch_semaphore() -> asyncio.Semaphore:
-    loop = asyncio.get_running_loop()
-    sem = _playwright_semaphores.get(loop)
-    if sem is None:
-        sem = asyncio.Semaphore(_playwright_max_concurrency())
-        _playwright_semaphores[loop] = sem
-    return sem
+# descriptors, RAM, and thread-pool workers. The cap now lives in
+# browser_concurrency and is SHARED with the Crawlee rung, which launches its own
+# Chromium and is raced against this one for the same URL -- two private caps of
+# two would have allowed four browsers for a single request.
+_playwright_launch_semaphore = chromium_launch_semaphore
 
 
 class PlaywrightProvider:

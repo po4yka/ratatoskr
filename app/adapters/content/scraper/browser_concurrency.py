@@ -24,6 +24,8 @@ slot returns when the browser is actually gone.
 from __future__ import annotations
 
 import asyncio
+import os
+import weakref
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from app.core.logging_utils import get_logger
@@ -34,6 +36,48 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 T = TypeVar("T")
+
+# Keyed per event loop so each semaphore binds lazily to the loop that uses it
+# (and stays correct across test loops), then per cap name.
+_semaphores: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, asyncio.Semaphore]] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def launch_semaphore(name: str, *, env_var: str, default: int) -> asyncio.Semaphore:
+    """Return the process-wide launch cap named *name* for the running loop."""
+    loop = asyncio.get_running_loop()
+    per_loop = _semaphores.setdefault(loop, {})
+    semaphore = per_loop.get(name)
+    if semaphore is None:
+        try:
+            limit = max(1, int(os.getenv(env_var, str(default))))
+        except ValueError:
+            limit = default
+        semaphore = asyncio.Semaphore(limit)
+        per_loop[name] = semaphore
+    return semaphore
+
+
+def chromium_launch_semaphore() -> asyncio.Semaphore:
+    """The single cap on Chromium processes started inside this container.
+
+    Shared by the Playwright and Crawlee rungs rather than one cap each, because
+    the chain races the browser tier: both launch their own Chromium for the
+    *same* URL, concurrently, by default. Separate caps of two would therefore
+    permit four browsers for one request -- worse than the status quo in exactly
+    the case that matters, since the resource being protected is one container's
+    cgroup memory, and two concurrent in-container Chromium processes are what
+    OOM-killed it before.
+
+    The other browser-tier rungs are not counted: CloakBrowser drives a browser in
+    its own sidecar container, and ScrapeGraphAI is a hosted API. Scrapling keeps
+    its own cap -- it sits in an earlier tier and is not raced against these two.
+
+    Reads ``PLAYWRIGHT_MAX_CONCURRENT_BROWSERS`` so an operator's existing tuning
+    keeps working; the name is now narrower than what it governs.
+    """
+    return launch_semaphore("chromium", env_var="PLAYWRIGHT_MAX_CONCURRENT_BROWSERS", default=2)
 
 
 async def run_holding_slot(

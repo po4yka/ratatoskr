@@ -106,6 +106,26 @@ def test_the_derivation_found_the_services() -> None:
     )
 
 
+@pytest.mark.parametrize("service", sorted(_POOL_SERVICES))
+def test_every_pool_holding_service_sets_its_dsn_explicitly(service: str) -> None:
+    """A service that opens a pool must say where, in its own environment block.
+
+    The three MCP services set only DB_PATH and leaned on DatabaseConfig deriving
+    the DSN from POSTGRES_PASSWORD when DATABASE_URL arrives blank through
+    env_file. That works, but it defers a missing password to a runtime failure in
+    one corner of the fleet while every other service fails at compose time on the
+    same input -- and it quietly couples three containers to a fallback nothing
+    pins.
+    """
+    environment = _compose("docker-compose.yml")["services"][service].get("environment") or []
+    entries = [item for item in environment if isinstance(item, str)]
+
+    assert any(item.startswith("DATABASE_URL=") for item in entries), (
+        f"{service} opens a Database but never sets DATABASE_URL in its environment "
+        "block, so its DSN depends on an implicit fallback the other services do not use"
+    )
+
+
 def test_postgres_still_runs_on_the_assumed_default() -> None:
     """The budget below assumes the image default; an override would invalidate it."""
     postgres = _compose("docker-compose.yml")["services"]["postgres"]

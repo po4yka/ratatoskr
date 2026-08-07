@@ -510,6 +510,12 @@ services:
       - MCP_PORT=8200
       - MCP_USER_ID=${MCP_USER_ID:-}
       - MCP_ALLOW_REMOTE_SSE=true
+      # Explicit, like every other DB-using service. Without it these three relied on
+      # DatabaseConfig deriving the DSN from POSTGRES_PASSWORD when DATABASE_URL is
+      # blank -- which works, but only fails at runtime if the password is missing,
+      # while the `:?` below fails at compose time like the rest of the fleet.
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://ratatoskr_app:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/ratatoskr}
+      # Alembic's env.py reads this; unrelated to the Postgres DSN above.
       - DB_PATH=/data/ratatoskr.db
       - QDRANT_URL=http://qdrant:6333
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -571,6 +577,12 @@ services:
       - MCP_PORT=8200
       - MCP_USER_ID=${MCP_USER_ID:-}
       - MCP_ALLOW_REMOTE_SSE=true
+      # Explicit, like every other DB-using service. Without it these three relied on
+      # DatabaseConfig deriving the DSN from POSTGRES_PASSWORD when DATABASE_URL is
+      # blank -- which works, but only fails at runtime if the password is missing,
+      # while the `:?` below fails at compose time like the rest of the fleet.
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://ratatoskr_app:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/ratatoskr}
+      # Alembic's env.py reads this; unrelated to the Postgres DSN above.
       - DB_PATH=/data/ratatoskr.db
       - QDRANT_URL=http://qdrant:6333
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -632,6 +644,12 @@ services:
       - MCP_FORWARDED_ACCESS_TOKEN_HEADER=${MCP_FORWARDED_ACCESS_TOKEN_HEADER:-X-Ratatoskr-Forwarded-Access-Token}
       - MCP_FORWARDED_SECRET_HEADER=${MCP_FORWARDED_SECRET_HEADER:-X-Ratatoskr-MCP-Forwarding-Secret}
       - MCP_FORWARDING_SECRET=${MCP_FORWARDING_SECRET:-}
+      # Explicit, like every other DB-using service. Without it these three relied on
+      # DatabaseConfig deriving the DSN from POSTGRES_PASSWORD when DATABASE_URL is
+      # blank -- which works, but only fails at runtime if the password is missing,
+      # while the `:?` below fails at compose time like the rest of the fleet.
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://ratatoskr_app:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/ratatoskr}
+      # Alembic's env.py reads this; unrelated to the Postgres DSN above.
       - DB_PATH=/data/ratatoskr.db
       - QDRANT_URL=http://qdrant:6333
       - LOG_LEVEL=${LOG_LEVEL:-INFO}

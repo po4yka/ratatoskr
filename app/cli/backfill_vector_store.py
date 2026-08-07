@@ -53,7 +53,7 @@ async def _fetch_summaries_page(
         query = (
             select(Summary, Request)
             .join(Request, Summary.request_id == Request.id)
-            .where(Summary.id > after_id)
+            .where(Summary.id > after_id, Summary.is_deleted.is_(False))
             .order_by(Summary.id.asc())
             .limit(effective_page)
         )

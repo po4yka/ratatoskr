@@ -8,6 +8,7 @@ from datetime import timedelta
 from tempfile import TemporaryDirectory
 from typing import Any
 
+from app.adapters.content.scraper.browser_concurrency import chromium_launch_semaphore
 from app.adapters.content.scraper.runtime_tuning import tuned_provider_timeout
 from app.adapters.content.scraper.target_safety import reject_unsafe_target_url
 from app.adapters.external.firecrawl.models import FirecrawlResult
@@ -244,29 +245,41 @@ class CrawleeProvider:
             _new_context_opts = {}
 
         extracted_html: str | None = None
-        with TemporaryDirectory(prefix="ratatoskr-crawlee-pw-") as storage_dir:
-            crawler = PlaywrightCrawler(
-                configuration=Configuration(storage_dir=storage_dir),
-                headless=self._headless,
-                max_request_retries=self._max_retries,
-                request_handler_timeout=timedelta(seconds=timeout_sec),
-                max_requests_per_crawl=1,
-                browser_new_context_options=_new_context_opts or None,
-            )
+        # Share the container's Chromium cap with the Playwright rung. This
+        # provider had none: `max_requests_per_crawl=1` bounds the crawl, not the
+        # process count -- every call builds its own PlaywrightCrawler and so its
+        # own browser -- while the chain races both providers for the same URL, so
+        # a burst of browser-tier fallbacks could start one browser per in-flight
+        # request with nothing to stop it.
+        #
+        # A plain `async with` is right here where the Playwright rung needs
+        # run_holding_slot: crawlee is natively async, so cancelling this await
+        # tears the crawl down instead of orphaning a thread that still owns a
+        # browser -- there is no slot to hold past cancellation.
+        async with chromium_launch_semaphore():
+            with TemporaryDirectory(prefix="ratatoskr-crawlee-pw-") as storage_dir:
+                crawler = PlaywrightCrawler(
+                    configuration=Configuration(storage_dir=storage_dir),
+                    headless=self._headless,
+                    max_request_retries=self._max_retries,
+                    request_handler_timeout=timedelta(seconds=timeout_sec),
+                    max_requests_per_crawl=1,
+                    browser_new_context_options=_new_context_opts or None,
+                )
 
-            # Re-validate every browser-initiated request (redirects + subresources
-            # such as images/scripts/XHR) against the SSRF blocklist, not just the
-            # initial navigation URL. Mirrors PlaywrightProvider._block_ssrf_route so
-            # a compromised or attacker-controlled page cannot pivot the browser to
-            # an internal address (cloud metadata, other compose services, loopback).
-            crawler.pre_navigation_hook(self._install_ssrf_guard)
+                # Re-validate every browser-initiated request (redirects + subresources
+                # such as images/scripts/XHR) against the SSRF blocklist, not just the
+                # initial navigation URL. Mirrors PlaywrightProvider._block_ssrf_route so
+                # a compromised or attacker-controlled page cannot pivot the browser to
+                # an internal address (cloud metadata, other compose services, loopback).
+                crawler.pre_navigation_hook(self._install_ssrf_guard)
 
-            @crawler.router.default_handler
-            async def request_handler(context: PlaywrightCrawlingContext) -> None:
-                nonlocal extracted_html
-                extracted_html = await context.page.content()
+                @crawler.router.default_handler
+                async def request_handler(context: PlaywrightCrawlingContext) -> None:
+                    nonlocal extracted_html
+                    extracted_html = await context.page.content()
 
-            await crawler.run([url])
+                await crawler.run([url])
         return extracted_html
 
     async def _install_ssrf_guard(self, context: Any) -> None:
