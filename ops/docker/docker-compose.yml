@@ -136,10 +136,14 @@ services:
       - RATATOSKR_PROCESS_ROLE=bot
     expose:
       - "9101"
+    # `set -e` is what makes the schema guard a guard: `sh -c` runs each line
+    # regardless of the previous one's exit code, so without it `--check` logged
+    # the drift, returned 1, and the exec ran anyway against the stale schema.
     command:
       - sh
       - -c
       - |
+        set -e
         python -m app.cli.migrate_db --check
         exec python -m bot
     dns:
@@ -197,10 +201,12 @@ services:
       dockerfile: ops/docker/Dockerfile
     container_name: ratatoskr-worker
     init: true
+    # `set -e` is load-bearing -- see the note on the ratatoskr service.
     command:
       - sh
       - -c
       - |
+        set -e
         python -m app.cli.migrate_db --check
         exec python -m app.cli.taskiq_worker app.tasks.digest app.tasks.rss app.tasks.github_sync app.tasks.reconcile_vector_index app.tasks.reconcile_source_content app.tasks.import_tasks app.tasks.x_bookmarks_sync app.tasks.x_wiki_sync app.tasks.url_processing app.tasks.langgraph_prune app.tasks.git_backup_sync app.tasks.ai_backup_sync app.tasks.purge_raw_data app.tasks.topic_change_watch
     env_file:
@@ -422,10 +428,12 @@ services:
       - SCRAPER_DEFUDDLE_TOKEN=${DEFUDDLE_AUTH_TOKEN:-}
       - OTEL_ENABLED=${OTEL_ENABLED:-true}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
+    # `set -e` is load-bearing -- see the note on the ratatoskr service.
     command:
       - sh
       - -c
       - |
+        set -e
         python -m app.cli.migrate_db --check
         exec python -m app.cli.api_server
     volumes:
