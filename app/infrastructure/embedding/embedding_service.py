@@ -102,7 +102,7 @@ class EmbeddingService(EmbeddingSerializationMixin):
             # Read the dimension from the model's reported config rather than a
             # probe encode("test") forward pass. Fall back to a probe only if the
             # backend cannot report it.
-            dim = model.get_sentence_embedding_dimension()
+            dim = model.get_embedding_dimension()
             if not dim:
                 dim = len(model.encode("test"))
             self._dimensions[model_name] = dim

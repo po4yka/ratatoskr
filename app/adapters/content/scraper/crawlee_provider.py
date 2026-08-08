@@ -178,9 +178,30 @@ class CrawleeProvider:
             },
         )
 
+    @staticmethod
+    def _crawlee_services(storage_dir: str) -> dict[str, Any]:
+        """Build the per-crawl configuration, storage client and event manager.
+
+        Passing only ``configuration`` leaves crawlee to pull the storage client
+        and event manager from its *global* service locator, which it warns about
+        because creating them implicitly pins a default configuration process-wide
+        as a side effect. Supplying all three keeps each crawl self-contained --
+        our temporary ``storage_dir`` is the one that applies, and nothing is
+        shared between concurrent crawls.
+        """
+        from crawlee.configuration import Configuration
+        from crawlee.events import LocalEventManager
+        from crawlee.storage_clients import FileSystemStorageClient
+
+        configuration = Configuration(storage_dir=storage_dir)
+        return {
+            "configuration": configuration,
+            "storage_client": FileSystemStorageClient(),
+            "event_manager": LocalEventManager.from_config(config=configuration),
+        }
+
     async def _extract_with_beautifulsoup(self, url: str, *, timeout_sec: float) -> str | None:
         try:
-            from crawlee.configuration import Configuration
             from crawlee.crawlers import BeautifulSoupCrawler, BeautifulSoupCrawlingContext
         except ImportError as exc:
             msg = (
@@ -192,7 +213,7 @@ class CrawleeProvider:
         extracted_html: str | None = None
         with TemporaryDirectory(prefix="ratatoskr-crawlee-bs-") as storage_dir:
             crawler = BeautifulSoupCrawler(
-                configuration=Configuration(storage_dir=storage_dir),
+                **self._crawlee_services(storage_dir),
                 max_request_retries=self._max_retries,
                 request_handler_timeout=timedelta(seconds=timeout_sec),
                 max_requests_per_crawl=1,
@@ -215,7 +236,6 @@ class CrawleeProvider:
     ) -> str | None:
         del mobile  # Crawlee controls browser context; provider keeps API symmetry.
         try:
-            from crawlee.configuration import Configuration
             from crawlee.crawlers import PlaywrightCrawler, PlaywrightCrawlingContext
         except ImportError as exc:
             msg = (
@@ -259,7 +279,7 @@ class CrawleeProvider:
         async with chromium_launch_semaphore():
             with TemporaryDirectory(prefix="ratatoskr-crawlee-pw-") as storage_dir:
                 crawler = PlaywrightCrawler(
-                    configuration=Configuration(storage_dir=storage_dir),
+                    **self._crawlee_services(storage_dir),
                     headless=self._headless,
                     max_request_retries=self._max_retries,
                     request_handler_timeout=timedelta(seconds=timeout_sec),

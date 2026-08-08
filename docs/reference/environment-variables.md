@@ -154,6 +154,7 @@ names in YAML unless a deployment genuinely needs an environment override.
 | `QDRANT_API_KEY` | Qdrant credential when required. |
 | `QDRANT_REQUIRED` | Fail instead of degrading when Qdrant is unavailable. |
 | `EMBEDDING_PROVIDER` | Active embedding adapter. |
+| `HF_TOKEN` | Hugging Face token used when downloading the local embedding model. Optional: without it the download is anonymous, which `huggingface_hub` warns about on every cold start and which is subject to the unauthenticated rate limit — slow or refused model pulls on a shared IP. Read straight from the environment by `huggingface_hub`, so put it in `.env` (it reaches every container through `env_file`) and do **not** add it to a compose `environment:` block, which would override the operator's own value. |
 | `VECTOR_RECONCILE_ENABLED` | Scheduled Postgres/Qdrant convergence. |
 | `VECTOR_RECONCILE_CRON` | Reconciliation cron expression. |
 

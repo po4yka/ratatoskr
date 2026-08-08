@@ -126,12 +126,33 @@ async def test_playwright_stage_installs_ssrf_guard_before_navigation(
             assert Path(storage_dir).is_dir()
 
     fake_configuration.Configuration = FakeConfiguration  # type: ignore[attr-defined]
+
+    # The provider passes storage_client and event_manager explicitly so crawlee
+    # never falls back to its global service locator; both submodules therefore
+    # have to exist in the stub too.
+    fake_storage_clients = ModuleType("crawlee.storage_clients")
+    fake_storage_clients.FileSystemStorageClient = MagicMock  # type: ignore[attr-defined]
+    fake_events = ModuleType("crawlee.events")
+
+    class FakeLocalEventManager:
+        @classmethod
+        def from_config(cls, config: object) -> FakeLocalEventManager:
+            instance = cls()
+            instance.config = config  # type: ignore[attr-defined]
+            return instance
+
+    fake_events.LocalEventManager = FakeLocalEventManager  # type: ignore[attr-defined]
+
     fake_pkg = ModuleType("crawlee")
     fake_pkg.crawlers = fake_crawlers  # type: ignore[attr-defined]
     fake_pkg.configuration = fake_configuration  # type: ignore[attr-defined]
+    fake_pkg.storage_clients = fake_storage_clients  # type: ignore[attr-defined]
+    fake_pkg.events = fake_events  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "crawlee", fake_pkg)
     monkeypatch.setitem(sys.modules, "crawlee.configuration", fake_configuration)
     monkeypatch.setitem(sys.modules, "crawlee.crawlers", fake_crawlers)
+    monkeypatch.setitem(sys.modules, "crawlee.storage_clients", fake_storage_clients)
+    monkeypatch.setitem(sys.modules, "crawlee.events", fake_events)
 
     provider = CrawleeProvider()
     html = await provider._extract_with_playwright("https://example.com", timeout_sec=5.0)

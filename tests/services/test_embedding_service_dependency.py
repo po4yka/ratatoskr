@@ -39,7 +39,7 @@ def test_ensure_model_reads_dimension_without_probe_encode(
         def __init__(self, _name: str) -> None:
             pass
 
-        def get_sentence_embedding_dimension(self) -> int:
+        def get_embedding_dimension(self) -> int:
             return 384
 
         def encode(self, *_args: object, **_kwargs: object) -> list[float]:
@@ -63,7 +63,7 @@ def test_ensure_model_falls_back_to_probe_when_dimension_unknown(
         def __init__(self, _name: str) -> None:
             pass
 
-        def get_sentence_embedding_dimension(self) -> None:
+        def get_embedding_dimension(self) -> None:
             return None
 
         def encode(self, *_args: object, **_kwargs: object) -> list[float]:
