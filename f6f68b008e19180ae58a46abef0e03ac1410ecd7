@@ -1,0 +1,37 @@
+This commit contains two unrelated changes. Its subject describes only the
+first one.
+
+Matching the subject (Pi smoke check / container networks):
+  Makefile
+  tools/scripts/check_compose_networks.py
+
+Not mentioned by the subject -- an entire separate feature, automatic GitHub
+star-list filing:
+  app/tasks/star_list_filing.py            new Taskiq job ratatoskr.github.file_unfiled
+  app/di/star_lists.py                     shared suggester factory
+  app/di/add_repository.py                 shared AddRepositoryUseCase composition
+  app/adapters/telegram/command_handlers/star_repository_handler.py   /star command
+  app/config/github.py                     GITHUB_STAR_LIST_FILING_* settings
+  app/di/{api,tasks,telegram,telegram_commands,platform_extractors}.py   wiring
+  app/observability/metrics_repositories.py
+  app/prompts/star_list_classifier_{en,ru}.txt
+  app/tasks/scheduler.py
+  ops/docker/docker-compose.yml            registers the new task with the worker
+  docs/explanation/github-repository-ingestion.md
+  CLAUDE.md
+  tests/tasks/test_star_list_filing.py
+  tests/adapters/telegram/test_star_repository_handler.py
+
+Why the two are mixed: a concurrent `git add -A` picked up in-progress files
+from another session rather than scoping the commit to the paths that session
+had touched. The repository's own CLAUDE.md warns about exactly this and asks
+for path-scoped commits when several agents or a cron write to one checkout.
+
+Nothing here is wrong or untested -- the feature landed complete, and its own
+follow-up test is 797bd291. Only the history is misleading, and the commit was
+already pushed when that was noticed, so it was left intact rather than
+rewritten.
+
+Read the feature as: this commit (minus the two files above) plus 797bd291.
+Design rationale lives in docs/explanation/github-repository-ingestion.md,
+section "Filing repositories starred somewhere else".
