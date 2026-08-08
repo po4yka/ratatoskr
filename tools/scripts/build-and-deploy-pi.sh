@@ -972,21 +972,25 @@ elif [[ $RESTART -eq 1 ]]; then
     echo "==> Restarting ${svc} on ${RASPI_HOST} (project: ${COMPOSE_PROJECT})"
     restart_service_verified "$svc"
 
-    # Workaround for a `compose up --no-deps --force-recreate` quirk observed
-    # 2026-05-24: mobile-api ended up attached to only the external
-    # `firecrawl_internal` network, with `docker_default` dropped. A network
-    # connect errors with "already exists" when correctly attached, so `|| true`
-    # keeps this idempotent across services that may or may not need the default
-    # network. The explicit service alias is essential: Prometheus and status
-    # probes address exporters by Compose service name.
+    # Workaround for a `compose up --no-deps --force-recreate` quirk: the
+    # recreated container comes up on a SUBSET of its networks. Docker attaches
+    # the first at create and the rest after start, and a lost attachment is
+    # silent -- the container runs, and Compose sees nothing wrong.
+    #
+    # This used to name the network it repaired. 2026-05-24 dropped
+    # `docker_default` from mobile-api, so the fix ensured `docker_default`;
+    # 2026-08-08 dropped `firecrawl_internal` from the bot instead, which that
+    # fix did not cover. The quirk drops an arbitrary network, so repairing named
+    # ones is always one incident behind -- reconcile against everything Compose
+    # declares for the service instead. Desired state comes from
+    # `compose config`, which resolves each network's real name, and the helper
+    # keeps the Compose service alias (Prometheus and the status probes address
+    # services by service name, so routing without discovery is not enough).
     if ! is_isolated_reauth_service "$svc"; then
-      echo "==> Ensuring ${svc} is attached to docker_default"
+      echo "==> Reconciling ${svc} network attachments"
       ssh "$RASPI_HOST" "cd ${RASPI_REMOTE_PATH} && \
-        CID=\$(${COMPOSE_RUN[*]} ps -q ${svc} 2>/dev/null) && \
-        [ -n \"\$CID\" ] && \
-        docker network connect --alias '${svc}' docker_default \"\$CID\" 2>/dev/null \
-        && echo '    attached docker_default' \
-        || echo '    docker_default already attached or not declared'"
+        python3 tools/scripts/check_compose_networks.py --fix --service '${svc}' \
+        -f ops/docker/docker-compose.yml -f ops/docker/docker-compose.pi.yml"
     fi
     ensure_mobile_api_control_networks "$svc"
     ensure_reauth_browser_networks "$svc"

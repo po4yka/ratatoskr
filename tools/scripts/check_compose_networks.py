@@ -98,6 +98,34 @@ def _actual(files: list[str]) -> dict[str, set[str]]:
     return actual
 
 
+def _container_id(files: list[str], service: str) -> str | None:
+    ids = _run([*_compose_base(files), "ps", "-q", service]).split()
+    return ids[0] if ids else None
+
+
+def _attach(files: list[str], service: str, network: str) -> bool:
+    """Connect one missing network, keeping the Compose service alias.
+
+    The alias is load-bearing: Prometheus and the status probes address services
+    by Compose service name, so an attachment without it restores routing but
+    not discovery.
+    """
+    container = _container_id(files, service)
+    if container is None:
+        return False
+    result = subprocess.run(
+        ["docker", "network", "connect", "--alias", service, network, container],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        print(f"    attached {service} -> {network}")
+        return True
+    sys.stderr.write(f"    could not attach {service} -> {network}: {result.stderr.strip()}\n")
+    return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -108,10 +136,21 @@ def main() -> int:
         required=True,
         help="compose file (repeatable, in the same order as the deploy)",
     )
+    parser.add_argument(
+        "--service",
+        help="check only this service (the deploy repairs one service at a time)",
+    )
+    parser.add_argument(
+        "--fix",
+        action="store_true",
+        help="attach missing networks instead of only reporting them",
+    )
     args = parser.parse_args()
 
     desired = _desired(args.files)
     actual = _actual(args.files)
+    if args.service:
+        actual = {k: v for k, v in actual.items() if k == args.service}
     if not actual:
         print("    no running services found -- nothing to check")
         return 0
@@ -125,6 +164,10 @@ def main() -> int:
             problems.append(f"{service}: running but not defined in the compose files")
             continue
         missing = want - actual[service]
+        if missing and args.fix:
+            # Re-attach rather than report: this runs inside the deploy, right
+            # after the recreate that dropped them and before the health wait.
+            missing = {net for net in missing if not _attach(args.files, service, net)}
         if missing:
             problems.append(
                 f"{service}: missing {', '.join(sorted(missing))} "
@@ -132,7 +175,8 @@ def main() -> int:
             )
 
     if not problems:
-        print(f"    networks OK for {len(actual)} running services")
+        label = args.service or f"{len(actual)} running services"
+        print(f"    networks OK for {label}")
         return 0
 
     sys.stderr.write("ERROR: container network attachments do not match compose\n")
