@@ -22,6 +22,7 @@ from app.adapters.telegram.command_handlers.content_handler import ContentHandle
 from app.adapters.telegram.command_handlers.digest_handler import DigestHandler
 from app.adapters.telegram.command_handlers.export_command import ExportHandler
 from app.adapters.telegram.command_handlers.git_mirror_handler import GitMirrorHandler
+from app.adapters.telegram.command_handlers.star_repository_handler import StarRepositoryHandler
 from app.adapters.telegram.command_handlers.init_session_handler import InitSessionHandler
 from app.adapters.telegram.command_handlers.listen_handler import ListenHandler
 from app.adapters.telegram.command_handlers.onboarding_handler import OnboardingHandler
@@ -165,6 +166,7 @@ def build_command_dispatcher_deps(
     tts_service_factory: Any | None,
     transcription_service: TranscriptionService | None = None,
     transcription_job_service: TranscriptionJobService | None = None,
+    add_repository_factory: Callable[[], Any] | None = None,
 ) -> TelegramCommandDispatcherDeps:
     runtime_state = TelegramCommandRuntimeState(
         url_processor=url_processor,
@@ -270,6 +272,12 @@ def build_command_dispatcher_deps(
         db=db,
         response_formatter=response_formatter,
         mirror_repo_factory=_build_mirror_repo_factory(cfg, db),
+    )
+    star_repository_handler = StarRepositoryHandler(
+        cfg=cfg,
+        db=db,
+        response_formatter=response_formatter,
+        add_repository_factory=add_repository_factory,
     )
     ai_backup_handler = AiBackupHandler(
         cfg=cfg,
@@ -566,6 +574,15 @@ def build_command_dispatcher_deps(
                 TextCommandRoute(
                     "/mirrors",
                     _build_text_handler(context_factory, git_mirror_handler.handle_mirrors),
+                ),
+            ),
+        ),
+        TelegramCommandContribution(
+            name="star_repository",
+            post_summarize_text=(
+                TextCommandRoute(
+                    "/star",
+                    _build_text_handler(context_factory, star_repository_handler.handle_star),
                 ),
             ),
         ),

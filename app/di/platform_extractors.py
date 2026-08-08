@@ -42,6 +42,31 @@ def build_registered_platform_router(
     quality_llm_client: LLMClientProtocol | None,
 ) -> PlatformExtractionRouter:
     """Build the registered platform extraction router for runtime use."""
+    return build_platform_extraction_router(
+        build_platform_extractor_descriptors(cfg),
+        _build_extractor_context(
+            cfg=cfg,
+            db=db,
+            scraper=scraper,
+            response_formatter=response_formatter,
+            audit_func=audit_func,
+            sem=sem,
+            quality_llm_client=quality_llm_client,
+        ),
+    )
+
+
+def _build_extractor_context(
+    *,
+    cfg: AppConfig,
+    db: Database,
+    scraper: ContentScraperProtocol,
+    response_formatter: ResponseFormatter,
+    audit_func: Callable[[str, str, dict[str, Any]], None],
+    sem: Callable[[], Any],
+    quality_llm_client: LLMClientProtocol | None,
+) -> PlatformExtractorBuildContext:
+    """Assemble the context every platform-extractor factory is built from."""
     message_persistence = MessagePersistence(db)
     lifecycle = PlatformRequestLifecycle(
         response_formatter=response_formatter,
@@ -49,7 +74,7 @@ def build_registered_platform_router(
         audit_func=audit_func,
         route_version=URL_ROUTE_VERSION,
     )
-    context = PlatformExtractorBuildContext(
+    return PlatformExtractorBuildContext(
         cfg=cfg,
         db=db,
         scraper=scraper,
@@ -69,9 +94,47 @@ def build_registered_platform_router(
             )
         ),
     )
-    return build_platform_extraction_router(
-        build_platform_extractor_descriptors(cfg),
-        context,
+
+
+def build_github_platform_extractor(
+    *,
+    cfg: AppConfig,
+    db: Database,
+    scraper: ContentScraperProtocol,
+    response_formatter: ResponseFormatter,
+    audit_func: Callable[[str, str, dict[str, Any]], None],
+    sem: Callable[[], Any],
+    quality_llm_client: LLMClientProtocol | None,
+    analyze_use_case: Any | None = None,
+    embedding_gen: Any | None = None,
+    llm_repository: Any | None = None,
+) -> Any:
+    """Build the GitHub extractor alone, for callers that ingest without routing.
+
+    The URL flow reaches this extractor through the router, which picks it by URL
+    predicate. ``/star`` and the repository API already know the target is a
+    GitHub repository, so they need the extractor itself rather than a router.
+    Both go through the same factory and the same context, so an extractor built
+    here behaves exactly as the one the router would have selected.
+
+    Pass ``embedding_gen`` when the runtime already owns an embedding service and
+    a vector store; otherwise a dedicated pair is built. See
+    :func:`_build_github_platform_extractor` for why that distinction is not
+    cosmetic.
+    """
+    return _build_github_platform_extractor(
+        _build_extractor_context(
+            cfg=cfg,
+            db=db,
+            scraper=scraper,
+            response_formatter=response_formatter,
+            audit_func=audit_func,
+            sem=sem,
+            quality_llm_client=quality_llm_client,
+        ),
+        analyze_use_case=analyze_use_case,
+        embedding_gen=embedding_gen,
+        llm_repository=llm_repository,
     )
 
 
@@ -262,12 +325,30 @@ def _build_academic_browser_pdf(context: PlatformExtractorBuildContext) -> Any |
         return None
 
 
-def _build_github_platform_extractor(context: PlatformExtractorBuildContext) -> Any:
+def _build_github_platform_extractor(
+    context: PlatformExtractorBuildContext,
+    *,
+    analyze_use_case: Any | None = None,
+    embedding_gen: Any | None = None,
+    llm_repository: Any | None = None,
+) -> Any:
+    """Build the GitHub extractor, reusing the caller's collaborators when given.
+
+    Three levels of reuse, because the callers genuinely differ:
+
+    * ``analyze_use_case`` -- the API already builds one for another consumer, so
+      it hands that one over and nothing is duplicated.
+    * ``embedding_gen`` -- a runtime that owns an embedding service and a Qdrant
+      client but no analyze use case passes those instead. The embedding service
+      loads a model, so a duplicate is not free; on the Pi deployment that is the
+      difference that matters.
+    * neither -- the URL router's case, which has no such bundle on hand. One is
+      built here with ``required=False``, because a repository must stay
+      ingestable on a deployment whose vector store is down.
+    """
     from app.adapters.github.platform_extractor import GitHubPlatformExtractor
     from app.agents.repo_analysis_agent import RepoAnalysisAgent
     from app.application.use_cases.analyze_repository import AnalyzeRepositoryUseCase
-    from app.infrastructure.embedding.embedding_factory import create_embedding_service
-    from app.infrastructure.embedding.repository_embedding import RepositoryEmbeddingGenerator
     from app.infrastructure.persistence.repositories.repository_analysis_repository import (
         RepositoryAnalysisRepositoryAdapter,
     )
@@ -278,6 +359,34 @@ def _build_github_platform_extractor(context: PlatformExtractorBuildContext) -> 
             "GitHubPlatformExtractor requires an LLM client "
             "(quality_llm_client was not provided to ContentExtractor)"
         )
+
+    if analyze_use_case is None:
+        generator = (
+            embedding_gen if embedding_gen is not None else _build_repository_embedding_gen(context)
+        )
+        agent = RepoAnalysisAgent(
+            llm_service=llm_client,
+            llm_repo=(
+                llm_repository if llm_repository is not None else build_llm_repository(context.db)
+            ),
+        )
+        analyze_use_case = AnalyzeRepositoryUseCase(
+            repository_repo=RepositoryAnalysisRepositoryAdapter(context.db),
+            agent=agent,
+            embedding_gen=generator,
+        )
+
+    return GitHubPlatformExtractor(
+        db=context.db,
+        github_config=context.cfg.github,
+        analyze_use_case=analyze_use_case,
+    )
+
+
+def _build_repository_embedding_gen(context: PlatformExtractorBuildContext) -> Any:
+    """Build a standalone repository embedding generator for the router's path."""
+    from app.infrastructure.embedding.embedding_factory import create_embedding_service
+    from app.infrastructure.embedding.repository_embedding import RepositoryEmbeddingGenerator
 
     embedding_service = create_embedding_service(context.cfg.embedding)
 
@@ -302,23 +411,10 @@ def _build_github_platform_extractor(context: PlatformExtractorBuildContext) -> 
         logger.debug("qdrant_store_unavailable_for_github", exc_info=True)
         qdrant_store = None
 
-    embedding_gen = RepositoryEmbeddingGenerator(
+    return RepositoryEmbeddingGenerator(
         embedding_service=embedding_service,
         qdrant_store=qdrant_store,
         db=context.db,
         environment=context.cfg.vector_store.environment,
         user_scope=context.cfg.vector_store.user_scope,
-    )
-    agent = RepoAnalysisAgent(llm_service=llm_client, llm_repo=build_llm_repository(context.db))
-    repository_repo = RepositoryAnalysisRepositoryAdapter(context.db)
-    analyze_use_case = AnalyzeRepositoryUseCase(
-        repository_repo=repository_repo,
-        agent=agent,
-        embedding_gen=embedding_gen,
-    )
-
-    return GitHubPlatformExtractor(
-        db=context.db,
-        github_config=context.cfg.github,
-        analyze_use_case=analyze_use_case,
     )

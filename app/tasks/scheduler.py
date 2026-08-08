@@ -166,6 +166,20 @@ class _AppConfigScheduleSource(ScheduleSource):
                 )
             )
 
+        # Runs on its own cron rather than chained onto the sync above: the sync
+        # is the authority on list membership, so filing must read what the sync
+        # just wrote. GITHUB_STAR_LIST_FILING_CRON defaults an hour later.
+        if cfg.github.star_list_filing_enabled:
+            tasks.append(
+                ScheduledTask(
+                    task_name="ratatoskr.github.file_unfiled",
+                    cron=cfg.github.star_list_filing_cron,
+                    labels={"job": "github_star_list_filing"},
+                    args=[],
+                    kwargs={},
+                )
+            )
+
         if cfg.vector_reconcile.enabled:
             tasks.append(
                 ScheduledTask(

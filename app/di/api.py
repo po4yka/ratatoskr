@@ -4,7 +4,6 @@ import asyncio
 from typing import TYPE_CHECKING, Any, cast
 
 from app.adapters.github.github_graphql_client import GitHubGraphQLClient
-from app.adapters.github.platform_extractor import GitHubPlatformExtractor
 from app.adapters.transcription import get_or_create_transcription_service
 from app.agents.repo_analysis_agent import RepoAnalysisAgent
 from app.api.background import (
@@ -55,6 +54,7 @@ from app.di.repositories import (
     build_transcription_repository,
     build_user_repository,
 )
+from app.di.platform_extractors import build_github_platform_extractor
 from app.di.search import build_search_dependencies
 from app.di.shared import (
     build_async_audit_sink,
@@ -103,44 +103,27 @@ def _build_add_repository_use_case(
 ) -> Any:
     """Compose the add-repository flow from the pieces that already exist.
 
-    The optional collaborators degrade independently: without a vector store the
-    suggester has no neighbours to vote with, and without the LLM fallback an
-    inconclusive vote simply leaves the repository unfiled.
+    The suggester comes from :mod:`app.di.star_lists` so that the Taskiq job which
+    files repositories starred outside this API scores them identically; see that
+    module for how the optional collaborators degrade.
     """
     from app.adapters.git_backup.mirror_enrollment_adapter import GitMirrorEnrollmentAdapter
     from app.adapters.git_backup.repository import GitMirrorRepository
     from app.adapters.github.repository_ingest_adapter import GitHubRepositoryIngestAdapter
-    from app.application.services.star_list_classifier import StarListClassifierService
     from app.application.use_cases.add_repository import AddRepositoryUseCase
-    from app.application.use_cases.suggest_star_lists import SuggestStarListsUseCase
+    from app.di.star_lists import build_star_list_suggester
     from app.infrastructure.persistence.repositories.repository_read_repository import (
         RepositoryReadRepositoryAdapter,
     )
-    from app.infrastructure.search.repository_search_service import RepositorySearchService
 
-    github_cfg = app_cfg.github
-    suggester: Any = None
-    if search.vector_store is not None:
-        classifier: Any = None
-        if github_cfg.star_list_suggest_llm_fallback:
-            classifier = StarListClassifierService(
-                llm_client=core.llm_client,
-                llm_repo=llm_repository,
-            )
-        suggester = SuggestStarListsUseCase(
-            neighbour_search=RepositorySearchService(
-                embedding_service=search.embedding_service,
-                qdrant_store=search.vector_store,
-                db=database,
-                environment=app_cfg.vector_store.environment,
-                user_scope=app_cfg.vector_store.user_scope,
-            ),
-            classifier=classifier,
-            neighbour_limit=github_cfg.star_list_suggest_k,
-            min_similarity=github_cfg.star_list_suggest_min_similarity,
-            min_score=github_cfg.star_list_suggest_min_score,
-            dominance_ratio=github_cfg.star_list_suggest_dominance_ratio,
-        )
+    suggester = build_star_list_suggester(
+        app_cfg=app_cfg,
+        database=database,
+        embedding_service=search.embedding_service,
+        vector_store=search.vector_store,
+        llm_client=core.llm_client,
+        llm_repository=llm_repository,
+    )
 
     return AddRepositoryUseCase(
         ingest=GitHubRepositoryIngestAdapter(github_platform_extractor),
@@ -307,9 +290,19 @@ async def build_api_runtime(
         agent=RepoAnalysisAgent(llm_service=core.llm_client, llm_repo=llm_repository),
         embedding_gen=repository_embedding_gen,
     )
-    github_platform_extractor = GitHubPlatformExtractor(
+    # Built through the shared factory so the API, the bot's /star command and the
+    # URL router all construct the extractor in one place. The analyze use case is
+    # passed in rather than built by the factory because this runtime already owns
+    # one (it is handed to another consumer below), and a second identical copy
+    # would buy nothing.
+    github_platform_extractor = build_github_platform_extractor(
+        cfg=app_cfg,
         db=database,
-        github_config=app_cfg.github,
+        scraper=core.scraper_chain,
+        response_formatter=core.response_formatter,
+        audit_func=core.audit_sink,
+        sem=core.semaphore_factory,
+        quality_llm_client=core.llm_client,
         analyze_use_case=analyze_repository_use_case,
     )
     repository_service = RepositoryService(

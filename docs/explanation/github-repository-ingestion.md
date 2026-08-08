@@ -192,6 +192,17 @@ the default, so the Telegram path is unchanged: it must not start cloning histor
 or touching stars. `track` is for a repository worth keeping a copy of but not
 worth a public star.
 
+The Telegram `/star <url-or-owner/name>` command
+(`app/adapters/telegram/command_handlers/star_repository_handler.py`) runs the
+same use case in `star` mode. It is a separate command rather than a change to how
+a pasted link behaves, and that distinction is the point: forwarding a link is not
+consent to write to the user's GitHub account, whereas typing the command is. The
+reply reports what happened including what did not, so a repository that was
+starred but left unfiled reads as the partial success it is. The bot composes the
+use case through `app/di/add_repository.py`, which reuses the same GitHub
+extractor factory the URL router uses and the same suggester factory the API and
+the nightly filing pass use.
+
 The steps run in increasing order of "how annoying is it to redo by hand":
 
 1. metadata ingest — a failure means nothing happened; the caller gets an error.
@@ -237,6 +248,39 @@ An unavailable Qdrant degrades to the LLM path rather than failing the add.
 
 Sending `list_names` explicitly overrides the whole suggestion, including an
 empty array, which files the repository nowhere.
+
+### Filing repositories starred somewhere else
+
+Everything above happens at the moment a repository is added through this API. A
+star added anywhere else — the GitHub web UI, a phone, another script — reaches
+the database through the nightly sync, which mirrors GitHub into
+`repositories.list_names` in one direction only. Such a repository arrives with no
+list and, without a second pass, keeps none forever.
+
+`ratatoskr.github.file_unfiled` (`app/tasks/star_list_filing.py`) is that pass. It
+selects starred repositories whose `list_names` is null or empty, runs each
+through the same `SuggestStarListsUseCase` the add flow uses, and writes the
+answer back. The suggester is built by `app/di/star_lists.py` for both callers, so
+a repository filed at night lands where it would have landed had the user added it
+through the API.
+
+Four properties are load-bearing, and each is pinned by a test:
+
+- **An already-filed repository is never touched.** `updateUserListsForItem` takes
+  the complete desired set, so re-filing is an opportunity to silently move
+  something. The candidate query excludes non-empty membership.
+- **An inconclusive suggestion writes nothing.** Writing an empty list would clear
+  membership rather than leave it alone, so "no answer" and "remove from every
+  list" must never be conflated.
+- **One repository's failure does not end the run.** A missing scope or a rate
+  limit on one row must not strand the batch.
+- **The batch limit is a cost ceiling, not a correctness knob.** The backlog
+  drains over successive nights instead of in one bill.
+
+The pass is opt-in (`GITHUB_STAR_LIST_FILING_ENABLED`, default `false`) because,
+unlike the rest of the sync, it writes to the user's GitHub account and needs the
+`user` scope that a token connected before that scope was requested does not
+carry.
 
 ## Schema
 
@@ -515,6 +559,10 @@ All variables are read by `app/config/github.py::GitHubConfig`.
 | `GITHUB_STAR_LIST_SUGGEST_MIN_SCORE` | `1.0` | No | Summed similarity a list must reach before it is applied without asking — roughly two or three agreeing neighbours at the default floor |
 | `GITHUB_STAR_LIST_SUGGEST_DOMINANCE_RATIO` | `1.5` | No | How far ahead of the runner-up the winner must be; a near-tie is handed to the LLM fallback instead |
 | `GITHUB_STAR_LIST_SUGGEST_LLM_FALLBACK` | `true` | No | Ask an LLM to pick when the neighbour vote is inconclusive — one structured call per added repository in that case. Disabled leaves such repositories unfiled |
+| `GITHUB_STAR_LIST_FILING_ENABLED` | `false` | No | Master switch for the scheduled filing pass over already-starred, unfiled repositories. Off by default because it writes to the user's GitHub account and needs the `user` scope |
+| `GITHUB_STAR_LIST_FILING_CRON` | `0 3 * * *` | No | UTC cron for the filing pass. Keep it after `GITHUB_SYNC_CRON`: the pass files against the membership the star sync has just mirrored |
+| `GITHUB_STAR_LIST_FILING_BATCH_LIMIT` | `25` | No | Repositories filed per run. Each costs a vector search and, on an inconclusive vote, one LLM call, so this is the job's cost ceiling; the backlog drains over successive runs |
+| `GITHUB_STAR_LIST_FILING_MIN_AGE_HOURS` | `24` | No | How long a freshly starred repository is left alone before the pass files it, so the job does not race a user who is filing by hand |
 
 ---
 

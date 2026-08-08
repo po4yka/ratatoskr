@@ -168,3 +168,48 @@ class GitHubConfig(BaseModel):
             "disabled, an inconclusive vote leaves the repository unfiled."
         ),
     )
+
+    # Scheduled filing of repositories starred outside this deployment. The star
+    # sync only mirrors GitHub -> DB, so a repository starred from the web UI or a
+    # phone arrives with no list and stays unfiled forever without this pass.
+    star_list_filing_enabled: bool = Field(
+        default=False,
+        validation_alias="GITHUB_STAR_LIST_FILING_ENABLED",
+        description=(
+            "Periodically file already-starred repositories that carry no list. Off "
+            "by default because, unlike every other part of the sync, this writes to "
+            "the user's GitHub account, and list writes need the 'user' OAuth scope "
+            "that a token connected before it was requested does not carry."
+        ),
+    )
+    star_list_filing_cron: str = Field(
+        default="0 3 * * *",
+        validation_alias="GITHUB_STAR_LIST_FILING_CRON",
+        description=(
+            "UTC cron expression for the filing pass. Keep it after GITHUB_SYNC_CRON: "
+            "the pass files against the list membership the stars sync has just "
+            "mirrored, so running it first works from yesterday's picture."
+        ),
+    )
+    star_list_filing_batch_limit: int = Field(
+        default=25,
+        ge=1,
+        le=500,
+        validation_alias="GITHUB_STAR_LIST_FILING_BATCH_LIMIT",
+        description=(
+            "Maximum repositories filed in one run. Each costs a vector search and, "
+            "when the neighbours disagree, one structured LLM call, so this cap is "
+            "the job's cost ceiling. The backlog drains over successive runs."
+        ),
+    )
+    star_list_filing_min_age_hours: int = Field(
+        default=24,
+        ge=0,
+        le=8760,
+        validation_alias="GITHUB_STAR_LIST_FILING_MIN_AGE_HOURS",
+        description=(
+            "Leave a freshly starred repository alone for this long before filing it "
+            "automatically. A star added by hand is often filed by hand minutes later, "
+            "and the job must not race the user for it."
+        ),
+    )

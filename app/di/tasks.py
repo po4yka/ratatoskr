@@ -113,6 +113,14 @@ class GitBackupTaskRuntime:
     service: Any  # GitMirrorService
 
 
+@dataclass(frozen=True)
+class StarListFilingTaskRuntime:
+    cfg: AppConfig
+    db: Database
+    suggester: Any  # SuggestStarListsUseCase | None -- None without a vector store
+    star_lists: Any  # ManageStarListsUseCase
+
+
 def create_digest_userbot(cfg: AppConfig) -> Any:
     from app.adapters.digest.userbot_client import UserbotClient
 
@@ -358,6 +366,52 @@ def build_git_backup_task_runtime(
         db=db,
     )
     return GitBackupTaskRuntime(cfg=cfg, db=db, service=service)
+
+
+def build_star_list_filing_task_runtime(
+    cfg: AppConfig,
+    db: Database,
+) -> StarListFilingTaskRuntime:
+    """Compose the scheduled star-list filing pass.
+
+    The suggester comes from the same factory the API uses, so a repository filed
+    by this job lands where it would have landed had the user added it through
+    ``POST /v1/repositories`` -- the two paths must not disagree about the same
+    repository just because one of them ran at night.
+    """
+    from app.adapters.github.github_graphql_client import GitHubGraphQLClient
+    from app.application.use_cases.manage_star_lists import ManageStarListsUseCase
+    from app.di.repositories import build_llm_repository
+    from app.di.shared import build_core_dependencies, build_qdrant_vector_store
+    from app.di.star_lists import build_star_list_suggester
+    from app.infrastructure.embedding.embedding_factory import create_embedding_service
+    from app.infrastructure.persistence.repositories.github_integration_repository import (
+        GitHubIntegrationRepository,
+    )
+    from app.infrastructure.persistence.repositories.repository_read_repository import (
+        RepositoryReadRepositoryAdapter,
+    )
+
+    core = build_core_dependencies(cfg, db)
+    suggester = build_star_list_suggester(
+        app_cfg=cfg,
+        database=db,
+        embedding_service=create_embedding_service(cfg.embedding),
+        vector_store=build_qdrant_vector_store(cfg),
+        llm_client=core.llm_client,
+        llm_repository=build_llm_repository(db),
+    )
+    star_lists = ManageStarListsUseCase(
+        gateway_factory=GitHubGraphQLClient,
+        repository_repo=RepositoryReadRepositoryAdapter(db),
+        integration_repo=GitHubIntegrationRepository(db),
+    )
+    return StarListFilingTaskRuntime(
+        cfg=cfg,
+        db=db,
+        suggester=suggester,
+        star_lists=star_lists,
+    )
 
 
 def build_vector_reconcile_task_runtime(

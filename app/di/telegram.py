@@ -70,6 +70,8 @@ from app.infrastructure.search.vector_search_service import VectorSearchService
 from app.security.file_validation import SecureFileValidator
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from app.config import AppConfig
     from app.db.session import Database
     from app.db.write_queue import DbWriteQueue
@@ -295,6 +297,39 @@ def _build_telegram_repositories(db: Database) -> TelegramRepositories:
     )
 
 
+def _build_add_repository_factory(
+    *,
+    cfg: AppConfig,
+    db: Database,
+    core: Any,
+    search: Any,
+) -> Callable[[], Any]:
+    """Return a factory for the ``/star`` command's add-repository use case.
+
+    Built lazily per invocation rather than once at startup: ``/star`` is rare, and
+    the use case holds a GitHub extractor and a suggester that would otherwise sit
+    warm in the bot process for the whole of its life.
+    """
+
+    def _factory() -> Any:
+        from app.di.add_repository import build_add_repository_use_case
+
+        return build_add_repository_use_case(
+            cfg=cfg,
+            db=db,
+            scraper=core.scraper_chain,
+            response_formatter=core.response_formatter,
+            audit_func=core.audit_sink,
+            sem=core.semaphore_factory,
+            llm_client=core.llm_client,
+            llm_repository=build_llm_repository(db),
+            vector_store=search.vector_store,
+            embedding_service=search.embedding_service,
+        )
+
+    return _factory
+
+
 def _build_search_stack(
     *,
     cfg: AppConfig,
@@ -492,6 +527,12 @@ def _build_telegram_interface_stack(
         ),
         transcription_service=transcription_service,
         transcription_job_service=transcription_job_service,
+        add_repository_factory=_build_add_repository_factory(
+            cfg=cfg,
+            db=db,
+            core=core,
+            search=search,
+        ),
     )
     command_dispatcher = _build_command_dispatcher(dispatcher_deps)
     access_controller = AccessController(

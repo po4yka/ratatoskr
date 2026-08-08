@@ -16,14 +16,40 @@ Description: {description}
 README extract:
 {readme}
 
+The one principle that decides most cases:
+
+Classify by WHAT THE REPOSITORY IS -- the artifact it ships -- never by what it
+is about, what it is written in, or what it integrates with. Applied to the cases
+that most often go wrong:
+
+- A tutorial, course, or curated "awesome" list ABOUT a technology is a learning
+  resource. It belongs in that technology's list only if that list is itself a
+  learning list.
+- A packaged agent skill, plugin, or prompt pack is a skill artifact, whatever
+  its subject. A skill teaching an agent to write Rust is a skill, not a Rust
+  library.
+- A server implementing an agent tool protocol is that server, even when it is
+  most useful from one particular client.
+- A tool merely written in a language does not belong to that language's list.
+- When a repository ships two things, follow its own headline description.
+
+Read the README extract over the topics. Topics are author-supplied, often stale
+or promotional; the README says what the thing actually does.
+
 Rules:
 1. Copy the chosen name exactly as it is written in the list above.
-2. Choose the list that describes what the repository *is*, not the language it
-   is written in. A Rust tool for Kubernetes goes in a Kubernetes list, not a
-   Rust list, when both exist.
-3. If two lists fit, choose the more specific one.
-4. If no list fits, return an empty `list_name` and give the reason. An empty
-   answer is correct and useful; a wrong list is worse than no list.
-5. Set `confidence` between 0.0 and 1.0. Use a value below 0.5 when you are
-   guessing.
-6. Keep `reason` to one sentence.
+2. Apply the principle above before anything else.
+3. If two lists still fit, prefer the one matching the artifact type over the one
+   matching the subject matter, then prefer the more specific list.
+4. Ask who the artifact is built for when two lists differ only in audience: a
+   store built for software agents to read and write is not the same as one built
+   for a human to read and write, even when both hold notes.
+5. Prefer a shipped end-user application list over a library or sample list when
+   the repository is something a person installs and runs, and the reverse when
+   it is something a developer imports.
+6. If no list fits, return an empty `list_name` and give the reason. An empty
+   answer is correct and useful; a wrong list is worse than no list, because a
+   misfiling is silent and the slots are scarce.
+7. Set `confidence` between 0.0 and 1.0. Use a value below 0.5 when you are
+   guessing, and prefer an empty answer to a low-confidence guess.
+8. Keep `reason` to one sentence, and cite the evidence that decided it.

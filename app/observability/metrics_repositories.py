@@ -51,6 +51,26 @@ if PROMETHEUS_AVAILABLE:
         registry=REGISTRY,
     )
 
+    GITHUB_FILING_REPOS_FILED_TOTAL = Counter(
+        "ratatoskr_github_filing_repos_filed_total",
+        "Starred repositories written into a star list by the scheduled filing pass",
+        ["source"],
+        registry=REGISTRY,
+    )
+
+    GITHUB_FILING_REPOS_UNRESOLVED_TOTAL = Counter(
+        "ratatoskr_github_filing_repos_unresolved_total",
+        "Repositories the filing pass looked at but left unfiled, by reason",
+        ["reason"],
+        registry=REGISTRY,
+    )
+
+    GITHUB_FILING_BACKLOG = Gauge(
+        "ratatoskr_github_filing_backlog",
+        "Starred repositories currently carrying no star list",
+        registry=REGISTRY,
+    )
+
     GITHUB_SYNC_REPOS_UPDATED_TOTAL = Counter(
         "ratatoskr_github_sync_repos_updated_total",
         "Total starred repositories updated (metadata refresh) across all sync runs",
@@ -102,6 +122,9 @@ else:
     GITHUB_SYNC_RATE_LIMITED_TOTAL = None
     GITHUB_SYNC_RATE_LIMIT_STREAK = None
     GITHUB_SYNC_REPOS_IMPORTED_TOTAL = None
+    GITHUB_FILING_REPOS_FILED_TOTAL = None
+    GITHUB_FILING_REPOS_UNRESOLVED_TOTAL = None
+    GITHUB_FILING_BACKLOG = None
     GITHUB_SYNC_REPOS_UPDATED_TOTAL = None
     GITHUB_SYNC_REPOS_UNSTARRED_TOTAL = None
     GITHUB_SYNC_LLM_CALLS_TOTAL = None

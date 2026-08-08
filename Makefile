@@ -254,9 +254,12 @@ web-bundle:
 # as pg-backup; selecting one reader service alone is rejected by the script.
 # See tools/scripts/build-and-deploy-pi.sh for flags and env vars
 # (RASPI_HOST, RASPI_REMOTE_PATH, COMPOSE_PROJECT).
-.PHONY: pi-deploy pi-deploy-no-cache pi-build-only pi-migrate pi-rollback pi-deploy-all pi-smoke
+.PHONY: pi-deploy pi-deploy-no-cache pi-build-only pi-migrate pi-rollback pi-deploy-all pi-smoke pi-check-networks
 SERVICE ?= ratatoskr
 RASPI_HOST ?= raspi
+# Same default as tools/scripts/build-and-deploy-pi.sh, which owns this variable;
+# repeated here so pi-check-networks can reach the checkout that holds the script.
+RASPI_REMOTE_PATH ?= ~/ratatoskr
 PI_SMOKE_PORT ?= 18000
 APPLY ?= 0
 
@@ -303,7 +306,19 @@ pi-smoke:
 	@out=$$(ssh $(RASPI_HOST) curl -fsS -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:$(PI_SMOKE_PORT)/ 2>/dev/null || echo "000"); \
 	  echo "    /             -> $$out"; \
 	  [ "$$out" = "200" ] || { echo "ERROR: / returned $$out" >&2; exit 1; }
+	@$(MAKE) --no-print-directory pi-check-networks
 	@echo "==> Smoke OK"
+
+# A recreate can leave a container on a SUBSET of its networks: Docker attaches
+# the first at create and the rest after start, and a lost attachment is silent
+# -- the container runs, and Compose sees nothing wrong. It cost us a crash-loop
+# (mobile-api and the bot off docker_default, so postgres stopped resolving) and,
+# worse, a healthy-looking mobile-api missing ai_backup_control_chatgpt, which
+# would have surfaced days later as an unrelated AI-backup failure.
+pi-check-networks:
+	@echo "==> Verifying container network attachments on ${RASPI_HOST}"
+	@ssh $(RASPI_HOST) "cd $(RASPI_REMOTE_PATH) && python3 tools/scripts/check_compose_networks.py \
+	  -f ops/docker/docker-compose.yml -f ops/docker/docker-compose.pi.yml"
 
 docker-health:
 	@docker compose -f $(COMPOSE_FILE) ps
