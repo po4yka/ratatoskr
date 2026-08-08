@@ -146,6 +146,8 @@ _MINIMAL_SETTINGS_ENV = {
     "OPENROUTER_API_KEY": "sk-test",
     "DATABASE_URL": "postgresql+asyncpg://u:p@localhost/db",
     "GITHUB_TOKEN_ENCRYPTION_KEY": "QpuAsYbqcPtUCkWXZzjYmmVgjV5QV0VTmUz2pZjWpEA=",
+    # Production gates on this the same way it gates on the GitHub key.
+    "JWT_SECRET_KEY": "j" * 48,
 }
 
 

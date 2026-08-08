@@ -122,6 +122,8 @@ def test_production_accepts_github_token_encryption_key() -> None:
             "RATATOSKR_CONFIG": "/nonexistent/ratatoskr.yaml",
             "GITHUB_SYNC_ENABLED": "true",
             "GITHUB_TOKEN_ENCRYPTION_KEY": Fernet.generate_key().decode("ascii"),
+            # Production gates on this the same way it gates on the GitHub key.
+            "JWT_SECRET_KEY": "j" * 48,
         },
         clear=True,
     ):

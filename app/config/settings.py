@@ -544,6 +544,32 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _ensure_production_jwt_secret_key(self) -> Self:
+        """Require a real JWT signing key before production/public startup.
+
+        ``_load_secret_key`` already refuses to sign with an empty or placeholder
+        key -- but only on the first token issue or validation, so a deployment
+        missing it booted clean and served traffic until someone tried to log in.
+        Checking here moves that to startup, where the GitHub encryption key is
+        already gated the same way.
+
+        The length floor stays on ``RuntimeConfig``'s own field validator, which
+        applies whenever the value is non-empty; this only asserts presence.
+        """
+        if not self.deployment.is_production_mode:
+            return self
+        secret = (self.runtime.jwt_secret_key or "").strip()
+        # Kept byte-identical to the placeholder app/api/routers/auth/tokens.py
+        # rejects, so the two checks cannot drift into disagreeing.
+        if not secret or secret == "your-secret-key-change-in-production":
+            raise RuntimeError(
+                "Production deployment requires JWT_SECRET_KEY. Mobile API tokens "
+                "are signed with it, so auth fails on the first request without a "
+                "real value. Generate one with: openssl rand -hex 32."
+            )
+        return self
+
+    @model_validator(mode="after")
     def _ensure_auth_secret_domain_separation(self) -> Self:
         """Enforce the documented pepper domain-separation invariant.
 
@@ -675,8 +701,19 @@ def _build_config(*, allow_stub_telegram: bool) -> AppConfig:
         # underlying error. The previous version unconditionally added
         # ALLOWED_USER_IDS to the report, which masked unrelated failures
         # (e.g. a missing DATABASE_URL) behind a misleading message.
+        #
+        # ...and only when it is genuinely absent. A variable that is set but
+        # unparseable also names itself in the error, and reporting "copy
+        # .env.example and fill this name" for a value already sitting in .env
+        # sends the operator looking for the wrong problem; the validator's own
+        # message says what is actually wrong with it.
         exc_text = str(exc)
-        missing = tuple(name for name in _required_first_run_env_names() if name in exc_text)
+        provided = set(os.environ) | _read_dotenv_keys()
+        missing = tuple(
+            name
+            for name in _required_first_run_env_names()
+            if name in exc_text and name not in provided
+        )
         if missing:
             msg = _format_required_config_error(missing)
         else:

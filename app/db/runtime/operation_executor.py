@@ -50,6 +50,15 @@ class DatabaseOperationExecutor:
         session: AsyncSession | None = None,
         **kwargs: Any,
     ) -> Any:
+        """Run a READ operation with timeout and serialization-retry protection.
+
+        The session opened here is never committed, so anything *operation*
+        writes is discarded when it closes. That is correct for the reads this
+        exists to serve, and silent for anything else -- use
+        :meth:`async_execute_transaction` for writes. No caller passes a write
+        today; the warning is here so the next one does not have to find out by
+        losing data.
+        """
         del read_only
         effective_timeout = timeout if timeout is not None else self._operation_timeout
 

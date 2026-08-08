@@ -85,6 +85,19 @@ class ScraperConfig(BaseModel):
         validation_alias="SCRAPER_BROWSER_ENABLED",
         description="Master switch for browser-based providers (playwright/crawlee)",
     )
+    chain_total_timeout_sec: float = Field(
+        default=180.0,
+        gt=0,
+        validation_alias="SCRAPER_CHAIN_TOTAL_TIMEOUT_SEC",
+        description=(
+            "Wall-clock cap on one full scraper-chain run, across every tier. "
+            "Per-provider timeouts bound each attempt but not the total: tiers "
+            "run in sequence, so a URL that fails slowly at every rung held its "
+            "caller for the sum of them. Sized above the realistic worst case of "
+            "a successful late-tier scrape, so it only ever cuts off a run that "
+            "was going to fail anyway."
+        ),
+    )
     race_enabled: bool = Field(
         default=True,
         validation_alias="SCRAPER_RACE_ENABLED",

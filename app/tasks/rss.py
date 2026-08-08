@@ -57,11 +57,22 @@ async def run_rss_poll(
 
 async def _rss_poll_body(cfg: AppConfig, db: Database) -> None:
     """Core RSS poll logic — separated for direct testability."""
-    from app.adapters.rss.feed_poller import poll_all_feeds
-
     correlation_id = f"rss_poll_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
     runtime = build_rss_poll_task_runtime(cfg, db)
     logger.info("rss_poll_starting", extra={"cid": correlation_id})
+
+    try:
+        await _rss_poll_cycle(cfg, db, runtime, correlation_id)
+    finally:
+        # Each cycle builds its own LLM client, scraper chain and Qdrant store.
+        # They were abandoned rather than closed, so a worker that runs for days
+        # accumulated one set of HTTP connections per poll -- an httpx client
+        # does not release its pool when it is merely garbage.
+        await runtime.aclose()
+
+
+async def _rss_poll_cycle(cfg: AppConfig, db: Database, runtime: Any, correlation_id: str) -> None:
+    from app.adapters.rss.feed_poller import poll_all_feeds
 
     try:
         stats = (

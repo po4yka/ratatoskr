@@ -24,6 +24,8 @@ _MINIMAL_ENV = {
     "FIRECRAWL_API_KEY": "",
     "DATABASE_URL": "postgresql+asyncpg://u:p@localhost/db",
     "GITHUB_TOKEN_ENCRYPTION_KEY": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    # Production mode gates on this the same way it gates on the GitHub key above.
+    "JWT_SECRET_KEY": "j" * 48,
 }
 
 

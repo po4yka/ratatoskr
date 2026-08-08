@@ -427,15 +427,22 @@ class AuthRepositoryAdapter:
     async def async_update_client_secret(
         self,
         key_id: int,
-        owner_user_id: int | None = None,
+        *,
+        owner_user_id: int | None,
         **fields: Any,
     ) -> None:
-        """Update a client secret by ID.
+        """Update a client secret by ID, scoped to its owner.
 
         When ``owner_user_id`` is provided the UPDATE includes a
         ``ClientSecret.user_id == owner_user_id`` predicate so that a stale
         or manipulated ``key_id`` cannot mutate a row owned by a different
-        user. Callers that know the owner should always pass it.
+        user.
+
+        Required and keyword-only rather than defaulting to ``None``: the guard
+        is defence-in-depth (CLAUDE.md rule 12), and a defaulted parameter turns
+        forgetting it into a silent unscoped write instead of an error at the
+        call site. Passing ``None`` explicitly is still allowed for the one
+        caller whose owner genuinely may be unknown.
         """
         allowed = set(ClientSecret.__table__.columns.keys()) - {"id", "user_id"}
         update_fields = {key: value for key, value in fields.items() if key in allowed}

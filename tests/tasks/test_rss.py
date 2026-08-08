@@ -69,6 +69,10 @@ class _FakeRuntime:
         self.runner = runner or _FakeRunner()
         self.delivery = _FakeDeliveryService()
         self.bot = _FakeBot()
+        self.closed = False
+
+    async def aclose(self) -> None:
+        self.closed = True
 
     def create_signal_ingestion_worker(self) -> _FakeWorker:
         return self.worker
@@ -196,3 +200,38 @@ async def test_rss_poll_body_retries_undelivered_backlog_without_new_items(
     await rss._rss_poll_body(_cfg(), Database.__new__(Database))
 
     assert runtime.bot.sent == [(10, "items: None")]
+
+
+@pytest.mark.asyncio
+async def test_rss_poll_closes_what_the_cycle_built(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each poll builds its own LLM client, scraper chain and Qdrant store.
+
+    They used to be abandoned rather than closed, so a worker running for days
+    accumulated one set of HTTP connections per poll -- an httpx client does not
+    release its pool just because it became garbage.
+    """
+    runtime = _FakeRuntime()
+    monkeypatch.setattr(rss, "build_rss_poll_task_runtime", lambda cfg, db: runtime)
+
+    await rss._rss_poll_body(_cfg(rss_enabled=False, signals=False), Database.__new__(Database))
+
+    assert runtime.closed, "the poll finished without releasing the clients it built"
+
+
+@pytest.mark.asyncio
+async def test_rss_poll_closes_even_when_the_cycle_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failing poll is exactly when leaking would compound fastest."""
+    runtime = _FakeRuntime()
+    monkeypatch.setattr(rss, "build_rss_poll_task_runtime", lambda cfg, db: runtime)
+
+    async def boom(db: object, **kwargs: object) -> dict[str, object]:
+        raise RuntimeError("poll failed")
+
+    monkeypatch.setattr("app.adapters.rss.feed_poller.poll_all_feeds", boom)
+
+    with pytest.raises(RuntimeError, match="poll failed"):
+        await rss._rss_poll_body(_cfg(), Database.__new__(Database))
+
+    assert runtime.closed

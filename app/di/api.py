@@ -459,6 +459,11 @@ async def close_api_runtime(runtime: ApiRuntime) -> None:
         runtime.search.embedding_service,
         runtime.core.firecrawl_client,
         runtime.core.llm_client,
+        # The scraper chain owns per-provider HTTP clients and browser sessions,
+        # and fans aclose() out to all of them. It was missing here while the
+        # bot's shutdown path closed it, so an API restart left them to the
+        # interpreter instead of shutting them down.
+        runtime.core.scraper_chain,
     )
     await runtime.db.dispose()
     logger.info("api_runtime_closed")

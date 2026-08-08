@@ -155,6 +155,12 @@ async def main() -> None:
         if checkpointer_runtime is not None:
             await checkpointer_runtime.stop(timeout=10.0)
         await db_write_queue.stop()
+        # Hand the pooled connections back with a clean Terminate. Process exit
+        # would drop them either way, but Postgres then logs each one as an
+        # unexpected EOF and holds the slot until its own timeout reaps it --
+        # noise that looks like a fault during an ordinary restart.
+        with suppress(Exception):
+            await db.dispose()
         if broker_started and broker is not None and not broker.is_worker_process:
             await broker.shutdown()
         # Last: flush the span buffer while the process is still alive. atexit

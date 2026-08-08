@@ -80,6 +80,12 @@ def _resolve_db_dump_limiter(request: Request) -> RedisUserRateLimiter | UserRat
                 runtime.redis_client,
                 _DB_DUMP_RATE_CONFIG,
                 prefix=f"{runtime.cfg.redis.prefix}:{_DB_DUMP_BUCKET}",
+                # This limiter is the only thing standing in front of a full
+                # pg_dump subprocess, so a slow Redis must not wave requests
+                # through: on this endpoint a false allow costs far more than a
+                # false reject. (An unreachable Redis is a different case and
+                # already falls back to the local limiter below.)
+                fail_open=False,
             )
     return _db_dump_local_limiter
 

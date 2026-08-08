@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import gettempdir
 from typing import TYPE_CHECKING, Any, cast
@@ -43,21 +43,37 @@ class RssPollTaskRuntime:
     cfg: AppConfig
     db: Database
     bot_client_factory: Any
-    delivery_service_factory: Any
     signal_worker_factory: Any
     source_runner_factory: Any
+    delivery_service_factory: Any
+    # Everything the factories built for this run. The poll task closes these
+    # when it finishes: each cycle used to construct a fresh OpenRouterClient,
+    # scraper chain and Qdrant store and abandon them, accumulating HTTP clients
+    # on a worker that lives for days.
+    closables: list[Any] = field(default_factory=list)
 
     def create_bot_client(self) -> Any:
         return self.bot_client_factory(self.cfg)
 
     def create_delivery_service(self) -> Any:
-        return self.delivery_service_factory(self.cfg, self.db)
+        service, closables = self.delivery_service_factory(self.cfg, self.db)
+        self.closables.extend(closables)
+        return service
 
     def create_signal_ingestion_worker(self) -> Any:
-        return self.signal_worker_factory(self.cfg, self.db)
+        worker, closables = self.signal_worker_factory(self.cfg, self.db)
+        self.closables.extend(closables)
+        return worker
 
     def create_source_ingestion_runner(self) -> Any:
         return self.source_runner_factory(self.cfg, self.db)
+
+    async def aclose(self) -> None:
+        """Release everything the factories built for this poll."""
+        from app.di.shared import close_runtime_resources
+
+        pending, self.closables[:] = list(self.closables), []
+        await close_runtime_resources(*pending)
 
 
 @dataclass(frozen=True)
@@ -171,7 +187,14 @@ def create_rss_bot_client(cfg: AppConfig) -> Any:
     )
 
 
-def create_rss_delivery_service(cfg: AppConfig, db: Database) -> Any:
+def create_rss_delivery_service(cfg: AppConfig, db: Database) -> tuple[Any, list[Any]]:
+    """Build the RSS delivery service and hand back what the caller must close.
+
+    The clients live only as long as one poll, so the caller owns their
+    shutdown; returning them explicitly beats digging them back out of the wired
+    service, and beats leaving them to be collected (an abandoned httpx client
+    does not close its connections on garbage collection).
+    """
     from app.adapters.openrouter.openrouter_client import OpenRouterClient
     from app.adapters.rss.rss_delivery_service import RSSDeliveryService
     from app.di.shared import (
@@ -209,7 +232,7 @@ def create_rss_delivery_service(cfg: AppConfig, db: Database) -> Any:
     scraper_chain = None
     if cfg.rss.scrape_short_content:
         scraper_chain = cast("Any", build_scraper_chain(cfg, audit=lambda *_a, **_kw: None))
-    return RSSDeliveryService(
+    service = RSSDeliveryService(
         cfg=cfg.rss,
         pure_summary_service=facade,
         system_prompt_loader=lambda lang: prompt_mgr.get_system_prompt(
@@ -218,9 +241,11 @@ def create_rss_delivery_service(cfg: AppConfig, db: Database) -> Any:
         rss_repository=RSSFeedRepositoryAdapter(db),
         scraper_chain=scraper_chain,
     )
+    return service, [facade, llm_client, scraper_chain]
 
 
-def create_signal_ingestion_worker(cfg: AppConfig, db: Database) -> Any:
+def create_signal_ingestion_worker(cfg: AppConfig, db: Database) -> tuple[Any, list[Any]]:
+    """Build the signal-ingestion worker and hand back what the caller must close."""
     from app.application.services.signal_ingestion_worker import SignalIngestionWorker
     from app.application.services.signal_scoring import SignalScoringService
     from app.di.shared import build_qdrant_vector_store
@@ -232,7 +257,7 @@ def create_signal_ingestion_worker(cfg: AppConfig, db: Database) -> Any:
 
     embedding_service = create_embedding_service(cfg.embedding)
     vector_store = build_qdrant_vector_store(cfg)
-    return SignalIngestionWorker(
+    worker = SignalIngestionWorker(
         repository=SignalSourceRepositoryAdapter(db),
         scorer=SignalScoringService(
             topic_similarity=VectorTopicSimilarityAdapter(
@@ -241,6 +266,7 @@ def create_signal_ingestion_worker(cfg: AppConfig, db: Database) -> Any:
             )
         ),
     )
+    return worker, [vector_store, embedding_service]
 
 
 def create_source_ingestion_runner(cfg: AppConfig, db: Database) -> Any:

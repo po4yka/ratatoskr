@@ -137,6 +137,7 @@ class ContentScraperChain:
         min_content_length: int = 0,
         js_heavy_hosts: tuple[str, ...] = (),
         race_enabled: bool = True,
+        total_timeout_sec: float = 0.0,
     ) -> None:
         if not providers:
             msg = "ContentScraperChain requires at least one provider"
@@ -146,6 +147,11 @@ class ContentScraperChain:
         self._min_content_length = min_content_length
         self._js_heavy_hosts = js_heavy_hosts
         self._race_enabled = race_enabled
+        # Wall-clock cap on one scrape_markdown call, across every tier. 0
+        # disables it, which is the default so directly-constructed chains (tests,
+        # ad-hoc callers) keep their previous behaviour; the factory passes the
+        # configured value.
+        self._total_timeout_sec = total_timeout_sec
 
     @property
     def providers(self) -> list[ContentScraperProtocol]:
@@ -328,25 +334,25 @@ class ContentScraperChain:
                 SCRAPER_MODE: mode,
             },
         ) as chain_span:
-            if not self._race_enabled:
-                winner = await self._run_serial(
-                    effective,
-                    url,
-                    mobile=mobile,
-                    request_id=request_id,
-                    errors=errors,
-                    recorder=recorder,
-                    tracer=_tracer,
-                    chain_span=chain_span,
-                )
-            else:
-                winner = None
+
+            async def _select_winner() -> FirecrawlResult | None:
+                if not self._race_enabled:
+                    return await self._run_serial(
+                        effective,
+                        url,
+                        mobile=mobile,
+                        request_id=request_id,
+                        errors=errors,
+                        recorder=recorder,
+                        tracer=_tracer,
+                        chain_span=chain_span,
+                    )
                 for tier_index, (tier_name, tier_providers) in enumerate(
                     self._grouped_tiers(effective)
                 ):
                     if not tier_providers:
                         continue
-                    winner = await self._run_tier(
+                    tier_winner = await self._run_tier(
                         tier_name,
                         tier_providers,
                         url,
@@ -358,8 +364,36 @@ class ContentScraperChain:
                         chain_span=chain_span,
                         tier_index=tier_index,
                     )
-                    if winner is not None:
-                        break
+                    if tier_winner is not None:
+                        return tier_winner
+                return None
+
+            # One deadline for the whole chain. Per-provider timeouts bound each
+            # attempt but say nothing about the total: tiers run in sequence, so
+            # their budgets add up, and a URL that fails slowly at every rung held
+            # its caller for the sum. This is the only place all callers funnel
+            # through, so the cap belongs here rather than at six call sites.
+            budget_exceeded = False
+            try:
+                if self._total_timeout_sec > 0:
+                    winner = await asyncio.wait_for(
+                        _select_winner(), timeout=self._total_timeout_sec
+                    )
+                else:
+                    winner = await _select_winner()
+            except TimeoutError:
+                winner = None
+                budget_exceeded = True
+                errors.append(f"chain: total budget of {self._total_timeout_sec}s exceeded")
+                logger.warning(
+                    "scraper_chain_budget_exceeded",
+                    extra={
+                        "url": redact_url_for_logging(url),
+                        "budget_sec": self._total_timeout_sec,
+                        "providers_tried": len(errors),
+                        "request_id": request_id,
+                    },
+                )
 
             if winner is not None:
                 _record_outcome("success")
@@ -378,11 +412,16 @@ class ContentScraperChain:
                     "request_id": request_id,
                 },
             )
-            _record_outcome("empty")
+            _record_outcome("budget_exceeded" if budget_exceeded else "empty")
             self._log_chain_complete(url, recorder, errors, chain_started, winning_provider=None)
+            error_text = (
+                f"Chain exceeded its {self._total_timeout_sec}s budget: {'; '.join(errors)}"
+                if budget_exceeded
+                else f"All providers failed: {'; '.join(errors)}"
+            )
             exhausted = FirecrawlResult(
                 status=CallStatus.ERROR,
-                error_text=f"All providers failed: {'; '.join(errors)}",
+                error_text=error_text,
                 source_url=url,
                 endpoint="chain",
             )

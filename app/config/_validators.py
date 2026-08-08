@@ -82,11 +82,21 @@ def parse_str_sequence(value: Any, *, name: str) -> Any:
 
 
 def _parse_allowed_user_ids(value: Any) -> tuple[int, ...]:
+    """Parse the bot's owner allowlist, refusing anything it cannot read.
+
+    This tuple is the whole authorization boundary for a single-tenant bot, so an
+    unreadable entry is not a value to drop -- it is a list the operator believes
+    they wrote and did not. Dropping it silently (at DEBUG, invisible under the
+    default INFO level) narrows the owner list without a trace: ``123,l23`` locks
+    out an owner who is still in the file. Raising here surfaces the typo at boot,
+    where the operator is already looking.
+    """
     if value in (None, ""):
         return ()
     values = value if isinstance(value, list | tuple) else str(value).split(",")
 
     user_ids: list[int] = []
+    invalid: list[str] = []
     for piece in values:
         piece = str(piece).strip()
         if not piece:
@@ -94,8 +104,14 @@ def _parse_allowed_user_ids(value: Any) -> tuple[int, ...]:
         try:
             user_ids.append(int(piece))
         except ValueError:
-            logger.debug("allowed_user_id_parse_failed", extra={"value": piece})
-            continue
+            invalid.append(piece)
+    if invalid:
+        logger.error("allowed_user_id_parse_failed", extra={"values": invalid})
+        msg = (
+            "ALLOWED_USER_IDS must be comma-separated Telegram user IDs; "
+            f"could not parse: {', '.join(repr(entry) for entry in invalid)}"
+        )
+        raise ValueError(msg)
     return tuple(user_ids)
 
 

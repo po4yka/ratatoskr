@@ -1,3 +1,8 @@
+# Container log rotation. Without it the json-file driver grows without bound,
+# which on the Pi means the SD card fills up.
+x-logging: &default_logging
+  driver: "json-file"
+  options: {max-size: "10m", max-file: "3"}
 x-ai-backup-logging: &ai_backup_logging
   driver: "json-file"
   options: {max-size: "10m", max-file: "3"}
@@ -706,6 +711,7 @@ services:
         curl -fsS "$${OLLAMA_BASE_URL%/}/models" >/dev/null
     restart: "no"
 
+    logging: *default_logging
   firecrawl-api:
     profiles:
       - with-scrapers
@@ -1208,6 +1214,7 @@ services:
       timeout: 10s
       retries: 3
 
+    logging: *default_logging
   alertmanager:
     profiles:
       - with-monitoring
@@ -1235,6 +1242,7 @@ services:
       timeout: 10s
       retries: 3
 
+    logging: *default_logging
   grafana:
     profiles:
       - with-monitoring
@@ -1263,6 +1271,7 @@ services:
       timeout: 10s
       retries: 3
 
+    logging: *default_logging
   loki:
     profiles:
       - with-monitoring
@@ -1289,6 +1298,7 @@ services:
   # resolved nowhere here and every span was dropped. No `networks:` key: it
   # joins the project default with the app containers. Contract:
   # tests/ops/test_trace_collector_reachable_contract.py
+    logging: *default_logging
   tempo:
     profiles:
       - with-monitoring
@@ -1314,6 +1324,7 @@ services:
       timeout: 10s
       retries: 3
 
+    logging: *default_logging
   promtail:
     profiles:
       - with-monitoring
@@ -1335,6 +1346,7 @@ services:
       loki:
         condition: service_healthy
 
+    logging: *default_logging
   node-exporter:
     profiles:
       - with-monitoring
@@ -1357,6 +1369,7 @@ services:
       - /:/host/root:ro
       - pg_backup_metrics:/textfile:ro
 
+    logging: *default_logging
   postgres-exporter:
     profiles:
       - with-monitoring
@@ -1392,6 +1405,7 @@ services:
           memory: 16M
           cpus: "0.02"
 
+    logging: *default_logging
   redis-exporter:
     profiles:
       - with-monitoring
@@ -1426,6 +1440,7 @@ services:
           memory: 16M
           cpus: "0.02"
 
+    logging: *default_logging
   qdrant:
     image: ${QDRANT_IMAGE:-qdrant/qdrant:v1.13.6}
     container_name: ratatoskr-qdrant

@@ -239,6 +239,7 @@ class ContentScraperFactory:
             min_content_length=scraper_cfg.min_content_length,
             js_heavy_hosts=scraper_cfg.js_heavy_hosts,
             race_enabled=scraper_cfg.race_enabled,
+            total_timeout_sec=scraper_cfg.chain_total_timeout_sec,
         )
 
 

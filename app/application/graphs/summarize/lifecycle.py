@@ -39,6 +39,10 @@ _FAILURE_COMPONENT = "summarize_graph"
 REASON_GRAPH_NODE_FAILURE = "GRAPH_NODE_FAILURE"
 REASON_GRAPH_CALL_BUDGET_EXCEEDED = "GRAPH_CALL_BUDGET_EXCEEDED"
 REASON_GRAPH_RECURSION_LIMIT = "GRAPH_RECURSION_LIMIT"
+# Not a failure of the run, but still a terminal state for the stream: the
+# streamed runner publishes it so subscribers stop waiting and the hub frees the
+# request's buffer (it evicts only on a terminal event).
+REASON_GRAPH_CANCELLED = "GRAPH_CANCELLED"
 
 
 class CallBudgetExceeded(Exception):

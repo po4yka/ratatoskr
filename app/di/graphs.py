@@ -14,6 +14,8 @@ seam. T5 defaults the checkpointer to an in-memory saver; T2's
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -29,6 +31,7 @@ from app.application.graphs.summarize.graph import (
     recover_accumulated_llm_calls,
 )
 from app.application.graphs.summarize.lifecycle import (
+    REASON_GRAPH_CANCELLED,
     error_id_message,
     notification_type_for_exception,
     route_terminal_failure,
@@ -452,10 +455,35 @@ async def run_summarize_graph_streamed(
             summary_id=str(summary_id) if summary_id is not None else None,
         )
         return final_state
+    except asyncio.CancelledError:
+        # Cancellation is routine here -- /cancel via UserTaskManager, and the
+        # teardown of whatever is driving this run -- and it still has to close
+        # the stream. StreamHub frees a request's ring buffer and subscriber list
+        # ONLY when a terminal event is published, and has no independent TTL, so
+        # returning without one strands every SSE subscriber on ``queue.get()``
+        # and leaks that request's state for the life of the process.
+        #
+        # Shielded because we are already being cancelled: a bare await would be
+        # torn down before the event reached the hub. The run itself is not
+        # persisted here -- the caller owns that (it releases the job lease on the
+        # same signal); this only closes the stream.
+        logger.info(
+            "summarize_graph_streamed_cancelled",
+            extra={"correlation_id": correlation_id, "request_id": request_id},
+        )
+        with contextlib.suppress(Exception, asyncio.CancelledError):
+            await asyncio.shield(
+                sink.error(
+                    request_id=str(request_id),
+                    correlation_id=correlation_id,
+                    code=REASON_GRAPH_CANCELLED,
+                    message="Processing was cancelled.",
+                )
+            )
+        raise
     except Exception as exc:
         # Single terminal sink (ADR-0011), mirroring run_summarize_graph: a node
         # exception, GraphRecursionError, or CallBudgetExceeded all route here.
-        # BaseException (cancellation) is deliberately not caught.
         logger.warning(
             "summarize_graph_streamed_terminal_failure",
             extra={"correlation_id": correlation_id, "error_type": type(exc).__name__},

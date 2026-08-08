@@ -260,12 +260,18 @@ class RedisUserRateLimiter:
         prefix: str,
         *,
         clock: Any = None,
+        fail_open: bool = True,
     ) -> None:
         self._redis = redis_client
         self._config = config
         self._prefix = prefix
         self._clock: Any = clock or time.time
         self.last_remaining: int = 0
+        # Whether a Redis timeout lets the request through. Availability wins for
+        # cheap consumers like the bot's per-message limiter; a consumer guarding
+        # something expensive enough that a false allow costs more than a false
+        # reject should pass fail_open=False.
+        self._fail_open = fail_open
 
     def _window_key(self, user_id: int | str, window_start: int) -> str:
         return f"{self._prefix}:tg_rate:{user_id}:{window_start}"
@@ -307,15 +313,21 @@ class RedisUserRateLimiter:
             async with asyncio.timeout(5.0):
                 result = await pipe.execute()
         except TimeoutError:
-            # Fail-open: allow request to proceed on timeout for availability
+            # A timeout means Redis is live but slow -- an unreachable Redis is
+            # handled by the caller falling back to a local limiter -- so the
+            # counter's state is unknown rather than absent.
             logger.warning(
                 "redis_rate_limit_timeout",
                 extra={
                     "user_id": user_id,
                     "operation": operation,
                     "timeout_seconds": 5.0,
+                    "fail_open": self._fail_open,
                 },
             )
+            if not self._fail_open:
+                self.last_remaining = 0
+                return False, "Rate limit backend is unavailable; please retry shortly."
             self.last_remaining = self._config.max_requests
             return True, None
         count = int(result[0]) if result else 0

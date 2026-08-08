@@ -63,19 +63,26 @@ class AuthTokenCache:
         # Entries written before token-family rotation and Remember Me were
         # cached lack fields that /refresh needs. Treat them as misses so the
         # repository reloads the authoritative row and rewrites the cache.
-        # Revocation tombstones intentionally contain only is_revoked=True and
-        # must remain cache hits to prevent a revoked token from being served.
-        if not cached.get("is_revoked"):
-            missing_rotation_fields = _ROTATION_POLICY_CACHE_FIELDS - cached.keys()
-            if missing_rotation_fields:
-                logger.debug(
-                    "auth_token_cache_incomplete",
-                    extra={
-                        "token_hash_prefix": token_hash[:8],
-                        "missing_fields": sorted(missing_rotation_fields),
-                    },
-                )
-                return None
+        #
+        # This check used to skip revocation tombstones, on the reasoning that a
+        # bare {"is_revoked": True} must stay a hit so a revoked token is never
+        # served as valid. It does not need the exemption to do that: falling
+        # through re-reads the DB row, which was revoked *before* mark_revoked()
+        # was called and therefore answers is_revoked=True as well -- with the
+        # family_id the tombstone lacks. Without it, /refresh rejected a replayed
+        # token for "missing family metadata" instead of running the theft-
+        # detection cascade, leaving the family's other live tokens valid.
+        missing_rotation_fields = _ROTATION_POLICY_CACHE_FIELDS - cached.keys()
+        if missing_rotation_fields:
+            logger.debug(
+                "auth_token_cache_incomplete",
+                extra={
+                    "token_hash_prefix": token_hash[:8],
+                    "missing_fields": sorted(missing_rotation_fields),
+                    "is_revoked": bool(cached.get("is_revoked")),
+                },
+            )
+            return None
 
         logger.debug(
             "auth_token_cache_hit",

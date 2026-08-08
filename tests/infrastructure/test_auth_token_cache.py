@@ -201,29 +201,50 @@ async def test_mark_revoked_writes_tombstone_for_never_cached_token() -> None:
 
 
 @pytest.mark.asyncio
-async def test_mark_revoked_never_cached_token_cannot_be_served_as_valid() -> None:
-    """End-to-end: revoke a never-cached token, then simulate get_token reading
-    back the tombstone — must return is_revoked=True, not None or False.
+async def test_bare_tombstone_is_a_miss_so_the_family_can_be_read_from_the_db() -> None:
+    """Revoking a never-cached token writes a field-less tombstone.
+
+    It used to be served as a cache hit, on the reasoning that a revoked token
+    must never come back as valid. But the caller needs ``family_id`` to run the
+    theft-detection cascade, and the tombstone has none -- so a replayed token was
+    rejected for "missing family metadata" while the rest of its family stayed
+    live. Treating it as a miss sends the repository to the DB row, which is
+    already revoked (mark_revoked runs after the row update) and carries the
+    family, so the token still cannot be served as valid.
     """
-    # Phase 1: token not in cache, revocation fires
     cache = _cache(cached=None)
     service = AuthTokenCache(_redis(cache), _cfg())
     await service.mark_revoked("target-hash")
 
-    # Phase 2: simulate the tombstone now sitting in Redis (what set_json stored)
     assert len(cache.set_calls) == 1
     tombstone_value = cache.set_calls[0]["value"]
     assert tombstone_value["is_revoked"] is True
 
-    # Phase 3: next get_token call reads back the tombstone — must NOT appear valid
     cache2 = _cache(cached=tombstone_value)
     service2 = AuthTokenCache(_redis(cache2), _cfg())
-    token_data = await service2.get_token("target-hash")
 
-    assert token_data is not None, "tombstone should be returned (not a cache miss)"
-    assert token_data["is_revoked"] is True, (
-        "token revoked while not in cache must be served as revoked, never as valid"
+    assert await service2.get_token("target-hash") is None, (
+        "a tombstone without family_id must not short-circuit the DB read; the "
+        "caller cannot revoke the token family from it"
     )
+
+
+@pytest.mark.asyncio
+async def test_a_complete_revoked_entry_is_still_served_from_cache() -> None:
+    """The miss is about missing fields, not about being revoked."""
+    revoked_but_complete = {
+        "is_revoked": True,
+        "family_id": "fam-1",
+        "parent_token_hash": None,
+        "remember_me": False,
+    }
+    service = AuthTokenCache(_redis(_cache(cached=revoked_but_complete)), _cfg())
+
+    token_data = await service.get_token("target-hash")
+
+    assert token_data is not None
+    assert token_data["is_revoked"] is True
+    assert token_data["family_id"] == "fam-1"
 
 
 @pytest.mark.asyncio

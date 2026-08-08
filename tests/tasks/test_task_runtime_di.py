@@ -61,13 +61,15 @@ def test_rss_poll_task_runtime_invokes_configured_factories() -> None:
         calls.append(("bot", received_cfg, None))
         return "bot"
 
-    def delivery_service_factory(received_cfg: Any, received_db: Any) -> str:
+    # These two return (service, closables): the poll owns their shutdown, so the
+    # factory hands back what it built rather than leaving it to be collected.
+    def delivery_service_factory(received_cfg: Any, received_db: Any) -> tuple[str, list[Any]]:
         calls.append(("delivery", received_cfg, received_db))
-        return "delivery"
+        return "delivery", ["llm-client"]
 
-    def signal_worker_factory(received_cfg: Any, received_db: Any) -> str:
+    def signal_worker_factory(received_cfg: Any, received_db: Any) -> tuple[str, list[Any]]:
         calls.append(("signal", received_cfg, received_db))
-        return "signal"
+        return "signal", ["vector-store"]
 
     def source_runner_factory(received_cfg: Any, received_db: Any) -> str:
         calls.append(("source", received_cfg, received_db))
@@ -92,6 +94,9 @@ def test_rss_poll_task_runtime_invokes_configured_factories() -> None:
         ("signal", cfg, db),
         ("source", cfg, db),
     ]
+    assert runtime.closables == ["llm-client", "vector-store"], (
+        "the runtime must collect what the factories built so the poll can close it"
+    )
 
 
 def test_task_deps_digest_runtime_uses_delegated_factories(monkeypatch) -> None:
